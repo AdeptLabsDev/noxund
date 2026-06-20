@@ -14,6 +14,7 @@ O único agente **implementado** nesta fase é o **Product Orchestrator Agent**.
 
 | Arquivo | Função |
 |---|---|
+| `agent-registry.md` | Mapa único: lista de agentes, ordem de execução, escalation, handoff, status. |
 | `global-agent-rules.md` | Regras inegociáveis que todo agente obedece. |
 | `agent-boundaries.md` | Mission/Owns/limites de cada agente. |
 | `agent-review-matrix.md` | Qual mudança dispara qual revisão. |

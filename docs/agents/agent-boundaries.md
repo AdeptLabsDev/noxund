@@ -1,7 +1,9 @@
 # Agent Boundaries — NOXUND
 
 **Função:** definir responsabilidade e limite de cada agente, evitando sobreposição e escopo cinza.
-**Vinculado a:** `global-agent-rules.md`, `agent-review-matrix.md`, `agent-conflict-resolution.md`.
+**Vinculado a:** `agent-registry.md`, `global-agent-rules.md`, `agent-review-matrix.md`, `agent-conflict-resolution.md`.
+
+> Visão resumida (Owns/reviews/status) e ordem de execução: `agent-registry.md`. Contrato completo por agente: `<nome>-agent.md`.
 
 Formato por agente: Mission · Owns · Can decide · Cannot decide · Must request review when · Forbidden actions · Required handoff.
 
@@ -32,10 +34,10 @@ Recebe handoffs; emite decisões via `decision-log-template.md`.
 
 ---
 
-## Backend Agent
+## Backend/Next API Agent
 
 ### Mission
-Construir a API surface do MVP (Route Handlers/Server Actions), auth gate e registro de eventos.
+Construir a API surface do MVP (Route Handlers/Server Actions), auth gate e registro de eventos. **Sem API Node separada** (Fase 2/OPEN DECISION).
 
 ### Owns
 Endpoints (`/apply`, feedback/intent/wtp, admin, internal jobs), lógica de aplicação, integração com o banco via camada de acesso.

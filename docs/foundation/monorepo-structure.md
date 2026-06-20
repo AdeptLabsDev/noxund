@@ -41,7 +41,7 @@ noxund/
 |---|---|---|
 | Gerenciador de pacotes | **pnpm** (workspaces) | Padrão eficiente p/ monorepo Next.js. Confirmar com Product Lead (DEC-0001). |
 | Node | **20** (`.nvmrc`) | LTS. |
-| Front + core API | **Next.js + TS** em `apps/web` | Já travado em `02_...`. Route Handlers/Server Actions. |
+| Front + core API | **Next.js + TS + Tailwind v4** em `apps/web` | Já travado em `02_...`. Route Handlers/Server Actions. Design system monocromático (DEC-0002). |
 | Data engine | **Python** em `services/data-engine` | Script/worker; FastAPI só Fase 2 (OD-05). |
 | Banco/Auth | **Supabase** em `supabase/` | Postgres + Auth + RLS. |
 | Tipos compartilhados | **`packages/shared`** | TS agnóstico, sem cálculo de Score. |

@@ -128,7 +128,7 @@ Parar e escalar (não decidir sozinho) quando houver:
 
 - Next.js;
 - TypeScript;
-- Tailwind CSS;
+- Tailwind CSS **v4** (CSS-first, `@theme`) — sistema monocromático sem acento (DEC-0002; ver `docs/agents/frontend-agent.md`);
 - pnpm workspace;
 - Python data-engine scaffold;
 - shared package scaffold;

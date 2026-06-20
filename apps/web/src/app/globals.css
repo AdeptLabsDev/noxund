@@ -1,15 +1,55 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   NOXUND design tokens — see docs/agents/frontend-agent.md (normative).
+   Monochromatic (saturation 0%), dark-first, depth via alpha-over-void.
+   This is the FOUNDATION seed of the token system; the Frontend Agent
+   refines/extends it. Do not introduce accent color or solid greys off-ramp.
+   --------------------------------------------------------------------------- */
+@theme {
+  /* Surface luminance ramp (→ utilities: bg-surface-100, border-surface-400, …) */
+  --color-void: hsl(0 0% 4%); /* fundo raiz */
+  --color-surface-100: hsl(0 0% 6%);
+  --color-surface-200: hsl(0 0% 9%);
+  --color-surface-300: hsl(0 0% 12%);
+  --color-surface-400: hsl(0 0% 16%);
+  --color-surface-500: hsl(0 0% 24%);
+  --color-surface-600: hsl(0 0% 40%); /* meio-tom legível */
+  --color-surface-700: hsl(0 0% 56%);
+  --color-surface-800: hsl(0 0% 70%);
+  --color-muted: hsl(0 0% 63%); /* metadata, labels secundários */
+  --color-primary: hsl(0 0% 93%); /* osso, não branco puro */
+
+  /* Alpha overlays — profundidade sem cor (→ bg-alpha-100, border-alpha-200, …) */
+  --color-alpha-100: rgb(255 255 255 / 0.05); /* hover de linha */
+  --color-alpha-200: rgb(255 255 255 / 0.09); /* borda hairline padrão */
+  --color-alpha-300: rgb(255 255 255 / 0.13); /* borda hover/foco */
+  --color-alpha-400: rgb(255 255 255 / 0.16); /* superfície elevada */
+  --color-alpha-600: rgb(255 255 255 / 0.4); /* separador forte */
+  --color-alpha-900: rgb(255 255 255 / 0.61); /* texto sobre superfície clara */
+
+  /* Tipografia */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* Easing decidido (ease-out forte) — nunca ease-in-out simétrico */
+  --ease-decided: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-overlay: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Literal aliases used by the surface/atmosphere snippets in the contract
+   (var(--bg-void), var(--alpha-200), …) — kept in sync with the @theme ramp. */
 :root {
-  /* Dark-first, high-contrast, technical palette. */
-  --background: #0a0a0a;
-  --foreground: #ededed;
-  --muted: #8f8f8f;
-  --border: #222222;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --bg-void: var(--color-void);
+  --text-primary: var(--color-primary);
+  --text-muted: var(--color-muted);
+  --alpha-100: var(--color-alpha-100);
+  --alpha-200: var(--color-alpha-200);
+  --alpha-300: var(--color-alpha-300);
+  --alpha-400: var(--color-alpha-400);
+  --alpha-600: var(--color-alpha-600);
+  --alpha-900: var(--color-alpha-900);
 }
 
 @layer base {
@@ -18,10 +58,22 @@
   }
 
   body {
-    background-color: var(--background);
-    color: var(--foreground);
+    background-color: var(--color-void);
+    color: var(--color-primary);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+  }
+
+  /* Movimento respeita prefers-reduced-motion (não-negociável). */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }

@@ -1,7 +1,7 @@
 # Agent Review Matrix — NOXUND
 
 **Função:** definir qual mudança dispara qual revisão, antes do "aprovado" do Product Orchestrator.
-**Vinculado a:** `global-agent-rules.md`, `agent-boundaries.md`.
+**Vinculado a:** `agent-registry.md`, `global-agent-rules.md`, `agent-boundaries.md`.
 
 Uma mudança pode disparar várias revisões. Revisão exigida e **não** acionada = entrega bloqueada.
 

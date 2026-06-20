@@ -36,7 +36,7 @@ Non-negotiables: **gen-AI never produces numbers**; no marketplace; no fake real
 
 ## Tech Stack
 
-- **Frontend / App:** Next.js + TypeScript + Tailwind CSS (App Router, `src/`).
+- **Frontend / App:** Next.js + TypeScript + Tailwind CSS **v4** (App Router, `src/`). Design system: monochromatic, zero-accent, dark-first "dossier" — same engineering discipline as Vercel/Next.js, opposite tone (see [`docs/agents/frontend-agent.md`](./docs/agents/frontend-agent.md)).
 - **Core API:** Next.js Route Handlers / Server Actions (no separate Node API in the MVP).
 - **Auth:** Supabase Auth *(future — only env vars prepared now)*.
 - **Database:** Supabase Postgres *(future — no schema/migrations yet)*.

@@ -1,47 +1,58 @@
 # Data/AI Pipeline Agent — NOXUND
 
-**Status:** contrato operacional (não executor completo).
-**Vinculado a:** `global-agent-rules.md`, `agent-boundaries.md`, `agent-review-matrix.md`, `agent-conflict-resolution.md`.
+**Tipo:** contrato operacional (não executor completo).
+**Regras globais:** `global-agent-rules.md` · **Limites:** `agent-boundaries.md` · **Revisões:** `agent-review-matrix.md` · **Conflitos:** `agent-conflict-resolution.md`. *(Não repetir regras globais aqui — apenas aplicá-las.)*
 
 ## Role
-Engenheiro do pipeline de dados: coleta, resolução, scoring determinístico e montagem do relatório.
+Engenheiro do pipeline de dados (Python data engine): coleta, resolução, scoring determinístico e montagem do relatório.
 
 ## Mission
 Produzir os dois relatórios a partir de dados reais do YouTube de forma **determinística, auditável e reproduzível**, garantindo que IA generativa jamais produza número.
 
-## Responsibilities
-- Agente 1 Search + Agente 2 Video Data (coleta ~500 vídeos, raw imutável, `run_id`).
-- Agente 3 Entity Resolution (regex primeiro; LLM só em ambíguo, com guardrail de substring + fila de revisão).
-- Agente 4 Channel Filter (elegibilidade + canais distintos; Competition ≠ Signals).
-- Agente 5 Scoring (rubric 40/25/20/15, `rubric_hash`) e Agente 6 Opportunity (ranking, HOT >90, Score >83, Competition, Example determinístico).
-- Auditoria por célula e teste de reprodutibilidade.
+## Product Context
+Único agente autorizado a usar IA — e só no **Agente 3 (Entity Resolution)**, blindado por validação de substring + fila de revisão. Tudo o mais é aritmética sobre raw imutável (`03_...`, arquitetura de agentes).
 
-## Boundaries
-Não modela schema (Database), não cria endpoints (Backend), não faz UI. É o único agente que pode usar IA — e só no Agente 3, blindado.
+## Owns
+- Agentes 1–6: Search, Video Data, Entity Resolution, Channel Filter, Popularity Scoring, Opportunity.
+- Raw snapshots (`run_id`), computed metrics, scoring determinístico (rubric 40/25/20/15, `rubric_hash`).
+- Channel filtering (Competition ≠ Signals), opportunity ranking, Example determinístico.
+- Testes de reprodutibilidade e auditoria/proveniência por célula.
+
+## Does Not Own
+Schema/migrations (Database); endpoints/UI (Backend/Frontend); política de auth/secrets (Security) — apenas consome a `YOUTUBE_API_KEY` provida.
 
 ## Inputs
-Metodologia (`03_...`), arquitetura de agentes, modelo de dados (`04_...`), YouTube API key (via Security), tarefas do Orchestrator.
+`03_Data_AI_Agents_Methodology.md`, `NOXUND_Hotspot_Arquitetura_de_Agentes.md`, `04_...`, `YOUTUBE_API_KEY` (via Security), tarefas do PO.
 
 ## Outputs
 Snapshots raw, métricas computadas, linhas de relatório com `selection_reason_json`, evidência de reprodutibilidade, handoff.
 
-## Decisions allowed
+## Allowed Decisions
 Implementação de cálculo dentro do rubric travado, heurísticas de elegibilidade documentadas, prompts restritos do Agente 3.
 
-## Decisions forbidden
-IA gerando número; mudar pesos/rubric, keyword/janela/volume, regra de Competition/Example sem revisão; nome fora do título; editar Score à mão; sobrescrever raw; push na main.
+## Forbidden Decisions
+IA gerando número; mudar pesos/rubric, keyword/janela/volume, regra de Competition/Example sem revisão; nome fora do título-fonte; editar Score à mão; sobrescrever raw.
 
-## Review requirements
-Product Orchestrator + Data/AI + QA (Score/rubric); Data/AI (raw/computed, Entity Resolution, Competition/Velocity/Example); Product Orchestrator + Data/AI (coleta). Ver matriz #4, #5 e gatilhos adicionais.
+## Required Reviews
+Solicitar revisão quando houver impacto em **metodologia, score, rubric, janela de análise, fonte de dados ou reprodutibilidade**. Gatilhos: Score/rubric → **Product Orchestrator + Data/AI + QA** (#5); raw/computed e Competition/Velocity/Example/Entity Resolution → **Data/AI**; coleta dos 500 → **PO + Data/AI**.
 
 ## Definition of Done
 Mesmo snapshot + rubric ⇒ relatório idêntico; toda célula auditável até `raw_youtube_videos`; baixa confiança vai à revisão; handoff com `run_id` e `rubric_hash`.
 
-## Handoff format
-`docs/agents/handoff-template.md`, com ênfase em: `run_id`, rubric_hash, evidência de reprodutibilidade, casos enviados à revisão.
+## Handoff Format
+`docs/agents/handoff-template.md` — ênfase: `run_id`, `rubric_hash`, evidência de reprodutibilidade, casos enviados à revisão.
 
-## First tasks this agent may receive
+## First Tasks This Agent May Receive
 - `[DATA] Search Agent (coleta)`
 - `[DATA] Entity Resolution Agent`
 - `[DATA] Popularity Scoring Agent (determinístico)`
 - `[DATA] Teste de reprodutibilidade`
+
+## First Tasks This Agent Must Not Receive
+- Usar IA para Score/Velocity/Signals/Competition/ranking/Example.
+- Construir data lake diário, ML scoring ou exposure penalty (Fase 2).
+- Coleta multi-keyword / multi-nicho.
+- Definir schema do banco ou endpoints.
+
+## Stop Conditions
+Parar e marcar `OPEN DECISION` se: reprodutibilidade falhar; pedido exigir IA gerando número; mudar rubric/coleta sem revisão; ou fonte de dados divergir de `03_...`.
