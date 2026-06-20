@@ -1,0 +1,16 @@
+[project]
+name = "noxund-data-engine"
+version = "0.0.0"
+description = "NOXUND Data Engine — deterministic, auditable pipeline (scaffold; no collection implemented yet)."
+requires-python = ">=3.11"
+# Intentionally empty in the foundation phase.
+# No heavy libs, no Celery, no Redis, no ML libraries (see scope-guardrails.md).
+dependencies = []
+
+[project.optional-dependencies]
+# Dev tooling can be added later by the Data/AI Pipeline Agent (e.g. ruff, pytest).
+dev = []
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100

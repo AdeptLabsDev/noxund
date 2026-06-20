@@ -1,0 +1,5 @@
+# NOXUND monorepo workspaces (JS/TS only).
+# The Python data engine lives in services/ and is NOT a pnpm workspace.
+packages:
+  - "apps/*"
+  - "packages/*"

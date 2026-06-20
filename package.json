@@ -1,0 +1,16 @@
+{
+  "name": "noxund",
+  "version": "0.0.0",
+  "private": true,
+  "description": "NOXUND Hotspot Artists Report — market intelligence engine for producers (monorepo).",
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "lint": "pnpm --filter web lint",
+    "typecheck": "pnpm --filter web typecheck"
+  }
+}

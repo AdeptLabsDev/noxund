@@ -1,0 +1,17 @@
+# Normalize line endings: store LF in the repo, check out native.
+# Guarantees identical blobs across Windows / macOS / Linux contributors.
+* text=auto eol=lf
+
+# Binary assets — never normalize or diff as text.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.woff binary
+*.woff2 binary
+*.pdf  binary
+
+# Lockfile: keep diffs but treat as generated (collapsed in reviews).
+pnpm-lock.yaml linguist-generated=true -diff

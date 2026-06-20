@@ -1,0 +1,69 @@
+# ---------------------------------------------------------------------------
+# NOXUND — .gitignore
+# Merged from project policy (Parte 3) + hardened defaults.
+# Security entries (*.pem, *.key, logs, env) are non-negotiable.
+# ---------------------------------------------------------------------------
+
+# --- Git (versioned by Git regardless; listed per project policy) ---
+.git
+
+# --- .gitignore (ignored by project decision — committed once via `git add -f`) ---
+.gitignore
+
+# --- Secrets (NEVER commit) ---
+.env
+.env.*
+.env.local
+.env.*.local
+!.env.example
+*.pem
+*.key
+
+# --- Node / JS / TS ---
+node_modules
+dist
+build
+coverage
+*.tsbuildinfo
+
+# --- Next.js ---
+.next
+out
+.turbo
+.vercel
+
+# --- Python (data engine) ---
+__pycache__
+*.pyc
+*.py[cod]
+.venv
+venv
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+*.egg-info
+
+# --- Supabase ---
+.supabase
+supabase/.branches
+supabase/.temp
+
+# --- Observability / logs ---
+*.log
+logs
+.sentryclirc
+
+# --- Infra (local compose not versioned per project policy) ---
+docker-compose*.yml
+
+# --- License (per project policy) ---
+LICENSE
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea
+.vscode/*
+!.vscode/extensions.json
