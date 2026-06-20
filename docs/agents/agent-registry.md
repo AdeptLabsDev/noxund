@@ -72,3 +72,13 @@ Regras completas em `agent-conflict-resolution.md`. Resumo:
 | Documentation | ✅ | ⛔ ainda não |
 
 Status atual do projeto: **Sprint 0** — governança + fundação técnica. Nenhum executor de produto ativo ainda.
+
+> **Orchestration runtime (implementado).** A camada de **delegação automática** já existe em
+> código: `packages/orchestrator` (`@noxund/orchestrator`). Ela transforma decisões do
+> Orchestrator em comandos estruturados, valida, roteia ao agente registrado, captura o
+> resultado padronizado, atualiza o estado central e registra logs JSONL — com gate de aprovação
+> humana para operações sensíveis. Os 10 agentes acima estão **registrados como executores de
+> fundação** (validam a ação e devolvem plano/handoff; ainda **não** fazem trabalho de produto
+> nem geram número). Ver [`orchestration-runtime.md`](./orchestration-runtime.md). A coluna
+> "Executor implementado" continua ⛔ porque se refere ao **executor de produto real**, não ao
+> runtime de orquestração.

@@ -115,7 +115,7 @@ Parar e escalar (não decidir sozinho) quando houver:
 | ID | Tema | Estado | Encaminhamento |
 |---|---|---|---|
 | OD-01 | **Vertical:** Relatório Estratégico sugere Jersey Club/plugg; Product Lead travou Chicago Drill. | **Resolvida a favor de Chicago Drill** (`00_...` §3). Registrada por rastreabilidade. | Só reabrir via decisão do Product Lead. |
-| OD-02 | **Auth:** Supabase Auth vs Clerk. | Recomendado Supabase Auth (menos fornecedores). | Confirmar na Sprint 0. |
+| OD-02 | **Auth:** Supabase Auth vs Clerk. | **Resolvida → Supabase Auth** (DEC-0005, confirmada pelo Product Lead 2026-06-20). Coerente com LD-12 (stack) e SEC-D01 (`auth.users`/`auth.uid()`). | Fechada. |
 | OD-03 | **Email provider:** Resend vs Postmark. | Em aberto. | Confirmar antes da Sprint 2 (follow-up). |
 | OD-04 | **Cron:** Vercel Cron vs Supabase Scheduled Functions. | Em aberto. | Confirmar antes da Sprint 2. |
 | OD-05 | **FastAPI:** script/worker vs serviço. | Script/worker Python no MVP. | Reavaliar só se virar serviço. |

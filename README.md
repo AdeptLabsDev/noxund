@@ -58,6 +58,7 @@ noxund/
     data-engine/    # Python pipeline scaffold (no collection yet). Not a pnpm workspace.
   packages/
     shared/         # Shared TS types/contracts (minimal).
+    orchestrator/   # Multi-agent control plane: structured decisions, validation, routing, state, logs.
   supabase/         # Migrations + RLS (empty placeholder).
   context/          # Product source of truth (do not move without re-indexing).
   docs/
@@ -129,6 +130,7 @@ This foundation deliberately excludes (see [`docs/product/scope-guardrails.md`](
 |---|---|
 | Understand the full context | [`docs/product/context-index.md`](./docs/product/context-index.md) |
 | Know who coordinates execution | [`docs/agents/product-orchestrator-agent.md`](./docs/agents/product-orchestrator-agent.md) |
+| See how delegation runs (code) | [`docs/agents/orchestration-runtime.md`](./docs/agents/orchestration-runtime.md) · [`packages/orchestrator`](./packages/orchestrator) |
 | Know the global agent rules | [`docs/agents/global-agent-rules.md`](./docs/agents/global-agent-rules.md) |
 | See what to build | [`docs/product/mvp-backlog.md`](./docs/product/mvp-backlog.md) |
 | See what NOT to build | [`docs/product/scope-guardrails.md`](./docs/product/scope-guardrails.md) |

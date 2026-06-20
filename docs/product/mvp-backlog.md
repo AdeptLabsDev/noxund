@@ -146,6 +146,15 @@ Owner agents: ver `docs/agents/README.md`.
 **Owner agent sugerido:** Backend.
 **Prioridade:** P0
 
+### [BE] Captura de resposta do follow-up
+**Objetivo:** fechar o loop de validação e produzir o evento obrigatório "follow-up respondido" (`02_...` §10) — gap §2-E do BE-0001, resolvido em **DEC-0004**.
+**Descrição:** canal `email` → página mínima via **link assinado, single-use, expirável**; canal `dm_manual` → captura pelo admin em `/admin`. Ambos gravam `followups.response` + emitem `producer_events` (`followup_confirmed_produced`/`_not_produced`) via RPC atômica.
+**Critério de aceite:** resposta persiste em `followups` e gera o evento; métrica "Confirmação em follow-up" (`04_...` §13) tem caminho de entrada; token assinado revisado por Security.
+**Dependências:** RPC atômica (Database), token/rota (Security), OD-03 (Email) só para o envio.
+**Risco:** métrica de confirmação (LD-14 ≥50%) sem captura.
+**Owner agent sugerido:** Backend / Security.
+**Prioridade:** P0
+
 ### [BE] API admin mínima
 **Objetivo:** operar aprovação e publicação.
 **Descrição:** `GET /admin/applications`, `PATCH /admin/applications/:id/status`, `POST /admin/reports/:id/publish`, `GET /admin/metrics`; protegida por role.
@@ -211,6 +220,15 @@ Owner agents: ver `docs/agents/README.md`.
 **Dependências:** Auth.
 **Risco:** vazamento entre produtores.
 **Owner agent sugerido:** Database / Security.
+**Prioridade:** P0
+
+### [DB] Funções RPC atômicas evento+payload
+**Objetivo:** garantir atomicidade onde o produto escreve payload + evento no mesmo ato (achado do Backend; PostgREST é por statement).
+**Descrição:** funções Postgres (`plpgsql`) para os pares: WTP (`wtp_responses` + `producer_events`), intenção (`producer_events` + `followups`) e resposta de follow-up (`followups.response` + `producer_events`) — DEC-0004.
+**Critério de aceite:** cada par grava de forma atômica (tudo-ou-nada); falha não deixa evento órfão nem payload sem evento; revisada com Backend.
+**Dependências:** tabelas de eventos/followups/WTP (Fases 6–7).
+**Risco:** evento sem payload (ou vice-versa) distorce métrica.
+**Owner agent sugerido:** Database / Backend.
 **Prioridade:** P0
 
 ### [DB] Guarda contra schema de marketplace

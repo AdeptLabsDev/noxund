@@ -10,13 +10,17 @@ Esta pasta é **documentação de proposta**, não implementação. Nenhum SQL f
 
 ## Arquivos
 
+Os cinco primeiros arquivos são a proposta técnica lida na ordem do handoff §4; os demais registram handoffs/reviews.
+
 | Arquivo | Função |
 |---|---|
 | `README.md` | Este índice. Status, princípios, mapa de nomes, status de revisão. |
 | `mvp-data-model.md` | Documentação tabela a tabela (Purpose / Key fields / Relationships / Immutability / Notes / Open questions). |
 | `entity-relationship-notes.md` | Diagrama ER, classes de imutabilidade e cadeias de proveniência raw→computed→snapshot. |
-| `migration-plan.md` | Ordem recomendada de implementação futura (8 fases). |
+| `migration-plan.md` | Ordem recomendada de implementação futura (9 fases: 8 de tabelas + RLS). |
 | `rls-review-notes.md` | Recomendações iniciais de RLS/segurança para o Security Agent revisar. |
+| `HANDOFF-mvp-data-model.md` | Handoff da proposta do Database Agent e status das revisões cruzadas. |
+| `DATA-AI-REVIEW-mvp-data-model.md` | Veredito do Data/AI sobre raw/computed, reprodutibilidade e OD-DB-01/04/06/07. |
 
 ---
 
@@ -46,7 +50,7 @@ A tarefa lista nomes-alvo. `04_Database_Event_Model.md` é a fonte de verdade e 
 | `reports` | `reports` | Igual. |
 | `report_items` | `report_items` | Igual. |
 | `artists` | `artists` (+ `artist_aliases`) | `04_` separa nome canônico de aliases. |
-| `youtube_collection_runs` | `report_runs` | Ver OD-DB-01 (split collection vs scoring run). |
+| `youtube_collection_runs` | `report_runs` | OD-DB-01 fechado: unificado no MVP; split só via nova DEC futura. |
 | `youtube_video_snapshots` | `raw_youtube_videos` | Mesmo conceito (snapshot bruto por `run_id`). |
 | `youtube_channel_snapshots` | `raw_youtube_channels` | Mesmo conceito. |
 | `artist_resolution_events` | `video_artist_mappings` | `04_` modela como mapeamento por vídeo, com `method` + `needs_review`. |
@@ -54,9 +58,10 @@ A tarefa lista nomes-alvo. `04_Database_Event_Model.md` é a fonte de verdade e 
 | `rubric_versions` | `rubric_versions` (+ `outcome_weight_versions`) | Igual. |
 | `producer_outcomes` | `producer_events` | Mesma tabela append-only. Ver OD-DB-02. |
 | `followups` | `followups` | Igual. |
-| `audit_events` | **(novo)** `audit_events` | Não existe em `04_`. Proposto como adição. Ver OD-DB-03. |
+| `audit_events` | **(novo)** `audit_events` | Não existe em `04_`. Aprovado em DEC-0003 (condicionado à RLS do Security). Ver OD-DB-03. |
+| — | **(novo)** `admin_users` | Controle de segurança decidido pelo Security (SEC-D02): fonte de admin + `is_admin()`. Não é marketplace. |
 
-Além das 13 da tarefa, o modelo inclui de `04_`: `raw_youtube_search_pages`, `channel_eligibility`, `wtp_responses`, `outcome_weight_versions`.
+Além das 13 da tarefa, o modelo inclui de `04_`: `raw_youtube_search_pages`, `channel_eligibility`, `wtp_responses`, `outcome_weight_versions`. **Total: 20 tabelas** (19 de modelo + `admin_users` de segurança).
 
 ---
 
@@ -78,7 +83,7 @@ Além das 13 da tarefa, o modelo inclui de `04_`: `raw_youtube_search_pages`, `c
 | 12 | Intenção "vou produzir beat" | `producer_events` (`intent_to_produce_declared`) |
 | 13 | Follow-up 10–14 dias | `followups`, `producer_events` (`followup_*`) |
 | 14 | WTP | `wtp_responses`, `producer_events` (`wtp_*`) |
-| 15 | Auditoria/proveniência | cadeia `run_id` + `selection_reason_json` + `computed_from_video_ids` + `audit_events` |
+| 15 | Auditoria/proveniência | cadeia `run_id` + `artist_metric_id` + `rubric_hash` + `computed_from_video_ids` + `metrics_detail_json` + `selection_reason_json` + `audit_events` |
 
 ---
 
@@ -86,9 +91,9 @@ Além das 13 da tarefa, o modelo inclui de `04_`: `raw_youtube_search_pages`, `c
 
 Esta proposta **exige revisão** antes de virar migration (ver `mvp-data-model.md` → seção final):
 
-- ⏳ Product Orchestrator Agent — confirmar nomes (OD-DB-01/02/03) e que nada toca Fase 2.
-- ⏳ Security & Privacy Agent — `rls-review-notes.md`, PII, secrets, eventos sensíveis.
-- ⏳ Data/AI Pipeline Agent — separação raw/computed, proveniência, reprodutibilidade.
+- ✅ Product Orchestrator Agent — OD-DB-02/03/05 resolvidos, OD-DB-01 mantido unificado no MVP; zero Fase 2 verificado. Ver `docs/product/decisions/DEC-0003-mvp-data-model-review.md`.
+- ⚠️ Security & Privacy Agent — **aprovação condicional; veto mantido sobre Fase 9 (RLS), migrations/endpoints de acesso e gate de pré-produção.** Decisões fechadas (OD-DB-08 → `auth_user_id` FK; role admin → `admin_users` + `is_admin()`; trigger de imutabilidade obrigatório em raw/audit) e condições em `docs/security/SEC-0001-mvp-data-model-review.md`.
+- ✅ Data/AI Pipeline Agent — raw/computed, proveniência por célula e reprodutibilidade aprovadas; OD-DB-01/04/06/07 fechados em `docs/database/DATA-AI-REVIEW-mvp-data-model.md`.
 - ⏳ Backend/Next API Agent — formato consumível por endpoints e eventos.
 
 Nenhuma revisão pode ser "assumida como ok" (`agent-review-matrix.md`).
