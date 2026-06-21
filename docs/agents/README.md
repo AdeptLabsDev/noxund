@@ -20,6 +20,7 @@ O único agente **implementado** nesta fase é o **Product Orchestrator Agent**.
 | `agent-review-matrix.md` | Qual mudança dispara qual revisão. |
 | `agent-conflict-resolution.md` | Como conflitos e vetos são resolvidos. |
 | `orchestration-runtime.md` | Contraparte **executável** desta governança: como a delegação roda de fato (`packages/orchestrator`). |
+| `agent-onboarding-orchestration.md` | **Onboarding/prompt** para os agentes operarem o runtime: TaskCommand, AgentResult, status, segurança, exemplos. |
 
 ### Agentes
 

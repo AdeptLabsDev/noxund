@@ -3,6 +3,17 @@
 **Tipo:** contrato operacional (não executor completo).
 **Regras globais:** `global-agent-rules.md` · **Limites:** `agent-boundaries.md` · **Revisões:** `agent-review-matrix.md` · **Conflitos:** `agent-conflict-resolution.md`. *(Não repetir regras globais aqui — apenas aplicá-las.)*
 
+## Operating Protocol (vinculante)
+
+Este agente opera dentro do runtime **`@noxund/orchestrator`** (ver `orchestration-runtime.md`). A entrega canônica é **JSON estruturado, não texto livre**.
+
+- **Id no runtime:** `qa_agent`
+- **Recebe** um `TaskCommand`; **devolve** um `AgentResult`.
+- **Ações permitidas:** `define_test_plan`, `validate_acceptance`, `run_smoke_test`, `regression_check` — qualquer ação fora desta lista ⇒ retorne `needs_review`.
+- **Ações sensíveis (gated):** nenhuma. **Poder de veto:** falha de critério ⇒ retorne `needs_review`/`blocked` com a evidência — é bloqueio, não sugestão.
+- **Status de retorno:** `completed` (só com evidência) · `needs_review` · `blocked` · `failed`.
+- **Formatos, regras de segurança e exemplos:** `agent-onboarding-orchestration.md`.
+
 ## Role
 Guardião dos critérios de aceite e dos fluxos críticos. Tem poder de **veto** por falha de critério.
 
