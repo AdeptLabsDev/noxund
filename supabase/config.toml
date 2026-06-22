@@ -1,0 +1,23 @@
+# NOXUND — Supabase CLI project configuration.
+# Links this repository to the remote project so the CI apply pipeline can run
+# the Phase 1 migration against it.
+#
+# SECURITY (global rule #10 / onboarding §8.6 — NON-NEGOTIABLE):
+#   This file is VERSIONED and MUST contain ZERO secrets — no access token,
+#   no database password, no service-role key. Secrets exist only in the CI
+#   vault / GitHub Environment `production-db`, populated out-of-band by the
+#   Product Lead. See docs/infra/INFRA-0001-phase1-credentialed-env.md.
+#
+# The `supabase link` runtime state (.temp/, .branches/) is gitignored.
+
+# Remote project reference. NOT a secret — it appears in the project URL.
+# `supabase link --project-ref pwbkplzyzmortwjjpcbg` resolves against this.
+project_id = "pwbkplzyzmortwjjpcbg"
+
+[db]
+# Postgres major version of the remote project (region us-east-1).
+# Used only by the local `supabase start` stack. CI never starts the local
+# stack — it applies migrations against the linked remote — so this value does
+# not gate the apply. Reconcile with the dashboard during the DevOps+Security
+# review (agent-review-matrix.md #8) if local dev is later introduced.
+major_version = 15
