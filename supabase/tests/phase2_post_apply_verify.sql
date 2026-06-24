@@ -6,10 +6,17 @@
 -- (see .github/workflows/phase2-db-apply.yml). Parity with
 --   supabase/tests/phase1_post_apply_verify.sql, per SEC-0007 §4.
 --
--- WHY EMPIRICAL: `service_role` bypasses RLS and holds DML grants, so the
--- append-only guarantee on the *_versions tables can only be proven by the
--- TRIGGERS firing. We assert that path specifically (errcode restrict_violation)
--- — imutabilidade prova-se em banco, não se assume (SEC-0007 §2 / SEC-0003 §2).
+-- WHY EMPIRICAL: the append-only guarantee on the *_versions tables must be
+-- proven in the DB, not assumed (SEC-0007 §2 / SEC-0003 §2). A mutation by
+-- `service_role` is blocked by EITHER the immutability trigger
+-- (errcode restrict_violation) OR — when the environment grants service_role no
+-- DML on these tables (the Fase 1 revoke pattern, approved in SEC-0004/0006) —
+-- the grant layer (errcode insufficient_privilege). BOTH outcomes prove
+-- append-only, so §5 accepts either errcode, in exact parity with
+-- phase1_post_apply_verify.sql. The service_role grant state is
+-- environment-dependent: asserting only restrict_violation produced a
+-- false-negative on the first real run (apply OK; verify failed on UPDATE with
+-- insufficient_privilege). Only a SUCCESSFUL mutation is a regression.
 --
 -- CONTRACT: every check RAISES on mismatch, so `psql -v ON_ERROR_STOP=1` exits
 -- non-zero and fails the CI job. There is no silent pass.
@@ -113,9 +120,10 @@ end $$;
 
 \echo '== Phase 2 · §5 empirical verification =='
 
--- Immutability — TRUNCATE as service_role must raise restrict_violation --------
--- service_role bypasses RLS + holds grants; only the statement-level trigger
--- blocks it. Assert the TRIGGER path specifically (restrict_violation).
+-- Immutability — TRUNCATE as service_role must be BLOCKED ----------------------
+-- Blocked by the statement-level trigger (restrict_violation) OR by a missing
+-- service_role TRUNCATE grant (insufficient_privilege) — both prove append-only.
+-- Accept either; only a SUCCESSFUL truncate is a regression.
 begin;
   do $$
   declare t text;
@@ -126,14 +134,16 @@ begin;
         execute format('truncate public.%I', t);
         raise exception 'EMPIRICAL/immutability: TRUNCATE as service_role SUCCEEDED on % (append-only regression)', t;
       exception
-        when restrict_violation then null;  -- expected: blocked by trigger
+        when restrict_violation or insufficient_privilege then null;  -- blocked (trigger or grant) = expected
       end;
     end loop;
   end $$;
 rollback;
 
--- Immutability — UPDATE/DELETE as service_role must raise restrict_violation ---
--- Row-level triggers need target rows -> insert probes inside a rolled-back tx.
+-- Immutability — UPDATE/DELETE as service_role must be BLOCKED -----------------
+-- Same dual-accept rationale: trigger (restrict_violation) OR missing grant
+-- (insufficient_privilege). Row-level triggers need a target row, so we insert
+-- probes inside a rolled-back tx (nothing persists).
 begin;
   do $$
   declare t text;
@@ -152,13 +162,13 @@ begin;
         execute format('update public.%I set hash = %L where version = %L', t, 'tamper', '__verify_probe__');
         raise exception 'EMPIRICAL/immutability: UPDATE as service_role SUCCEEDED on % (append-only regression)', t;
       exception
-        when restrict_violation then null;  -- expected
+        when restrict_violation or insufficient_privilege then null;  -- blocked (trigger or grant) = expected
       end;
       begin
         execute format('delete from public.%I where version = %L', t, '__verify_probe__');
         raise exception 'EMPIRICAL/immutability: DELETE as service_role SUCCEEDED on % (append-only regression)', t;
       exception
-        when restrict_violation then null;  -- expected
+        when restrict_violation or insufficient_privilege then null;  -- blocked (trigger or grant) = expected
       end;
     end loop;
   end $$;
