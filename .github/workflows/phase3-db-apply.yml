@@ -1,0 +1,148 @@
+name: Phase 3 · DB Apply (gated)
+
+# WHY MANUAL-ONLY ----------------------------------------------------------
+# Applying a migration is a SENSITIVE, human-gated action (global rules
+# #11/#12, onboarding §4). This workflow NEVER runs on push and NEVER on a
+# schedule. It runs only when:
+#   1. a human dispatches it AND types the confirmation phrase, and
+#   2. the `production-db` Environment's required reviewers approve the run
+#      (reviewers = DevOps + Security per agent-review-matrix.md #8).
+# The Environment also restricts dispatch to `main` (deployment branch rule):
+# a workflow_dispatch from any branch ≠ main is DENIED the Environment/secrets
+# (SEC-F18) — closing the "run a modified workflow from a branch" vector.
+#
+# Mirrors the Phase 2 hardened pipeline (SEC-F17 SHA-pin, masked URL, atomic
+# apply, service-role NOT used) — see .github/workflows/phase2-db-apply.yml and
+# docs/database/HANDOFF-phase3-runs-artists.md. It applies ONLY the forward
+# migration (supabase db push pushes the pending Phase 3 migration; Phases 1-2
+# are already tracked as applied). It does NOT run the rollback and does NOT run
+# the §7 seed template (out of scope here).
+#
+# SECRETS: read exclusively from the `production-db` Environment. Never echoed,
+# never written to a versioned file. The service-role key is NOT used here
+# (SEC-F19): immutability is proven at the DB level (set role service_role).
+# --------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type APPLY-PHASE3 to confirm applying the Phase 3 migration to the remote project.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase3-db-apply
+  cancel-in-progress: false
+
+env:
+  # Non-secret: the project ref appears in the project URL.
+  SUPABASE_PROJECT_REF: pwbkplzyzmortwjjpcbg
+
+jobs:
+  guard:
+    name: Confirm intent
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate confirmation phrase
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirm }}" != "APPLY-PHASE3" ]; then
+            echo "::error::Confirmation phrase mismatch — aborting with no apply."
+            exit 1
+          fi
+          echo "Confirmation accepted."
+
+  apply:
+    name: Apply Phase 3 migration
+    needs: guard
+    runs-on: ubuntu-latest
+    # Gates the actual apply behind the Environment's required reviewers
+    # (DevOps + Security) — this is the execution-time human approval.
+    environment: production-db
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1  # v1.7.1
+        with:
+          version: latest
+
+      - name: Build masked DB URL (session pooler — IPv4-safe on GitHub runners)
+        env:
+          DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          DB_HOST: ${{ vars.SUPABASE_DB_HOST }}
+          DB_PORT: ${{ vars.SUPABASE_DB_PORT }}
+          DB_USER: ${{ vars.SUPABASE_DB_USER }}
+        run: |
+          set -euo pipefail
+          : "${DB_PASSWORD:?missing secret SUPABASE_DB_PASSWORD in Environment production-db}"
+          : "${DB_HOST:?missing variable SUPABASE_DB_HOST in Environment production-db}"
+          user="${DB_USER:-postgres.${SUPABASE_PROJECT_REF}}"
+          port="${DB_PORT:-5432}"
+          enc_pw="$(jq -rn --arg v "$DB_PASSWORD" '$v|@uri')"
+          url="postgresql://${user}:${enc_pw}@${DB_HOST}:${port}/postgres?sslmode=require"
+          echo "::add-mask::${url}"
+          echo "SUPABASE_DB_URL=${url}" >> "$GITHUB_ENV"
+
+      - name: Link project (CLI auth)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Apply forward migration (atomic; pending = Phase 3)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The migration file is begin/commit (atomic); on error `db push` exits
+          # non-zero and this job fails — no partial state. `db push` applies only
+          # pending migrations (Phases 1-2 already tracked), i.e. the Phase 3 file
+          # 20260620000003_phase3_runs_artists.sql.
+          # Forward-only: do NOT run the rollback; do NOT run the §7 seed template.
+          # --db-url pins the session pooler (deterministic IPv4 path on runners).
+          supabase db push --db-url "$SUPABASE_DB_URL"
+
+  verify:
+    name: Post-apply verification (§4 structural + §5 empirical)
+    needs: apply
+    runs-on: ubuntu-latest
+    environment: production-db
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Install psql client
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Build masked DB URL
+        env:
+          DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          DB_HOST: ${{ vars.SUPABASE_DB_HOST }}
+          DB_PORT: ${{ vars.SUPABASE_DB_PORT }}
+          DB_USER: ${{ vars.SUPABASE_DB_USER }}
+        run: |
+          set -euo pipefail
+          : "${DB_PASSWORD:?missing secret SUPABASE_DB_PASSWORD}"
+          : "${DB_HOST:?missing variable SUPABASE_DB_HOST}"
+          user="${DB_USER:-postgres.${SUPABASE_PROJECT_REF}}"
+          port="${DB_PORT:-5432}"
+          enc_pw="$(jq -rn --arg v "$DB_PASSWORD" '$v|@uri')"
+          url="postgresql://${user}:${enc_pw}@${DB_HOST}:${port}/postgres?sslmode=require"
+          echo "::add-mask::${url}"
+          echo "SUPABASE_DB_URL=${url}" >> "$GITHUB_ENV"
+
+      - name: Structural (§4) + empirical (§5) assertions
+        run: |
+          set -euo pipefail
+          # Any failed assertion raises -> ON_ERROR_STOP fails the job (and the run).
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/phase3_post_apply_verify.sql
