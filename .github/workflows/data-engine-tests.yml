@@ -1,0 +1,102 @@
+name: Data Engine · Resolver Tests (CI)
+
+# WHY NOT MANUAL-ONLY (deliberate deviation from the *-db-apply gated template) -
+# This is a READ-ONLY TEST job: it runs the data-engine resolver unit suite. It
+# touches NO secret, NO Environment, NO database, NO production. So — unlike the
+# gated apply workflows (phase*-db-apply.yml / entity-db-apply.yml, which are
+# workflow_dispatch + confirm phrase + production-db required reviewers) — this one
+# runs automatically on push / pull_request, which is the correct posture for a
+# test job and a non-negotiable for reproducibility (the green must not be bound to
+# one workstation). It anchors the deterministic seed of P5-REPRO-01.
+#
+# Because it is read-only and secret-free, there is NO mandatory Security gate.
+# If it ever gains a secret / Environment / DB access, that is a Deploy/ambiente
+# change → Security review (agent-review-matrix.md #8) BEFORE merge.
+#
+# HARDENING: permissions contents:read (no write anywhere); actions SHA-pinned
+# (SEC-F17); ZERO secrets; ZERO Environment; ZERO DB. stdlib-only — pyproject
+# dependencies=[] → ZERO pip install, ZERO sensitive env change.
+#
+# DETERMINISM: the suite runs TWICE in independent processes and BOTH must report
+# exactly "Ran 18 tests ... OK". A discovery regression that silently ran 0 tests
+# would still exit 0 in unittest, so the job asserts the COUNT fail-closed.
+#
+# SCOPE (negative): does NOT apply migrations, does NOT touch production-db, does
+# NOT use Environment/secret, does NOT unlock Phase 9. 0007/producer_events PARKED.
+# --------------------------------------------------------------------------
+
+on:
+  push:
+    paths:
+      - 'services/data-engine/**'
+      - '.github/workflows/data-engine-tests.yml'
+  pull_request:
+    paths:
+      - 'services/data-engine/**'
+      - '.github/workflows/data-engine-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Test job (not an apply): cancel superseded runs on the same ref to save runners.
+# (Apply workflows deliberately use cancel-in-progress: false — a half-applied
+# migration must never be cancelled. Here there is nothing to corrupt.)
+concurrency:
+  group: data-engine-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  resolver-tests:
+    name: Entity Resolution resolver suite (Python 3.11, ×2 determinism)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Set up Python 3.11 (pinned)
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
+        with:
+          python-version: '3.11'
+
+      - name: Assert interpreter is CPython 3.11.x
+        run: |
+          set -euo pipefail
+          ver="$(python -c 'import platform; print(platform.python_version())')"
+          echo "Python: ${ver}"
+          case "$ver" in
+            3.11.*) echo "OK — Python 3.11.x pinned." ;;
+            *) echo "::error::Expected Python 3.11.x, got ${ver}."; exit 1 ;;
+          esac
+
+      - name: Run resolver suite ×2 — require 18/18 on every run (determinism)
+        working-directory: services/data-engine
+        env:
+          PYTHONPATH: src
+        run: |
+          set -euo pipefail
+          # Exact QA command, stdlib-only (no pip install). Run twice in independent
+          # processes; both must be exactly "Ran 18 tests ... OK". Count asserted
+          # fail-closed so an under-discovery regression cannot pass as green.
+          for attempt in 1 2; do
+            echo "::group::resolver suite — attempt ${attempt}/2"
+            if out="$(python -m unittest discover -s tests -p test_entity_resolution.py -v 2>&1)"; then
+              status=0
+            else
+              status=$?
+            fi
+            echo "$out"
+            echo "::endgroup::"
+
+            if [ "$status" -ne 0 ]; then
+              echo "::error::data-engine resolver tests FAILED on attempt ${attempt} (unittest exit ${status})."
+              exit 1
+            fi
+            if ! grep -qE '^Ran 18 tests in ' <<<"$out"; then
+              ran="$(grep -oE '^Ran [0-9]+ tests' <<<"$out" || true)"
+              echo "::error::attempt ${attempt}: expected exactly 18 tests, got '${ran:-<none>}' (determinism/discovery regression)."
+              exit 1
+            fi
+            echo "attempt ${attempt}: 18/18 OK"
+          done
+          echo "Determinism proven: 18/18 across 2 independent runs (P5-REPRO-01 seed)."
