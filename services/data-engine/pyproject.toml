@@ -1,14 +1,14 @@
 [project]
 name = "noxund-data-engine"
-version = "0.0.0"
-description = "NOXUND Data Engine — deterministic, auditable pipeline (scaffold; no collection implemented yet)."
+version = "0.1.0"
+description = "NOXUND Data Engine — deterministic, auditable pipeline (Entity Resolution core)."
 requires-python = ">=3.11"
-# Intentionally empty in the foundation phase.
+# Entity Resolution currently uses only the Python standard library.
 # No heavy libs, no Celery, no Redis, no ML libraries (see scope-guardrails.md).
 dependencies = []
 
 [project.optional-dependencies]
-# Dev tooling can be added later by the Data/AI Pipeline Agent (e.g. ruff, pytest).
+# Tests use stdlib unittest; optional tooling can be added only when justified.
 dev = []
 
 [tool.ruff]
