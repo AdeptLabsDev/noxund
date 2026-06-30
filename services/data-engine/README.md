@@ -1,35 +1,52 @@
 # services/data-engine — NOXUND Data/AI Pipeline (Python)
 
-**Status:** placeholder. Não scaffoldado ainda (sem dependências instaladas).
-**Stack pretendida:** Python (script/worker; FastAPI só se virar serviço — Fase 2, OD-05).
-**Owner agent:** Data/AI Pipeline Agent.
+**Status:** Entity Resolution core retomado (`entity-resolver-v1`); integrações externas ainda
+não executadas. **Owner:** Data/AI Pipeline Agent.
 
-Este serviço **não** é um pnpm workspace. Tem seu próprio ambiente Python (`.venv`) e `.env`.
+Este serviço não é um workspace pnpm. O núcleo atual usa apenas Python 3.11+ e a biblioteca
+padrão: nenhuma SDK de LLM, driver de banco, ML, Celery ou Redis foi adicionada.
 
-## O que viverá aqui (quando construído)
+## Implementado agora
 
-Os 6 agentes do pipeline (`03_Data_AI_Agents_Methodology.md` / arquitetura):
+- normalização determinística NFKC/casefold/tokenização e guardrail de span contíguo;
+- regex-first para `<artist> type beat`, flags de ambiguidade e lookup canônico por porta;
+- fallback LLM estrito (`{"candidate": string|null}`), sem confidence ou qualquer número;
+- replay obrigatório antes do LLM: fato final em `audit_events`, depois pendente atual;
+- fila `entity_resolution_candidates` com dedup do pending, versões non-blank, `artist_id NULL`
+  e `review_notes NULL` no writer automatizado;
+- adaptadores PostgreSQL sem dependência de driver: SQL parametrizado, payload de auditoria por
+  allow-list e erros sanitizados. A transação/conexão é injetada pelo chamador;
+- testes unitários do resolver, replay, dedup, guardrails, F01 e canary SEC-F10/SEC-0016.
 
-1. Search Agent — coleta ~500 vídeos (`chicago drill type beat`, 30d).
-2. Video Data Agent — estatísticas por vídeo (raw imutável).
-3. Entity Resolution Agent — regex + LLM assistida (único ponto de IA, blindado).
-4. Channel Filter Agent — elegibilidade + canais distintos.
-5. Popularity Scoring Agent — Score determinístico (rubric versionado).
-6. Opportunity Agent — ranking, HOT, Competition, Example determinístico.
+Nenhuma conexão, chamada LLM ou escrita real ocorre ao importar ou testar o pacote; testes usam
+doubles em memória.
 
-## Como será preparado (futuro, com revisão)
+## Rodar testes
 
-> Não rodar agora.
+No diretório `services/data-engine`:
 
-```bash
-cd services/data-engine
-python -m venv .venv
-# ativar e instalar a partir de pyproject.toml/requirements (a definir pelo Data/AI Agent)
+```powershell
+$env:PYTHONPATH = "src"
+python -m unittest discover -s tests -v
 ```
 
-## Restrições inegociáveis (ver docs/agents/global-agent-rules.md)
+O ambiente atual precisa oferecer Python 3.11+. Não instalar dependências para esta etapa.
 
-- **IA nunca gera número.** Score/Velocity/Signals/Competition/ranking/Example = código determinístico.
-- **Raw é imutável.** Recoleta = novo `run_id`. Nunca sobrescrever payload bruto.
-- **Computed é reconstruível.** Mesmo snapshot + mesmo rubric ⇒ relatório idêntico.
-- `YOUTUBE_API_KEY` e chave de LLM são server-side; nunca commitadas (ver `.env.example`).
+## Sequência pipeline-first
+
+1. Entity Resolution — núcleo atual; próxima integração liga catálogo/conexão/adapter LLM reais.
+2. Channel Filter — grava `channel_eligibility` com `rule_version`.
+3. Popularity Scoring + Opportunity — código determinístico, `rubric_version` + `rubric_hash`.
+4. P5-REPRO-01 — duas rodadas canônicas e zero chamada LLM no replay; gate antes do 1º publish.
+
+`producer_events` (`0007`) continua parked. Fase 9 (policies/VIEW pública) continua vetada.
+
+## Restrições inegociáveis
+
+- IA nunca gera Score, Velocity, Signals, Competition, ranking ou Example.
+- Raw é imutável; recoleta significa novo `run_id`.
+- Computed é reconstruível e versionado por rubric.
+- Candidato não-aprovado fica fora de `artists` e `video_artist_mappings`.
+- Decisão/override vive em `audit_events` e congela em
+  `artist_metrics.metrics_detail_json.overrides[]`, nunca na fila mutável.
+- Secrets/PII nunca entram em `review_notes`, binds livres, logs, Sentry ou `AgentResult`.
