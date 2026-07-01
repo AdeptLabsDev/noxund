@@ -1,5 +1,11 @@
 # DATA-CHANNEL-001 — Channel Filter (elegibilidade determinística + canais distintos)
 
+> **⚠️ RATIFICADO v1 por [DEC-0017](../product/decisions/DEC-0017-pipeline-v1-ratifications.md) (2026-07-01) — `channel-filter-v1` MINIMALISTA.** O conjunto de 4 gates ordenados descrito no corpo foi **SUPERSEDIDO**. Regras v1 vigentes:
+> - **MANTÉM `self_channel`** — exclui o canal do próprio artista da Competition desse artista (regra semântica).
+> - **`MAX_RUN_VIDEOS_PER_CHANNEL=60`** — único gate quantitativo (anti-domínio extremo de um canal no run).
+> - **DISABLED:** `MIN_PUBLIC_UPLOADS`, `MIN_SUBS`, `MIN_CHANNEL_VIEWS`, `DUP_TITLE_CAP` (sem filtro por tamanho/duplicidade de título).
+> - Contrato de dedup (Signals = vídeos válidos por `video_id`; Competition = canais elegíveis distintos) **permanece**.
+
 - **Tarefa:** `task_define_channel_filter` (delegada via `delegate_task: define_channel_filter`)
 - **Owner:** Data/AI Pipeline Agent (`data_agent`)
 - **Ação:** `define_channel_filter` *(ver OPEN-DATA-CHANNEL-04 — nome ainda não está na allow-list publicada)*
