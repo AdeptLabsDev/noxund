@@ -18,7 +18,7 @@ name: Data Engine · Resolver Tests (CI)
 # dependencies=[] → ZERO pip install, ZERO sensitive env change.
 #
 # DETERMINISM: the suite runs TWICE in independent processes and BOTH must report
-# exactly "Ran 62 tests ... OK" (18 resolver + 18 channel-filter + 26 scoring). A
+# exactly "Ran 98 tests ... OK" (18 resolver + 18 channel-filter + 26 scoring + 36 opportunity). A
 # discovery regression that silently ran fewer tests
 # would still exit 0 in unittest, so the job asserts the COUNT fail-closed.
 #
@@ -70,14 +70,14 @@ jobs:
             *) echo "::error::Expected Python 3.11.x, got ${ver}."; exit 1 ;;
           esac
 
-      - name: Run data-engine suite ×2 — require 62/62 on every run (determinism)
+      - name: Run data-engine suite ×2 — require 98/98 on every run (determinism)
         working-directory: services/data-engine
         env:
           PYTHONPATH: src
         run: |
           set -euo pipefail
           # Exact QA command, stdlib-only (no pip install). Run twice in independent
-          # processes; both must be exactly "Ran 62 tests ... OK". Count asserted
+          # processes; both must be exactly "Ran 98 tests ... OK". Count asserted
           # fail-closed so an under-discovery regression cannot pass as green.
           for attempt in 1 2; do
             echo "::group::resolver suite — attempt ${attempt}/2"
@@ -93,11 +93,11 @@ jobs:
               echo "::error::data-engine resolver tests FAILED on attempt ${attempt} (unittest exit ${status})."
               exit 1
             fi
-            if ! grep -qE '^Ran 62 tests in ' <<<"$out"; then
+            if ! grep -qE '^Ran 98 tests in ' <<<"$out"; then
               ran="$(grep -oE '^Ran [0-9]+ tests' <<<"$out" || true)"
-              echo "::error::attempt ${attempt}: expected exactly 62 tests, got '${ran:-<none>}' (determinism/discovery regression)."
+              echo "::error::attempt ${attempt}: expected exactly 98 tests, got '${ran:-<none>}' (determinism/discovery regression)."
               exit 1
             fi
-            echo "attempt ${attempt}: 62/62 OK"
+            echo "attempt ${attempt}: 98/98 OK"
           done
-          echo "Determinism proven: 62/62 across 2 independent runs (P5-REPRO-01 seed)."
+          echo "Determinism proven: 98/98 across 2 independent runs (P5-REPRO-01 seed)."
