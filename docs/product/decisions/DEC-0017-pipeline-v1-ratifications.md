@@ -40,7 +40,7 @@ Com os designs do Channel Filter, Channel Data collection, Popularity Scoring e 
 - `channel-filter-v1` (Channel Filter minimalista) — item 5.
 
 ### Itens abertos remanescentes (não-bloqueantes deste registro)
-- **self_channel (micro-open — pede confirmação):** a política minimalista removeu os filtros de tamanho, mas **não** menciona a exclusão do **canal do próprio artista** da contagem de Competition (regra semântica, não filtro de tamanho). **Recomendação do Orchestrator:** manter `self_channel` em v1 (o canal do próprio artista não é "competição"; mantê-lo distorce Competition). **Aguarda confirmação do Product Lead.**
+- **self_channel — RATIFICADO: MANTER** (Product Lead, 2026-07-01). O **canal do próprio artista** é excluído da contagem de Competition desse artista (regra **semântica**, não filtro de tamanho — coerente com o minimalismo). Integra `channel-filter-v1`; `reason_code` inclui `self_channel`.
 - **Movidos para a trilha gated (item 7):** DC2-02 (SEC-F23/PII), DC2-04 (same-run sub-fase), runbook.
 - **Aditivos futuros (Database):** OPP-04 (slot de auditoria do crescimento-7d), OPP-05 (`opportunity_version/hash`), CHANNEL-03 (`reason` enum), CHANNEL-05 (`rule_hash`), DC2-03 (`publishedAt`).
 - **Spec-refresh design-only:** atualizar `DATA-CHANNEL-001` (rule set) e `DATA-CONST-001`/`DATA-SCORING-001` (OPEN→ratificado) ao v1 desta DEC.
