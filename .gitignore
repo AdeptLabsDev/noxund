@@ -67,3 +67,9 @@ Thumbs.db
 .idea
 .vscode/*
 !.vscode/extensions.json
+
+# --- Local tooling scaffolding (NOT NOXUND artifacts) ---
+# Claude Code marketing-skill scaffolding + its lockfile: they land in the
+# working tree from local tooling and only add noise to `git status`.
+.agents/
+skills-lock.json
