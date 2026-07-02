@@ -17,10 +17,12 @@ name: Data Engine · Resolver Tests (CI)
 # (SEC-F17); ZERO secrets; ZERO Environment; ZERO DB. stdlib-only — pyproject
 # dependencies=[] → ZERO pip install, ZERO sensitive env change.
 #
-# DETERMINISM: the suite runs TWICE in independent processes and BOTH must report
-# exactly "Ran 98 tests ... OK" (18 resolver + 18 channel-filter + 26 scoring + 36 opportunity). A
+# DETERMINISM: the full suite runs TWICE in independent processes and BOTH must
+# report exactly "Ran 119 tests ... OK" (18 resolver + 18 channel-filter + 26 scoring + 36 opportunity + 21 repro-harness). A
 # discovery regression that silently ran fewer tests
-# would still exit 0 in unittest, so the job asserts the COUNT fail-closed.
+# would still exit 0 in unittest, so the job asserts the COUNT fail-closed. The
+# dedicated repro-harness job additionally proves the P5-REPRO-01 golden digest is
+# byte-identical across two runs and equals the locked GOLDEN_DIGEST.
 #
 # SCOPE (negative): does NOT apply migrations, does NOT touch production-db, does
 # NOT use Environment/secret, does NOT unlock Phase 9. 0007/producer_events PARKED.
@@ -70,14 +72,14 @@ jobs:
             *) echo "::error::Expected Python 3.11.x, got ${ver}."; exit 1 ;;
           esac
 
-      - name: Run data-engine suite ×2 — require 98/98 on every run (determinism)
+      - name: Run data-engine suite ×2 — require 119/119 on every run (determinism)
         working-directory: services/data-engine
         env:
           PYTHONPATH: src
         run: |
           set -euo pipefail
           # Exact QA command, stdlib-only (no pip install). Run twice in independent
-          # processes; both must be exactly "Ran 98 tests ... OK". Count asserted
+          # processes; both must be exactly "Ran 119 tests ... OK". Count asserted
           # fail-closed so an under-discovery regression cannot pass as green.
           for attempt in 1 2; do
             echo "::group::resolver suite — attempt ${attempt}/2"
@@ -93,11 +95,76 @@ jobs:
               echo "::error::data-engine resolver tests FAILED on attempt ${attempt} (unittest exit ${status})."
               exit 1
             fi
-            if ! grep -qE '^Ran 98 tests in ' <<<"$out"; then
+            if ! grep -qE '^Ran 119 tests in ' <<<"$out"; then
               ran="$(grep -oE '^Ran [0-9]+ tests' <<<"$out" || true)"
-              echo "::error::attempt ${attempt}: expected exactly 98 tests, got '${ran:-<none>}' (determinism/discovery regression)."
+              echo "::error::attempt ${attempt}: expected exactly 119 tests, got '${ran:-<none>}' (determinism/discovery regression)."
               exit 1
             fi
-            echo "attempt ${attempt}: 98/98 OK"
+            echo "attempt ${attempt}: 119/119 OK"
           done
-          echo "Determinism proven: 98/98 across 2 independent runs (P5-REPRO-01 seed)."
+          echo "Determinism proven: 119/119 across 2 independent runs (P5-REPRO-01 seed)."
+
+  repro-harness:
+    name: P5-REPRO-01 reproducibility harness (Python 3.11, ×2 + golden digest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Set up Python 3.11 (pinned)
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
+        with:
+          python-version: '3.11'
+
+      - name: Assert interpreter is CPython 3.11.x
+        run: |
+          set -euo pipefail
+          ver="$(python -c 'import platform; print(platform.python_version())')"
+          echo "Python: ${ver}"
+          case "$ver" in
+            3.11.*) echo "OK — Python 3.11.x pinned." ;;
+            *) echo "::error::Expected Python 3.11.x, got ${ver}."; exit 1 ;;
+          esac
+
+      - name: Repro harness ×2 — require 21/21 on every run (fail-closed on discovery)
+        working-directory: services/data-engine
+        env:
+          PYTHONPATH: src
+        run: |
+          set -euo pipefail
+          # stdlib-only. Run the P5-REPRO-01 harness twice in independent processes;
+          # both must be exactly "Ran 21 tests ... OK". Count asserted fail-closed so a
+          # discovery regression (0 tests silently passing) cannot go green.
+          for attempt in 1 2; do
+            echo "::group::repro harness — attempt ${attempt}/2"
+            if out="$(python -m unittest discover -s tests -p test_repro_harness.py -v 2>&1)"; then
+              status=0
+            else
+              status=$?
+            fi
+            echo "$out"
+            echo "::endgroup::"
+
+            if [ "$status" -ne 0 ]; then
+              echo "::error::repro harness FAILED on attempt ${attempt} (unittest exit ${status})."
+              exit 1
+            fi
+            if ! grep -qE '^Ran 21 tests in ' <<<"$out"; then
+              ran="$(grep -oE '^Ran [0-9]+ tests' <<<"$out" || true)"
+              echo "::error::attempt ${attempt}: expected exactly 21 tests, got '${ran:-<none>}' (harness discovery regression)."
+              exit 1
+            fi
+            echo "attempt ${attempt}: 21/21 OK"
+          done
+
+      - name: Golden digest — compute ×2, assert byte-identical and == GOLDEN_DIGEST
+        working-directory: services/data-engine
+        env:
+          PYTHONPATH: src:tests
+        run: |
+          set -euo pipefail
+          # Compute the pipeline_digest twice over the golden snapshot; assert the two
+          # are byte-identical (determinism) AND equal the locked GOLDEN_DIGEST (no
+          # silent numeric drift). Python exits non-zero fail-closed on any mismatch.
+          python -c "import sys, test_repro_harness as t; from noxund_data_engine.pipeline import run_pipeline as r, pipeline_digest as p; d1=p(r(t.golden_snapshot())); d2=p(r(t.golden_snapshot())); print('digest#1', d1); print('digest#2', d2); print('golden  ', t.GOLDEN_DIGEST); sys.exit('::error::pipeline_digest not byte-identical across 2 runs (%s != %s)' % (d1, d2) if d1 != d2 else ('::error::pipeline_digest drifted from GOLDEN_DIGEST (%s != %s)' % (d1, t.GOLDEN_DIGEST) if d1 != t.GOLDEN_DIGEST else 0))"
+          echo "Reproducibility proven: pipeline_digest byte-identical ×2 and == GOLDEN_DIGEST."
