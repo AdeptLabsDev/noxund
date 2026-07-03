@@ -1,5 +1,12 @@
 # Handoff — `task_phase1_devops_configure_credentialed_env` · DevOps Agent
 
+> **⚠️ Parcialmente superado por SEC-0005 → `HANDOFF-phase1-harden-apply-pipeline.md`.**
+> O audit SEC-0005 bloqueou e mandou hardening. Mudou desde este handoff:
+> **`SUPABASE_SERVICE_ROLE_KEY` NÃO é mais provisionada no CI** (SEC-F19) e há um **pré-flight
+> runbook** (branch rule `= main` + rotação) com evidência exigida. Para os passos de
+> Environment/secrets, siga **INFRA-0001 §2.1, §5, §7** e o handoff de hardening, não o §10
+> abaixo. As actions agora estão **SHA-pinadas** (SEC-F17).
+
 ## 1. Identificação
 - **Tarefa:** `task_phase1_devops_configure_credentialed_env` · **Action:** `configure_env` (sensível/gated)
 - **Owner agent:** DevOps / Infra (`devops_agent`)

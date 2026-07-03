@@ -18,13 +18,17 @@ O `devops_agent:configure_env` (sensível/gated) foi dispatchado para montar o a
 3. O **gate de execução em CI** do `INFRA-0001 §3` (dispatch manual `APPLY-PHASE1` + required reviewers DevOps+Security do Environment `production-db`) permanece como camada complementar em tempo de execução.
 
 ### Gate consolidado do `run_migration` (após esta decisão)
+
+> **✅ FECHADO (2026-06-24) — ver DEC-0008.** Todos os gates abaixo foram satisfeitos e a Fase 1
+> foi **aplicada e verificada** em CI (run `27956757153`). Tabela atualizada para o estado final.
+
 | Gate | Fonte | Estado |
 |---|---|---|
 | Veto técnico do Security (SQL) | SEC-0004 | ✅ baixado |
 | Aprovação humana da migration | DEC-0006 | ✅ concedida |
-| `audit_secrets` sem bloqueio | DEC-0007 (a) | ⏳ pendente |
-| PR revisado + mergeado | DEC-0007 (b) | ⏳ pendente |
-| Required reviewers em CI | INFRA-0001 §3 | ⏳ em tempo de execução |
+| `audit_secrets` sem bloqueio | DEC-0007 (a) | ✅ fechado (SEC-0006, antes do merge) |
+| PR revisado + mergeado | DEC-0007 (b) | ✅ fechado (sem push direto) |
+| Required reviewers em CI | INFRA-0001 §3 | ✅ fechado (run de `main`, reviewer AdeptLabsDev) |
 
 ### Alternativas consideradas
 - **Aplicar logo após `configure_env`, só com DEC-0006** — rejeitada pelo Product Lead: deixaria a mudança de ambiente sem revisão de segurança (`audit_secrets`) e poderia introduzir os artefatos sem PR. Contraria "sem push direto na `main`" e a matriz de revisão #8.
