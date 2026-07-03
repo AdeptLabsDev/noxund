@@ -6,6 +6,8 @@
 
 Prioridades: **P0** = sem isso o MVP não vai ao ar · **P1** = entra se não atrasar P0 · **P2** = Fase 2, não construir agora.
 
+> **Ordem do sprint atual (DEC-0013 — pipeline-first).** Fundação de schema (Fases 1–5) está **live e verificada**. Foco agora: **Épico 5 (Data Pipeline)** → `[DATA] Search` → `Video Data` → `Entity Resolution` → `Channel Filter` → `Popularity Scoring` → `Opportunity` → **`Teste de reprodutibilidade (P5-REPRO-01, gate bloqueante antes do 1º publish)`** → publish (Backend/admin) → convite (GTM). A parte **`producer_events` (Fase 6)** fica em **background, design-only**, até a captura de eventos virar gargalo (após o 1º relatório publicado).
+
 Owner agents: ver `docs/agents/README.md`.
 
 ---
