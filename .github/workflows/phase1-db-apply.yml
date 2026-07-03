@@ -61,10 +61,10 @@ jobs:
     environment: production-db
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Install Supabase CLI
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1  # v1.7.1
         with:
           version: latest
 
@@ -108,7 +108,7 @@ jobs:
     environment: production-db
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Install psql client
         run: |
@@ -139,27 +139,3 @@ jobs:
           # Any failed assertion raises -> ON_ERROR_STOP fails the job (and the run).
           psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 \
             -f supabase/tests/phase1_post_apply_verify.sql
-
-      - name: Complementary — service-key API negative check (§5, best-effort)
-        env:
-          SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          PROJECT_REF: ${{ env.SUPABASE_PROJECT_REF }}
-        run: |
-          set -euo pipefail
-          if [ -z "${SERVICE_KEY:-}" ]; then
-            echo "SUPABASE_SERVICE_ROLE_KEY not provisioned — skipping API-level check."
-            echo "Authoritative immutability proof already ran at the DB level (psql, set role service_role)."
-            exit 0
-          fi
-          # Best-effort: prove the service key cannot wipe audit_events via the
-          # PostgREST API. The trigger fires below the service_role bypass, so a
-          # mutation that reaches a row must return a non-2xx. We target a probe
-          # row id that does not exist, so a 2xx here only means "0 rows", not a
-          # security failure; a 5xx/4xx from the trigger is the positive signal.
-          # The DB-level psql test above remains the authoritative SEC-F16 proof.
-          code="$(curl -s -o /dev/null -w '%{http_code}' \
-            -X DELETE \
-            -H "apikey: ${SERVICE_KEY}" \
-            -H "Authorization: Bearer ${SERVICE_KEY}" \
-            "https://${PROJECT_REF}.supabase.co/rest/v1/audit_events?action=eq.__never_exists__")" || true
-          echo "API DELETE returned HTTP ${code} (informational; DB-level proof is authoritative)."
