@@ -1,3 +1,10 @@
+> ✅ **RESOLVIDO / APLICADO — não leia este documento como `needs_review`.**
+> O ciclo de re-reviews (DATA-AI-0005→0006→**0007** aprovado · Security **SEC-0014** · pipeline **SEC-0015**)
+> foi fechado e a migration **foi aplicada em produção** (CI run `28311371393`, origem `main`, reviewer
+> AdeptLabsDev; PR #6 → `6d842b1`; **DEC-0012**). As revisões ⏳ do §10 abaixo estão **superadas**.
+> **Fonte canônica de status:** [`HANDOFF-phase5-apply-closeout.md`](HANDOFF-phase5-apply-closeout.md).
+> Este documento permanece como registro de **design** (decisões de integridade + mapa achado→correção).
+
 # Handoff — [DB] Fase 5 Design (Computed Metrics + Resolução + Relatório) · Database Agent
 
 ## 1. Identificação

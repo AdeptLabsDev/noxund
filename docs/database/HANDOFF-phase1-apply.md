@@ -1,5 +1,11 @@
 # Handoff — [DB] Fase 1 `run_migration` (Apply) · Database Agent
 
+> **✅ RESOLVIDO (2026-06-24) — este `blocked` foi superado.** A migration foi **aplicada e
+> verificada em CI** (ambiente credenciado `production-db`, INFRA-0001), resolvendo o bloqueio
+> `MISSING_CREDENTIALED_CONNECTION` do §7. Evidência canônica e status `completed` em
+> **`HANDOFF-phase1-apply-closeout.md`** (run `27956757153`, job `verify` PASSED). O conteúdo
+> abaixo é mantido como **registro histórico** do estado bloqueado — não é mais o estado atual.
+
 ## 1. Identificação
 - **Tarefa:** `task_phase1_run_migration_apply` · **Action:** `run_migration` (sensível/gated)
 - **Owner agent:** Database
