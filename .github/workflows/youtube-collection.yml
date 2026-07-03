@@ -99,29 +99,46 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Validate confirmation + irreversibility acknowledgement
+        env:
+          # SEC hardening (F-3): untrusted workflow_dispatch inputs are consumed via
+          # env, NEVER interpolated as ${{ }} into the run: body. A ${{ inputs.* }}
+          # spliced into the script text is a shell-injection sink (a crafted value
+          # can break out of the string and run arbitrary shell). Reading through an
+          # env var passes the value as data, not code. Mirrors the collect/verify
+          # env: pattern already used below (SEC-0020).
+          CONFIRM: ${{ inputs.confirm }}
+          ACKNOWLEDGE_IRREVERSIBLE: ${{ inputs.acknowledge_irreversible }}
         run: |
           set -euo pipefail
-          if [ "${{ inputs.confirm }}" != "RUN-CHANNEL-COLLECTION" ]; then
+          if [ "$CONFIRM" != "RUN-CHANNEL-COLLECTION" ]; then
             echo "::error::Confirmation phrase mismatch — aborting with NO collection."
             exit 1
           fi
-          if [ "${{ inputs.acknowledge_irreversible }}" != "I-UNDERSTAND-RAW-IS-IRREVERSIBLE" ]; then
+          if [ "$ACKNOWLEDGE_IRREVERSIBLE" != "I-UNDERSTAND-RAW-IS-IRREVERSIBLE" ]; then
             echo "::error::Irreversibility acknowledgement missing/mismatch — raw_youtube_channels is append-only/immutable (no rollback; correction = new run_id). Aborting with NO collection."
             exit 1
           fi
           echo "Confirmation + irreversibility acknowledgement accepted."
 
       - name: Validate run_id is a well-formed UUID (no run is created here)
+        env:
+          # F-3: run_id (untrusted dispatch input) via env, never ${{ }} in run:.
+          RUN_ID: ${{ inputs.run_id }}
         run: |
           set -euo pipefail
-          rid="${{ inputs.run_id }}"
-          if ! printf '%s' "$rid" | grep -qiE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
+          if ! printf '%s' "$RUN_ID" | grep -qiE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
             echo "::error::run_id is not a valid UUID. Channel Data reuses the EXISTING run_id (DATA-COLLECT-002 §2.1) whose video gate §7 already passed. Aborting."
             exit 1
           fi
           echo "run_id shape OK."
 
       - name: SEC-F18 backstop — dispatch ref MUST be main
+        env:
+          # F-3: github.ref via env, not ${{ }} in run:. github.ref is not
+          # attacker-controllable the way inputs are, but the env: indirection is
+          # applied uniformly so ZERO ${{ }} reaches any shell body in guard. (Not
+          # named GITHUB_*: that prefix is reserved by the runner.)
+          DISPATCH_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
           # Defense-in-depth for SEC-F18 that does NOT depend on the Environment
@@ -129,8 +146,8 @@ jobs:
           # auto-created by GitHub WITHOUT protection rules, so we do not assume the
           # branch rule is enforced until SG-4. This closes "dispatch a modified
           # workflow from a branch" at the YAML level regardless.
-          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
-            echo "::error::SEC-F18: dispatch ref is '${{ github.ref }}', not refs/heads/main. Aborting with NO collection."
+          if [ "$DISPATCH_REF" != "refs/heads/main" ]; then
+            echo "::error::SEC-F18: dispatch ref is '$DISPATCH_REF', not refs/heads/main. Aborting with NO collection."
             exit 1
           fi
           echo "SEC-F18 backstop OK — dispatch from main."
