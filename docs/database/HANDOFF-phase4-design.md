@@ -1,5 +1,11 @@
 # Handoff — [DB] Fase 4 Design (Raw YouTube Snapshots) · Database Agent
 
+> ✅ **RESOLVIDO — APLICADO E VERIFICADO (2026-06-27).** As revisões pendentes do §11 baixaram
+> (**SEC-0012** Security #3 · **DATA-AI-0004** Data/AI #4 · **SEC-0013** pipeline #8) e o apply
+> gated rodou verde em CI a partir de `main` (run `28277270507`, reviewer AdeptLabsDev). Evidência
+> canônica e ratificação repo-side em **`HANDOFF-phase4-apply-closeout.md`**. Não leia o estado
+> `needs_review`/⏳ abaixo como atual. Fase 9 (RLS Policies, SEC-0001 §0) **não** foi destravada.
+
 ## 1. Identificação
 - **Tarefa:** `task_phase4_design_raw_snapshots` · **Action:** `design_schema` (não-sensível; apply gated)
 - **Owner agent:** Database (`database_agent`)
