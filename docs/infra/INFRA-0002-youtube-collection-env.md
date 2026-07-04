@@ -22,6 +22,8 @@
 
 **NÃO** contém valores de secret (só **nomes**). **NÃO** provisiona nada. **NÃO** cria `.github/collection/youtube-collection.armed`. **NÃO** dispara coleta. Os **valores** são injetados **out-of-band pelo Product Lead**, direto no cofre/CI, com evidência exigida (§6).
 
+> **Proveniência (importante):** este documento **NÃO** altera `.github/workflows/youtube-collection.yml`. O **hardening F-3** desse pipeline **landou via #21** (commit `3ef6ff8`, branch `sec/collection-guard-f3-hardening`), revisado e mergeado no seu próprio PR. Este INFRA-0002 faz parte do **registro companion de SG-4 (#27, docs-only)** e apenas **referencia** aquele hardening — não o reintroduz.
+
 > **Non-negotiable (global rule #10 / onboarding §8.6):** secret nunca entra em payload, arquivo versionado, log ou contexto do Orchestrator. A `YOUTUBE_API_KEY` é a **1ª credencial portadora de custo** do CI (abuso = queima de quota/billing) — trato F-1 abaixo.
 
 ---
@@ -30,7 +32,7 @@
 
 | Artefato | Caminho | Papel | Estado |
 |---|---|---|---|
-| Pipeline gated | `.github/workflows/youtube-collection.yml` | Guard → collect → verify. Manual-only, fail-closed, **F-3 hardened** nesta entrega. | ✅ landado, **desarmado** |
+| Pipeline gated | `.github/workflows/youtube-collection.yml` | Guard → collect → verify. Manual-only, fail-closed, **F-3 hardened via #21** (commit `3ef6ff8`) — **não editado por #27**. | ✅ landado (#21), **desarmado** |
 | Collector (SG-5) | `services/data-engine/src/noxund_data_engine/channel_collection.py` | `channels.list` → INSERT em `raw_youtube_channels`. | ⬜ ausente (SG-5) |
 | Testes §8 (SG-5) | `services/data-engine/tests/test_channel_collection.py` | §8.1–§8.6 (body-vs-envelope, CHECK/scrub, canary, quota fail, retry, DC2-01). | ⬜ ausente (SG-5) |
 | Gate §7 (SG-5/7) | `supabase/tests/channel_data_post_collection_verify.sql` | Set-equality canais↔vídeos pós-coleta. | ⬜ ausente (SG-5) |
@@ -122,7 +124,7 @@ O marcador `.armed` é committado por DevOps como **ato consciente** — a **aus
 
 | # | Item | Responsável | Verificação | Estado |
 |---|---|---|---|---|
-| **1** | **F-3 aplicado** — guard sem `${{ inputs.* }}`/`${{ github.ref }}` em `run:` (env:-indireção; padrão `collect`/`verify`) | DevOps | **em repo** (grep: zero `${{ }}` em `run:` do guard) | ✅ **verde** (esta entrega) |
+| **1** | **F-3 aplicado** — guard sem `${{ inputs.* }}`/`${{ github.ref }}` em `run:` (env:-indireção; padrão `collect`/`verify`) | DevOps | **em repo** (grep: zero `${{ }}` em `run:` do guard) | ✅ **verde** (landou via **#21**, commit `3ef6ff8`) |
 | **2** | **OQ-2 confirmado** — sem `FORCE RLS` + caminho `postgres`/DB-password | Database + Security | **em repo** (§5) | ✅ **verde** |
 | **3** | **Environment provisionado** — branch rule `main` **1º** → required reviewers (DevOps+Security) → **então** secrets/vars (§3) | DevOps + Product Lead | **out-of-band** (screenshots §3) | ⬜ pendente |
 | **4** | **F-1 aplicado** — key restrita à YouTube Data API v3 + alerta de quota + política de rotação (§4) | DevOps + Security | **out-of-band** (screenshots §4) | ⬜ pendente |
@@ -135,7 +137,7 @@ O marcador `.armed` é committado por DevOps como **ato consciente** — a **aus
 
 ## 7. Estado e próximo passo
 
-- **Entregue nesta task (SG-4 — preparação):** F-3 hardening no YAML (desarmado); este contrato de provisionamento (§1–§5); plano F-1 (§4); confirmação OQ-2 (§5); checklist de pré-arm (§6). **Zero secret provisionado; `.armed` NÃO committado; nenhum dispatch.**
+- **Entregue neste registro (SG-4 companion — #27, docs-only):** este contrato de provisionamento (§1–§5); plano F-1 (§4); confirmação OQ-2 (§5); checklist de pré-arm (§6). O **F-3 hardening no YAML** já **landou via #21** (commit `3ef6ff8`, guard desarmado) — este doc apenas o **referencia**, não edita o workflow. **Zero secret provisionado; `.armed` NÃO committado; nenhum dispatch.**
 - **Fronteira humana (fora desta entrega):** injeção dos valores de secret + protection rules (§3), F-1 no console GCP (§4), co-sign de Security, e o **commit consciente do arm marker** — só após §6 verde. O **dispatch** real (SG-6) é ato humano separado, com required reviewers.
 - **Vetos intransponíveis (não tocados):** Fase 9 / RLS Policies (raw default-deny); `0007`/producer_events **PARKED**; publish barrado até **P5-REPRO-01** (SG-8).
 
