@@ -44,9 +44,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Validate confirmation phrase
+        # Pass the dispatch input through the environment, never interpolate it
+        # into the script body: `${{ inputs.confirm }}` templated inside `run:`
+        # is an expression-injection sink. As an env var the value is data, not
+        # code, so shell metacharacters cannot break out of the comparison.
+        env:
+          CONFIRM: ${{ inputs.confirm }}
         run: |
           set -euo pipefail
-          if [ "${{ inputs.confirm }}" != "APPLY-PHASE1" ]; then
+          if [ "$CONFIRM" != "APPLY-PHASE1" ]; then
             echo "::error::Confirmation phrase mismatch — aborting with no apply."
             exit 1
           fi
