@@ -1,0 +1,16 @@
+# NOXUND · youtube-collection ARM marker
+#
+# Presence of this file satisfies condition #1 of the FAIL-CLOSED arming
+# preflight in .github/workflows/youtube-collection.yml (guard job). It is a
+# CONSCIOUS DevOps act, committed only after INFRA-0002 §6 checklist items 1–6
+# were all green:
+#   - SG-4 Environment provisioned + Security co-sign (SEC-0021 -> SEC-0022, in main)
+#   - SG-5 collector + §8 tests + §7 verify landed and green (PR #31, in main)
+#
+# ARMING IS NECESSARY, NOT SUFFICIENT. Even armed, a real collection still
+# requires the SG-6 human gate on EVERY run: a manual workflow_dispatch from
+# main + the confirmation phrase RUN-CHANNEL-COLLECTION + the acknowledgement
+# I-UNDERSTAND-RAW-IS-IRREVERSIBLE + the youtube-collection Environment's
+# required-reviewer approval. Deleting this file disarms the pipeline.
+#
+# No secret, host, credential, or connection string appears here by design.
