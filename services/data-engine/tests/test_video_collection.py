@@ -21,8 +21,11 @@ from __future__ import annotations
 import io
 import json
 import logging
+import os
+import tempfile
 import unittest
 import urllib.error
+import uuid
 from datetime import datetime, timezone
 from unittest import mock
 
@@ -262,6 +265,27 @@ def _capture_logs():
 
 def _collect(conn, search_api, videos_api, run_id=_RUN):
     return vc.collect_new_run(run_id, _WS, _WE, search_api, videos_api, conn)
+
+
+def _main_success(conn, env, *, run_id=_RUN, search=None, videos=None):
+    """Drive main() over a mocked one-page success in a hermetic env; return the rc.
+
+    ``env`` fully replaces os.environ (clear=True) so GITHUB_OUTPUT is EXACTLY what the
+    test sets — present (a path) or absent (the unset/no-op branch) — never inherited
+    from the CI runner. All egress/DB/uuid are mocked: zero network, secret, or DB.
+    """
+    if search is None:
+        search = mock.Mock()
+        search.list_search_page.return_value = _search_body(["v1"])
+    if videos is None:
+        videos = mock.Mock()
+        videos.list_videos.return_value = [_video_item("v1")]
+    with mock.patch.dict("os.environ", env, clear=True), \
+            mock.patch.object(vc, "_connect", return_value=conn), \
+            mock.patch.object(vc, "_new_run_id", return_value=run_id), \
+            mock.patch.object(vc, "UrllibSearchApi", return_value=search), \
+            mock.patch.object(vc, "UrllibVideosApi", return_value=videos):
+        return vc.main([])
 
 
 # --- §8.1 body-vs-envelope ---------------------------------------------------
@@ -629,7 +653,13 @@ class EntrypointGuards(unittest.TestCase):
         videos = mock.Mock()
         videos.list_videos.return_value = [_video_item("v1")]
         conn = FakeConnection()
-        env = {"YOUTUBE_API_KEY": _CANARY, "SUPABASE_DB_URL": "postgresql://x"}
+        # GITHUB_OUTPUT="" neutralizes the run_id emit (no-op branch) so this success
+        # test never mutates the real CI $GITHUB_OUTPUT file — the emit is proven
+        # separately in RunIdOutput. clear=False keeps this test's original scope.
+        env = {
+            "YOUTUBE_API_KEY": _CANARY, "SUPABASE_DB_URL": "postgresql://x",
+            "GITHUB_OUTPUT": "",
+        }
         with mock.patch.dict("os.environ", env, clear=False), \
                 mock.patch.object(vc, "_connect", return_value=conn), \
                 mock.patch.object(vc, "_new_run_id", return_value=_RUN), \
@@ -658,6 +688,97 @@ class EntrypointGuards(unittest.TestCase):
             rc = vc.main([])
         self.assertEqual(rc, 1)
         self.assertEqual(conn.failed_run, _RUN)
+
+
+# --- SG-V6 / F2'-N1: run_id -> $GITHUB_OUTPUT (gated verify coupling) ---------
+
+# Mirrors the UUID-shape gate the verify job enforces on the collect output.
+_UUID_RE = r"^run_id=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+
+
+class RunIdOutput(unittest.TestCase):
+    def _output_file(self):
+        fd, path = tempfile.mkstemp()  # local temp file; zero network, zero secret
+        os.close(fd)
+        self.addCleanup(os.unlink, path)
+        return path
+
+    def test_success_writes_run_id_line_to_github_output(self):
+        out_path = self._output_file()
+        conn = FakeConnection()
+        env = {
+            "YOUTUBE_API_KEY": _CANARY, "SUPABASE_DB_URL": "postgresql://x",
+            "GITHUB_OUTPUT": out_path,
+        }
+        self.assertEqual(_main_success(conn, env), 0)
+        with open(out_path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), f"run_id={_RUN}\n")  # exact GHA line format
+
+    def test_emitted_value_has_valid_uuid_shape_and_is_the_created_run_id(self):
+        out_path = self._output_file()
+        real_run_id = str(uuid.uuid4())  # a genuine _new_run_id()-shaped value
+        conn = FakeConnection()
+        env = {
+            "YOUTUBE_API_KEY": _CANARY, "SUPABASE_DB_URL": "postgresql://x",
+            "GITHUB_OUTPUT": out_path,
+        }
+        self.assertEqual(_main_success(conn, env, run_id=real_run_id), 0)
+        with open(out_path, encoding="utf-8") as handle:
+            content = handle.read()
+        self.assertEqual(content, f"run_id={real_run_id}\n")  # exactly main()'s run_id
+        self.assertRegex(content.strip(), _UUID_RE)  # passes the verify job's shape gate
+
+    def test_unset_github_output_is_silent_noop_and_run_still_succeeds(self):
+        conn = FakeConnection()
+        env = {"YOUTUBE_API_KEY": _CANARY, "SUPABASE_DB_URL": "postgresql://x"}
+        # GITHUB_OUTPUT absent (clear=True in the helper): emit is a no-op, rc stays 0.
+        self.assertEqual(_main_success(conn, env), 0)
+        self.assertEqual(conn.runs[_RUN]["collected"], 1)  # run finalized as usual
+        self.assertIsNone(conn.failed_run)
+
+    def test_output_contains_only_run_id_never_secret_or_payload(self):
+        out_path = self._output_file()
+        token = "SECRET-PAGE-TOKEN-must-not-appear"
+        search = mock.Mock()
+        search.list_search_page.side_effect = [
+            _search_body(["v1"], next_token=token), _search_body(["v2"]),
+        ]
+        videos = mock.Mock()
+        videos.list_videos.return_value = [
+            _video_item("v1", title="Leaky Title", channel="UC_secret"),
+            _video_item("v2", title="Leaky Title", channel="UC_secret"),
+        ]
+        conn = FakeConnection()
+        env = {
+            "YOUTUBE_API_KEY": _CANARY, "SUPABASE_DB_URL": "postgresql://secret-dsn",
+            "GITHUB_OUTPUT": out_path,
+        }
+        self.assertEqual(_main_success(conn, env, search=search, videos=videos), 0)
+        with open(out_path, encoding="utf-8") as handle:
+            content = handle.read()
+        self.assertEqual(content, f"run_id={_RUN}\n")  # one line only, nothing appended
+        for leak in (_CANARY, token, "secret-dsn", "Leaky Title", "UC_secret", "raw_json"):
+            self.assertNotIn(leak, content)
+
+    def test_failed_run_does_not_emit_success_run_id(self):
+        out_path = self._output_file()
+        failing = mock.Mock()
+        failing.list_search_page.side_effect = vc.QuotaExceeded("quota")
+        conn = FakeConnection()
+        env = {
+            "YOUTUBE_API_KEY": _CANARY, "SUPABASE_DB_URL": "postgresql://x",
+            "GITHUB_OUTPUT": out_path,
+        }
+        with mock.patch.dict("os.environ", env, clear=True), \
+                mock.patch.object(vc, "_connect", return_value=conn), \
+                mock.patch.object(vc, "_new_run_id", return_value=_RUN), \
+                mock.patch.object(vc, "UrllibSearchApi", return_value=failing), \
+                mock.patch.object(vc, "UrllibVideosApi", return_value=mock.Mock()):
+            rc = vc.main([])
+        self.assertEqual(rc, 1)  # fail-closed unchanged
+        self.assertEqual(conn.runs[_RUN]["status"], "failed")
+        with open(out_path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "")  # no success run_id emitted on failure
 
 
 if __name__ == "__main__":  # pragma: no cover
