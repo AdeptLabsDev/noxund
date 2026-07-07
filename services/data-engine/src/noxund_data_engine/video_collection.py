@@ -688,6 +688,30 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _emit_run_id_output(run_id: str) -> None:
+    """Emit the CREATED run_id to ``$GITHUB_OUTPUT`` for the gated verify job (SG-V6).
+
+    GitHub Actions surfaces a step's outputs to downstream jobs when the step appends
+    ``name=value`` lines to the file named by ``$GITHUB_OUTPUT``. video-collection.yml
+    exposes ``steps.collect.outputs.run_id`` and its verify job fails closed unless
+    that value is a well-formed UUID. This writes EXACTLY one line — ``run_id=<uuid>``
+    followed by a newline — and nothing else: never the key, the DB URL, a body, a
+    title, or a pageToken (log hygiene §8 governs this sink too). The run_id is
+    non-secret (it lives in ``report_runs``); surfacing it leaks nothing sensitive.
+
+    When ``GITHUB_OUTPUT`` is UNSET (a local/offline run) this is a silent no-op, so
+    the collector still runs with no error and no file side effect. When it IS set a
+    write failure is allowed to propagate: ``main()`` emits BEFORE ``conn.commit()``,
+    so an emit that cannot surface the run_id fail-closes the whole run atomically
+    (rationale documented at the call site).
+    """
+    output_path = os.environ.get("GITHUB_OUTPUT")
+    if not output_path:
+        return
+    with open(output_path, "a", encoding="utf-8") as handle:
+        handle.write(f"run_id={run_id}\n")
+
+
 def _fail_run(conn: ConnectionLike, run_id: str, quota_used: int) -> None:
     try:
         mark_run_failed(conn, run_id, quota_used)
@@ -728,6 +752,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         count, stop = collect_new_run(
             run_id, window_start, window_end, search_api, videos_api, conn, quota
         )
+        # Surface the CREATED run_id to $GITHUB_OUTPUT (SG-V6 / F2'-N1) BEFORE the
+        # durable commit, so the emit is part of ONE atomic success criterion: the
+        # run is committed ONLY once its run_id has been surfaced for the verify job.
+        # If the emit cannot write, control falls to the fail-closed handlers below —
+        # the run is rolled back + marked failed and main() exits nonzero, so the
+        # collect job fails and the verify job never runs (correction = a new run_id).
+        # This ordering means a completed run can never be left committed-but-
+        # unemittable, and an emit hiccup can never mark an already-committed run as
+        # failed. A local/offline run (GITHUB_OUTPUT unset) is a silent no-op. run_id
+        # (non-secret; in report_runs) is the ONLY value written — no key/DB URL/body.
+        _emit_run_id_output(run_id)
         conn.commit()
         _LOG.info("video_data: run %s complete (%d videos, stop=%s)", run_id, count, stop)
         return 0
