@@ -88,11 +88,18 @@ _VIDEOS_QUOTA_UNIT = 1
 # Cycle / runaway guard: 500/50 ≈ 10 pages; 100 is a generous, fail-closed ceiling.
 _MAX_PAGES = 100
 
+# F-1' / OD-V2 quota floors (Product Lead ratified 2026-07-06). The per-run HARD cap
+# fail-closes a runaway pagination / retry storm before it can burn the shared project
+# quota (RR-1/RR-8); the nominal run is ~1010 units, so 2000 is ~2x headroom. Retry
+# surplus is bounded separately so a transient storm cannot silently double the spend.
+_PER_RUN_QUOTA_CAP = 2000
+_PER_RUN_RETRY_SURPLUS_CAP = 500
+
 _REQUEST_CONTEXT_KEYS = ("config", "request", "headers", "authorization", "key")
 _TRANSIENT_STATUS = frozenset({429, 500, 502, 503, 504})
 _QUOTA_REASONS = frozenset({"quotaExceeded", "dailyLimitExceeded"})
-_MAX_ATTEMPTS = 4
-_BACKOFF_SCHEDULE = (1.0, 2.0, 4.0)  # deterministic; len == _MAX_ATTEMPTS - 1
+_MAX_ATTEMPTS = 3  # <= 2 retries per call (F-1'/OD-V2); quotaExceeded is never retried
+_BACKOFF_SCHEDULE = (1.0, 2.0)  # deterministic; len == _MAX_ATTEMPTS - 1
 
 
 class CollectionError(RuntimeError):
@@ -106,6 +113,11 @@ class CollectionError(RuntimeError):
 
 class QuotaExceeded(CollectionError):
     """search.list / videos.list signalled quota exhaustion — no retry; run fails."""
+
+
+class QuotaCapExceeded(CollectionError):
+    """Projected per-run quota (nominal + retry surplus) would exceed the F-1' hard
+    cap (OD-V2). Fail-closed — a cost guard, NEVER a source_exhausted stop."""
 
 
 class PaginationError(CollectionError):
@@ -156,13 +168,32 @@ class ProjectedVideo(NamedTuple):
 
 
 class _Quota:
-    """Accumulated YouTube quota (§2.5). Just a counter — carries no payload."""
+    """Per-run YouTube quota with a fail-closed hard cap (§2.5 + F-1'/OD-V2).
 
-    def __init__(self) -> None:
+    ``charge`` PROJECTS the spend BEFORE it happens (the "antes/durante" guard) and
+    raises ``QuotaCapExceeded`` if the per-run cap — or the retry-surplus sub-cap —
+    would be exceeded. It carries no payload (only counts). A rejected charge never
+    mutates the counters (it is fail-closed, not a partial spend).
+    """
+
+    def __init__(self, cap: int | None = None, retry_surplus_cap: int | None = None) -> None:
         self.used = 0
+        self.retry_surplus = 0
+        self._cap = _PER_RUN_QUOTA_CAP if cap is None else cap
+        self._retry_surplus_cap = (
+            _PER_RUN_RETRY_SURPLUS_CAP if retry_surplus_cap is None else retry_surplus_cap
+        )
 
-    def add(self, units: int) -> None:
+    def charge(self, units: int, *, retry: bool = False) -> None:
+        if retry and self.retry_surplus + units > self._retry_surplus_cap:
+            raise QuotaCapExceeded(
+                f"per-run retry surplus would exceed cap ({self._retry_surplus_cap})"
+            )
+        if self.used + units > self._cap:
+            raise QuotaCapExceeded(f"per-run quota would exceed cap ({self._cap})")
         self.used += units
+        if retry:
+            self.retry_surplus += units
 
 
 # --- pure logic (no I/O; fully unit-testable) --------------------------------
@@ -447,8 +478,8 @@ def _run_search(
         if key in requested:
             raise PaginationError("pageToken cycle/repeat detected")
         requested.add(key)
+        quota.charge(_SEARCH_QUOTA_UNIT)  # project the page cost BEFORE the call (cap guard)
         body = api.list_search_page(token)
-        quota.add(_SEARCH_QUOTA_UNIT)
         insert_search_page(conn, run_id, token, body)
         pages.append(body)
         if len(select_video_ids(pages)) >= _TARGET_VIDEO_COUNT:
@@ -468,8 +499,8 @@ def _run_videos(
 ) -> None:
     """Agente 2: fetch videos.list in <= 50-id batches; validate; INSERT-only."""
     for batch in batched(ids):
+        quota.charge(_VIDEOS_QUOTA_UNIT)  # project the batch cost BEFORE the call (cap guard)
         items = api.list_videos(batch)
-        quota.add(_VIDEOS_QUOTA_UNIT)
         for video in validate_batch(batch, items):
             insert_video(conn, run_id, video)
         _LOG.info("videos: batch persisted (%d ids)", len(batch))
@@ -482,15 +513,19 @@ def collect_new_run(
     search_api: SearchApi,
     videos_api: VideosApi,
     conn: ConnectionLike,
+    quota: _Quota | None = None,
 ) -> tuple[int, str]:
     """Create a NEW run and collect its video snapshot; return (count, stop_reason).
 
     Creates ``report_runs`` (created → collecting), runs Agente 1 (search) then
     Agente 2 (videos), proves in-process §7 completeness, and finalizes
     ``collected_video_count`` in a single write. Raises ``CollectionError``
-    (fail-closed) on any anomaly; the caller owns commit/rollback and marks failed.
+    (fail-closed) on any anomaly — including ``QuotaCapExceeded`` (F-1' cap), which
+    is a fail-closed cost guard, NEVER a source_exhausted stop; the caller owns
+    commit/rollback and marks failed. Pass ``quota`` shared with the API clients so
+    nominal + retry-surplus aggregate against one per-run cap (main wires them).
     """
-    quota = _Quota()
+    quota = quota if quota is not None else _Quota()
     create_run(conn, run_id, window_start, window_end)
     set_collecting(conn, run_id)
     pages, stop = _run_search(search_api, conn, run_id, quota)
@@ -507,12 +542,21 @@ def collect_new_run(
 
 def _http_get_json(
     url: str,
+    unit_cost: int,
     api_key: str,
+    quota: _Quota,
     sleep: Callable[[float], None],
     opener: Callable[[urllib.request.Request], Any],
 ) -> dict[str, Any]:
-    """GET a JSON body with header auth + deterministic retry. Key never in URL."""
+    """GET a JSON body with header auth + deterministic retry (<= 2). Key never in URL.
+
+    The nominal cost of the call is charged by the orchestration BEFORE the call; each
+    RETRY here charges the endpoint cost again as retry surplus (bounded by the F-1'
+    sub-cap and projected fail-closed), because a retried request re-consumes quota.
+    """
     for attempt in range(1, _MAX_ATTEMPTS + 1):
+        if attempt > 1:
+            quota.charge(unit_cost, retry=True)  # retry re-spends quota (projected/fail-closed)
         request = urllib.request.Request(url, method="GET")
         request.add_header("X-Goog-Api-Key", api_key)  # key in header, never ?key=
         request.add_header("Accept", "application/json")
@@ -543,6 +587,7 @@ class UrllibSearchApi:
         *,
         published_after: str,
         published_before: str,
+        quota: _Quota | None = None,
         sleep: Callable[[float], None] = time.sleep,
         opener: Callable[[urllib.request.Request], Any] = urllib.request.urlopen,
     ) -> None:
@@ -551,6 +596,7 @@ class UrllibSearchApi:
         self._api_key = api_key
         self._after = published_after
         self._before = published_before
+        self._quota = quota if quota is not None else _Quota()
         self._sleep = sleep
         self._opener = opener
 
@@ -568,7 +614,8 @@ class UrllibSearchApi:
             params["pageToken"] = page_token
         query = urllib.parse.urlencode(params)
         return _http_get_json(
-            f"{_SEARCH_ENDPOINT}?{query}", self._api_key, self._sleep, self._opener
+            f"{_SEARCH_ENDPOINT}?{query}", _SEARCH_QUOTA_UNIT, self._api_key,
+            self._quota, self._sleep, self._opener,
         )
 
 
@@ -579,12 +626,14 @@ class UrllibVideosApi:
         self,
         api_key: str,
         *,
+        quota: _Quota | None = None,
         sleep: Callable[[float], None] = time.sleep,
         opener: Callable[[urllib.request.Request], Any] = urllib.request.urlopen,
     ) -> None:
         if not api_key:
             raise CollectionError("missing YOUTUBE_API_KEY")
         self._api_key = api_key
+        self._quota = quota if quota is not None else _Quota()
         self._sleep = sleep
         self._opener = opener
 
@@ -593,7 +642,8 @@ class UrllibVideosApi:
             raise CollectionError("batch exceeds videos.list id limit")
         query = urllib.parse.urlencode({"part": _VIDEOS_PART, "id": ",".join(video_ids)})
         body = _http_get_json(
-            f"{_VIDEOS_ENDPOINT}?{query}", self._api_key, self._sleep, self._opener
+            f"{_VIDEOS_ENDPOINT}?{query}", _VIDEOS_QUOTA_UNIT, self._api_key,
+            self._quota, self._sleep, self._opener,
         )
         items = body.get("items")
         if not isinstance(items, list):
@@ -666,28 +716,30 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     run_id = _new_run_id()
     window_start, window_end = window_bounds(_utc_now())
+    quota = _Quota()  # one per-run cap shared by both clients + orchestration (F-1'/OD-V2)
     search_api = UrllibSearchApi(
-        api_key, published_after=rfc3339(window_start), published_before=rfc3339(window_end)
+        api_key, published_after=rfc3339(window_start), published_before=rfc3339(window_end),
+        quota=quota,
     )
-    videos_api = UrllibVideosApi(api_key)
+    videos_api = UrllibVideosApi(api_key, quota=quota)
     conn = _connect(dsn)
     _LOG.info("video_data: run %s created (collecting)", run_id)
     try:
         count, stop = collect_new_run(
-            run_id, window_start, window_end, search_api, videos_api, conn
+            run_id, window_start, window_end, search_api, videos_api, conn, quota
         )
         conn.commit()
         _LOG.info("video_data: run %s complete (%d videos, stop=%s)", run_id, count, stop)
         return 0
     except CollectionError as exc:
         conn.rollback()
-        _fail_run(conn, run_id, 0)
+        _fail_run(conn, run_id, quota.used)
         # Log the class name only — even scrubbed messages stay out of the log.
         _LOG.error("video_data: fail-closed — run marked failed (%s)", type(exc).__name__)
         return 1
     except Exception as exc:  # any driver/parse error is ALSO fail-closed (§6)
         conn.rollback()
-        _fail_run(conn, run_id, 0)
+        _fail_run(conn, run_id, quota.used)
         _LOG.error("video_data: fail-closed — unexpected error (%s)", type(exc).__name__)
         return 1
     finally:
