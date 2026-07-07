@@ -1,0 +1,347 @@
+name: Video Data · Collect (gated) — DATA-COLLECT-001 / SG-V6
+
+# WHY MANUAL-ONLY + DISARMED ------------------------------------------------
+# Running a REAL video collection is a SENSITIVE, human-gated action (global
+# rules #11/#12, onboarding §4). This workflow NEVER runs on push and NEVER on
+# a schedule (cron is Phase 2). It runs only when ALL of the following hold:
+#   1. a human dispatches it from `main` AND types the confirmation phrase AND
+#      the irreversibility acknowledgement, and
+#   2. the `youtube-collection` Environment's required reviewers approve the run
+#      (reviewers = DevOps + Security per agent-review-matrix.md #8), and
+#   3. the pipeline is ARMED (see the FAIL-CLOSED preflight in the `guard` job).
+#
+# STATE ON LANDING = DISARMED. Merely landing this YAML on `main` MUST NOT be
+# able to collect anything. The `guard` job aborts EVERY dispatch until the
+# explicit arming marker `.github/collection/video-collection.armed` is
+# committed (its ABSENCE is the disarmed state) AND the collector + its §8
+# tests + the §7 verify SQL are present. This file is DESIGN-ONLY (SG-V6):
+# authored, reviewable, and inert. It does NOT arm anything.
+#
+# RUN-CREATION DIVERGENCE (vs DATA-COLLECT-002) ------------------------------
+# DATA-COLLECT-001 is the SOLE PRODUCER of the run. UNLIKE the Channel Data
+# pipeline (002 / youtube-collection.yml, which REUSES an existing frozen
+# run_id passed as a workflow INPUT), this Video Data collector GENERATES the
+# run_id internally (spec §2; SG-V1). Consequences encoded below:
+#   • there is NO `run_id` input on this workflow (nothing to reuse — 001
+#     creates the run);
+#   • the collect job EXPOSES the produced run_id as a step/job output, and the
+#     verify job CONSUMES `needs.collect.outputs.run_id` to target the §7 gate.
+#
+# >>> COUPLED SG-V6 DEPENDENCY — COLLECTOR MUST EMIT run_id TO $GITHUB_OUTPUT <<<
+# The collector as-landed (video_collection.py) LOGS the run_id but does NOT
+# emit `run_id=<uuid>` to `$GITHUB_OUTPUT`. This YAML is wired to the INTENDED
+# output (`steps.collect.outputs.run_id`); until a minimal follow-up teaches
+# the collector to write that line, `needs.collect.outputs.run_id` is empty and
+# the verify job's UUID-shape check FAILS CLOSED (the §7 gate cannot pass on an
+# empty run_id). That collector change is NOT made here — it is a separate,
+# authorized SG-V6 deliverable. This YAML must not be armed before it lands.
+#
+# >>> THIS IS A NEW ARTIFACT — REQUIRES ITS OWN SECURITY AUDIT (F-2') <<<
+# This is a FAITHFUL MIRROR of the 002 gated collection spine
+# (.github/workflows/youtube-collection.yml: workflow_dispatch + confirm phrase
+# + Environment required reviewers + SEC-F18 main-only + SEC-F17 SHA-pins +
+# contents:read + masked DB URL + header X-Goog-Api-Key + body-only +
+# fail-closed arming preflight) — BUT it is a DISTINCT file with a distinct arm
+# marker, a distinct confirm phrase, and run-CREATION semantics, so it does NOT
+# inherit SEC-0023's clearance of 002. Per F-2' it MUST pass a SEPARATE Security
+# `audit_secrets` of THIS YAML (matrix #8) before it may be armed. Risk surface
+# (same shape as 002, re-cleared here): the cost-bearing credential
+# YOUTUBE_API_KEY (quota/billing burn — must be API-restricted to YouTube Data
+# API v3 + quota alert at arm time, F-1'/OD-V2, out of band); external egress to
+# googleapis.com; IRREVERSIBLE writes into append-only, trigger-immutable tables
+# (raw_youtube_search_pages, raw_youtube_videos) — NO rollback, correction = a
+# new run_id.
+#
+# SECRETS (SEC-F06/F19): read EXCLUSIVELY from the `youtube-collection`
+# Environment (OD-V1: REUSE it; do NOT create a new Environment). Never echoed,
+# never written to a versioned file, ZERO secret value in this YAML (names
+# only). The service-role key is NOT used (SEC-F19): the INSERT runs on the
+# owner `postgres` path (session pooler; owner bypasses RLS, no FORCE RLS). This
+# Environment holds NO SUPABASE_ACCESS_TOKEN → this workflow structurally CANNOT
+# push a migration (least-privilege). YOUTUBE_API_KEY is passed to the collector
+# as an env var ONLY; the collector sends it as the `X-Goog-Api-Key` HEADER
+# (never ?key= in the URL) and persists BODY-ONLY (SEC-F08 CHECK + the collector
+# reject_request_context guard; §7 tests re-prove it post-hoc).
+#
+# FAIL-CLOSED: any quota / API / network / parse / pagination / DB anomaly marks
+# report_runs.status='failed' and exits nonzero (the collector's job); the §7
+# verify gate (verify job, ON_ERROR_STOP=1) then re-proves identity/30d, the
+# token chain, the explained stop, set-equality, one-row, verbatim, NULL!=0 and
+# SEC-F08. A failure is NOT a rollback trigger — correction = a new run_id.
+#
+# NOT-IN-SCOPE / VETOES: this file does NOT arm the pipeline (no marker created);
+# does NOT provision the Environment / GCP / Supabase / secrets (SG-V6 infra is
+# separate); does NOT unlock Phase 9 (raw stays default-deny: RLS-on + revoke,
+# zero policy / zero view — VETOED here); does NOT touch 0007/producer_events
+# (PARKED); publish stays barred until P5-REPRO-01. It changes no locked
+# identity param (keyword/vertical/window/target are constants in the collector).
+# --------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type RUN-VIDEO-COLLECTION to confirm a REAL search.list + videos.list collection that CREATES a new run and writes into raw_youtube_search_pages / raw_youtube_videos (irreversible, append-only).'
+        required: true
+        type: string
+      acknowledge_irreversible:
+        description: 'Type I-UNDERSTAND-RAW-IS-IRREVERSIBLE to acknowledge there is NO rollback (correction = new run_id).'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # Dedicated group (distinct from youtube-collection); NEVER cancel in-flight —
+  # a half-written batch must not be interrupted mid-transaction. Mirrors the
+  # apply/collection workflows' posture and adds the F-1' runtime discipline
+  # (one collection at a time) on top of the collector's per-run quota cap.
+  group: video-collection
+  cancel-in-progress: false
+
+env:
+  # Non-secret: the project ref appears in the project URL.
+  SUPABASE_PROJECT_REF: pwbkplzyzmortwjjpcbg
+
+jobs:
+  guard:
+    name: Confirm intent + FAIL-CLOSED arming preflight (no Environment, no secret)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Validate confirmation + irreversibility acknowledgement
+        env:
+          # SEC hardening (F-3): untrusted workflow_dispatch inputs are consumed via
+          # env, NEVER interpolated as ${{ }} into the run: body. A ${{ inputs.* }}
+          # spliced into the script text is a shell-injection sink (a crafted value
+          # can break out of the string and run arbitrary shell). Reading through an
+          # env var passes the value as data, not code. Mirrors the collect/verify
+          # env: pattern already used below.
+          CONFIRM: ${{ inputs.confirm }}
+          ACKNOWLEDGE_IRREVERSIBLE: ${{ inputs.acknowledge_irreversible }}
+        run: |
+          set -euo pipefail
+          if [ "$CONFIRM" != "RUN-VIDEO-COLLECTION" ]; then
+            echo "::error::Confirmation phrase mismatch — aborting with NO collection."
+            exit 1
+          fi
+          if [ "$ACKNOWLEDGE_IRREVERSIBLE" != "I-UNDERSTAND-RAW-IS-IRREVERSIBLE" ]; then
+            echo "::error::Irreversibility acknowledgement missing/mismatch — raw_youtube_search_pages / raw_youtube_videos are append-only/immutable (no rollback; correction = new run_id). Aborting with NO collection."
+            exit 1
+          fi
+          echo "Confirmation + irreversibility acknowledgement accepted."
+
+      - name: SEC-F18 backstop — dispatch ref MUST be main
+        env:
+          # F-3: github.ref via env, not ${{ }} in run:. github.ref is not
+          # attacker-controllable the way inputs are, but the env: indirection is
+          # applied uniformly so ZERO ${{ }} reaches any shell body in guard. (Not
+          # named GITHUB_*: that prefix is reserved by the runner.)
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          # Defense-in-depth for SEC-F18 that does NOT depend on the Environment
+          # branch rule existing yet: a referenced-but-missing Environment is
+          # auto-created by GitHub WITHOUT protection rules, so we do not assume the
+          # branch rule is enforced until arm time. This closes "dispatch a modified
+          # workflow from a branch" at the YAML level regardless.
+          if [ "$DISPATCH_REF" != "refs/heads/main" ]; then
+            echo "::error::SEC-F18: dispatch ref is '$DISPATCH_REF', not refs/heads/main. Aborting with NO collection."
+            exit 1
+          fi
+          echo "SEC-F18 backstop OK — dispatch from main."
+
+      - name: FAIL-CLOSED arming preflight — DISARMED until the video arm marker lands
+        run: |
+          set -euo pipefail
+          # The LOAD-BEARING control. Landing this YAML on main must NEVER be able
+          # to collect. This runs in the `guard` job (NO Environment, NO secret),
+          # BEFORE anything touches the `youtube-collection` Environment — so it is
+          # the backstop even against the "auto-created unprotected Environment"
+          # footgun (a NEW Environment referenced before provisioning has no
+          # reviewers).
+          #
+          # Two independent conditions, ALL required, all fail-closed:
+          #   (1) an EXPLICIT, repo-tracked arming marker — this pipeline's OWN
+          #       marker, DISTINCT from youtube-collection.armed — committed ONLY
+          #       after SG-V0..SG-V5 are green AND the Environment is provisioned
+          #       with required reviewers + main-only branch rule AND the collector
+          #       run_id-output follow-up has landed. Its ABSENCE is the disarmed
+          #       state; DevOps commits it as the conscious "arm".
+          #   (2) the Video Data collector + its §8 tests + the §7 verify SQL exist.
+          arm=".github/collection/video-collection.armed"
+          collector="services/data-engine/src/noxund_data_engine/video_collection.py"
+          collector_test="services/data-engine/tests/test_video_collection.py"
+          verify_sql="supabase/tests/video_data_post_collection_verify.sql"
+          missing=0
+          if [ ! -f "$arm" ]; then
+            echo "::error::DISARMED — arming marker '$arm' absent. Committed ONLY after SG-V0..SG-V5 green + Environment provisioned (required reviewers + main-only) + the collector run_id->\$GITHUB_OUTPUT follow-up landed. Aborting with NO collection."
+            missing=1
+          fi
+          if [ ! -f "$collector" ]; then
+            echo "::error::Collector '$collector' absent (SG-V4 not landed). Aborting with NO collection."
+            missing=1
+          fi
+          if [ ! -f "$collector_test" ]; then
+            echo "::error::Collector §8 tests '$collector_test' absent (SG-V4 not landed). Aborting with NO collection."
+            missing=1
+          fi
+          if [ ! -f "$verify_sql" ]; then
+            echo "::error::§7 completeness gate '$verify_sql' absent (SG-V5 not landed). Aborting with NO collection."
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+          echo "ARMED — arming marker + collector/tests/gate present. The runtime human gate (Environment required reviewers) still applies to the collect job."
+
+  collect:
+    name: Collect Video Data (search.list + videos.list → raw_youtube_*; CREATES run_id; INSERT-only)
+    needs: guard
+    runs-on: ubuntu-latest
+    # Runtime human approval (SG-V7): the collect job is gated behind the REUSED
+    # `youtube-collection` Environment's required reviewers (DevOps + Security).
+    environment: youtube-collection
+    outputs:
+      # The run_id CREATED by this collection, surfaced for the verify job. It is
+      # produced by the collector emitting `run_id=<uuid>` to $GITHUB_OUTPUT — the
+      # coupled collector follow-up flagged in the header. Until that lands this is
+      # empty and the verify job fails closed on the UUID-shape check (safe: the §7
+      # gate cannot pass on an empty run_id). run_id is NOT a secret (it appears in
+      # report_runs); surfacing it as an output leaks nothing sensitive.
+      run_id: ${{ steps.collect.outputs.run_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Set up Python 3.11 (pinned)
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
+        with:
+          python-version: '3.11'
+
+      - name: Build masked DB URL (session pooler — least-privilege owner path)
+        env:
+          # From the youtube-collection Environment. NO SUPABASE_ACCESS_TOKEN here
+          # — this workflow cannot push migrations (least-privilege / SEC-F19).
+          DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          DB_HOST: ${{ vars.SUPABASE_DB_HOST }}
+          DB_PORT: ${{ vars.SUPABASE_DB_PORT }}
+          DB_USER: ${{ vars.SUPABASE_DB_USER }}
+        run: |
+          set -euo pipefail
+          : "${DB_PASSWORD:?missing secret SUPABASE_DB_PASSWORD in Environment youtube-collection}"
+          : "${DB_HOST:?missing variable SUPABASE_DB_HOST in Environment youtube-collection}"
+          user="${DB_USER:-postgres.${SUPABASE_PROJECT_REF}}"
+          port="${DB_PORT:-5432}"
+          enc_pw="$(jq -rn --arg v "$DB_PASSWORD" '$v|@uri')"
+          url="postgresql://${user}:${enc_pw}@${DB_HOST}:${port}/postgres?sslmode=require"
+          echo "::add-mask::${url}"
+          echo "SUPABASE_DB_URL=${url}" >> "$GITHUB_ENV"
+
+      - name: Collect (egress googleapis.com; header X-Goog-Api-Key; body-only; CREATES run_id; fail-closed)
+        id: collect
+        working-directory: services/data-engine
+        env:
+          # YOUTUBE_API_KEY is auto-masked by GitHub; NEVER echoed. The collector
+          # sends it ONLY as the X-Goog-Api-Key header (never ?key=) and persists
+          # BODY-ONLY (SEC-F08 CHECK + reject_request_context). SUPABASE_DB_URL was
+          # masked above. There is NO --run-id / RUN_ID input: the collector GENERATES
+          # the run_id (DATA-COLLECT-001 §2) — it is the sole producer of the run.
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          PYTHONPATH: src
+        run: |
+          set -euo pipefail
+          : "${YOUTUBE_API_KEY:?missing secret YOUTUBE_API_KEY in Environment youtube-collection}"
+          : "${SUPABASE_DB_URL:?missing masked DB URL (build step)}"
+          # Collector contract (SG-V4 — DATA-COLLECT-001 §§1–8):
+          #   • CREATES a fresh run_id + report_runs row (created → collecting)
+          #   • Agente 1: search.list paginated (part=snippet; q=locked keyword;
+          #     type=video; 30-day window); each body persisted verbatim, body-only
+          #   • Agente 2: videos.list in <= 50-id batches (part=statistics,snippet)
+          #   • INSERT-only into raw_youtube_search_pages / raw_youtube_videos
+          #     (trigger-immutable); unique indexes are the idempotency backstop
+          #   • fail-closed: any quota/API/network/parse/pagination/DB anomaly →
+          #     report_runs.status='failed' + nonzero exit → correction = new run_id
+          #   • F-1'/OD-V2 per-run quota HARD cap + retry-surplus sub-cap enforced
+          #     inside the collector (projected before spend); NULL != 0; no AI number
+          #   • log hygiene §8: run_id/stage/counts/status/HTTP class ONLY — never the
+          #     key, DB URL, a body, a title, or a pageToken
+          # Identity is LOCKED (§1) — no collection flags; config is env-only.
+          python -m noxund_data_engine.video_collection
+          # COUPLED FOLLOW-UP (flagged in header): the collector must emit
+          # `run_id=<uuid>` to "$GITHUB_OUTPUT" so `steps.collect.outputs.run_id`
+          # (and thus `needs.collect.outputs.run_id`) is populated for the §7 verify
+          # job. That minimal collector change is a SEPARATE authorized deliverable;
+          # this YAML is wired to consume it and does NOT implement it here. Until it
+          # lands, the verify job fails closed on the UUID-shape check.
+
+  verify:
+    name: Post-collection completeness gate §7 (identity/30d, chain, stop, set-equality)
+    needs: collect
+    runs-on: ubuntu-latest
+    environment: youtube-collection
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Validate collect-produced run_id is a well-formed UUID (fail-closed coupling)
+        env:
+          # The run_id CREATED by the collect job, consumed via env (never ${{ }}
+          # spliced into run:). If the collector run_id->$GITHUB_OUTPUT follow-up has
+          # not landed this is empty → the shape check RAISES → the §7 gate cannot be
+          # confirmed on an empty run_id. This is the intended fail-closed coupling.
+          RUN_ID: ${{ needs.collect.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$RUN_ID" | grep -qiE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
+            echo "::error::run_id from the collect job is empty or not a valid UUID. The §7 gate cannot target a run. Ensure the collector emits 'run_id=<uuid>' to \$GITHUB_OUTPUT (coupled SG-V6 follow-up). Aborting."
+            exit 1
+          fi
+          echo "collect-produced run_id shape OK."
+
+      - name: Install psql client
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Build masked DB URL
+        env:
+          DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          DB_HOST: ${{ vars.SUPABASE_DB_HOST }}
+          DB_PORT: ${{ vars.SUPABASE_DB_PORT }}
+          DB_USER: ${{ vars.SUPABASE_DB_USER }}
+        run: |
+          set -euo pipefail
+          : "${DB_PASSWORD:?missing secret SUPABASE_DB_PASSWORD}"
+          : "${DB_HOST:?missing variable SUPABASE_DB_HOST}"
+          user="${DB_USER:-postgres.${SUPABASE_PROJECT_REF}}"
+          port="${DB_PORT:-5432}"
+          enc_pw="$(jq -rn --arg v "$DB_PASSWORD" '$v|@uri')"
+          url="postgresql://${user}:${enc_pw}@${DB_HOST}:${port}/postgres?sslmode=require"
+          echo "::add-mask::${url}"
+          echo "SUPABASE_DB_URL=${url}" >> "$GITHUB_ENV"
+
+      - name: §7 completeness gate (identity/30d, chain, stop, set-equality, NULL≠0, SEC-F08)
+        env:
+          # run_id consumed via env, never ${{ }} in run:. -v run_id passes it to psql
+          # as a variable (not spliced into SQL text). ON_ERROR_STOP=1 makes any RAISE
+          # in the gate fail the job (and the run).
+          RUN_ID: ${{ needs.collect.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          # Any failed assertion raises -> ON_ERROR_STOP fails the job. Proves the §7
+          # gate for the CREATED run_id: run identity == the 4 locked params + 30-day
+          # window; the search page chain (one NULL-token first page, linear walk, no
+          # cycle); the stop is explained (target_reached at 500, or source_exhausted);
+          # set(raw_youtube_videos.video_id) == the id vector reconstructed from raw
+          # search bodies; exactly one row per video; verbatim raw_json; projections
+          # match (NULL != 0); response_json/raw_json/fetched_at not null; no
+          # request-context keys (SEC-F08); collected_video_count finalized, run not
+          # failed. A failure here fails the run -> correction = new run_id (NOT a
+          # rollback trigger). This run_id is the frozen snapshot 002 later REUSES.
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -v run_id="$RUN_ID" \
+            -f supabase/tests/video_data_post_collection_verify.sql
