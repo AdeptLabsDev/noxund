@@ -233,7 +233,11 @@ class FlakyOpener:
 
 
 class QuotaOpener:
+    def __init__(self):
+        self.calls = 0
+
     def __call__(self, request):
+        self.calls += 1
         body = {"error": {"errors": [{"reason": "quotaExceeded"}]}}
         raise urllib.error.HTTPError(
             request.full_url, 403, "quota", {}, io.BytesIO(json.dumps(body).encode("utf-8"))
@@ -393,15 +397,17 @@ class QuotaFail(unittest.TestCase):
 class RetryIdempotency(unittest.TestCase):
     def test_transient_errors_retried_deterministically(self):
         sleeps = []
+        quota = vc._Quota()
         opener = FlakyOpener(fails=2, body=_search_body(["v1"]))
         search = vc.UrllibSearchApi(
             _CANARY, published_after="a", published_before="b",
-            sleep=sleeps.append, opener=opener,
+            quota=quota, sleep=sleeps.append, opener=opener,
         )
         body = search.list_search_page(None)
         self.assertEqual(body["items"][0]["id"]["videoId"], "v1")
         self.assertEqual(opener.calls, 3)
         self.assertEqual(sleeps, [1.0, 2.0])  # fixed backoff, no randomness
+        self.assertEqual(quota.retry_surplus, 200)  # 2 retries x 100 (search) as surplus
 
     def test_inserts_have_no_on_conflict_do_nothing(self):
         conn = FakeConnection()
@@ -417,6 +423,81 @@ class RetryIdempotency(unittest.TestCase):
         with self.assertRaises(FakeUniqueViolation):
             vc.insert_video(conn, _RUN, vc.project_video(_video_item("v1")))
         self.assertFalse(conn.mutated_raw())
+
+
+# --- F-1' / OD-V2 quota cap + retry budget (RR-8) ----------------------------
+
+
+class QuotaCapAndRetryBudget(unittest.TestCase):
+    def test_retry_capped_at_two_per_call(self):
+        sleeps = []
+        opener = FlakyOpener(fails=3, body=_search_body(["v1"]))  # never succeeds
+        search = vc.UrllibSearchApi(
+            _CANARY, published_after="a", published_before="b",
+            sleep=sleeps.append, opener=opener,
+        )
+        with self.assertRaises(vc.CollectionError):
+            search.list_search_page(None)
+        self.assertEqual(opener.calls, 3)  # 1 initial + exactly 2 retries
+        self.assertEqual(sleeps, [1.0, 2.0])  # <= 2 backoffs
+
+    def test_quota_error_is_terminal_single_call_no_retry(self):
+        opener = QuotaOpener()
+        search = vc.UrllibSearchApi(
+            _CANARY, published_after="a", published_before="b",
+            sleep=lambda _s: None, opener=opener,
+        )
+        with self.assertRaises(vc.QuotaExceeded):
+            search.list_search_page(None)
+        self.assertEqual(opener.calls, 1)  # quotaExceeded/dailyLimitExceeded never retried
+
+    def test_quota_projection_is_before_spend(self):
+        q = vc._Quota(cap=100)
+        q.charge(100)
+        self.assertEqual(q.used, 100)
+        with self.assertRaises(vc.QuotaCapExceeded):
+            q.charge(1)  # projected to exceed 100
+        self.assertEqual(q.used, 100)  # rejected charge never mutates (fail-closed)
+
+    def test_per_run_cap_fail_closed_not_source_exhausted(self):
+        search = FakeSearchApi({
+            None: _search_body(["v1"], next_token="T1"),
+            "T1": _search_body(["v2"]),
+        })
+        videos = FakeVideosApi({"v1": _video_item("v1"), "v2": _video_item("v2")})
+        conn = FakeConnection()
+        # cap 150 admits page 1 (100) but fail-closes the page-2 charge (200 > 150).
+        with self.assertRaises(vc.QuotaCapExceeded):
+            vc.collect_new_run(_RUN, _WS, _WE, search, videos, conn, vc._Quota(cap=150))
+        self.assertIsNone(conn.runs[_RUN]["collected"])  # never finalized
+        self.assertEqual(conn.runs[_RUN]["status"], "collecting")  # NOT source_exhausted
+
+    def test_retry_surplus_capped(self):
+        opener = FlakyOpener(fails=1, body=_search_body(["v1"]))
+        search = vc.UrllibSearchApi(
+            _CANARY, published_after="a", published_before="b",
+            quota=vc._Quota(retry_surplus_cap=50), sleep=lambda _s: None, opener=opener,
+        )
+        with self.assertRaises(vc.QuotaCapExceeded):
+            search.list_search_page(None)  # one retry costs 100 > surplus cap 50
+
+    def test_cap_exceeded_via_main_marks_run_failed_and_nonzero(self):
+        search = mock.Mock()
+        search.list_search_page.side_effect = [
+            _search_body(["v1"], next_token="T1"), _search_body(["v2"]),
+        ]
+        conn = FakeConnection()
+        env = {"YOUTUBE_API_KEY": _CANARY, "SUPABASE_DB_URL": "postgresql://x"}
+        with mock.patch.dict("os.environ", env, clear=False), \
+                mock.patch.object(vc, "_PER_RUN_QUOTA_CAP", 150), \
+                mock.patch.object(vc, "_connect", return_value=conn), \
+                mock.patch.object(vc, "_new_run_id", return_value=_RUN), \
+                mock.patch.object(vc, "UrllibSearchApi", return_value=search), \
+                mock.patch.object(vc, "UrllibVideosApi", return_value=mock.Mock()):
+            rc = vc.main([])
+        self.assertEqual(rc, 1)
+        self.assertEqual(conn.failed_run, _RUN)
+        self.assertEqual(conn.runs[_RUN]["status"], "failed")
 
 
 # --- §3.2 pagination determinism --------------------------------------------
