@@ -1,0 +1,22 @@
+# NOXUND · video-collection ARM marker
+#
+# Presence of this file satisfies condition (1) of the FAIL-CLOSED arming
+# preflight in .github/workflows/video-collection.yml (guard job). It is a
+# CONSCIOUS DevOps act (Product Lead GO, 2026-07-15), committed only after
+# every F-1' arm blocker of the DATA-COLLECT-001 track was green:
+#   - SG-V0..SG-V5: DB substrate + product/database ratifications + collector
+#     video_collection.py + §8 tests + §7 verify SQL landed (PRs #35–#39)
+#   - SG-V6: workflow landed DISARMED (PR #40) + F-2'/F1'-g audit_secrets
+#     APPROVE WITH NOTES (note F2'-N1 closed, PR #39)
+#   - F1'-c/F1'-d: GREEN by Product Lead out-of-band attestation under the
+#     OD-V2 thresholds (DEC-0020 + SEC-0024, landed via PR #42)
+#
+# ARMING IS NECESSARY, NOT SUFFICIENT. F1'-f (Sentry-scrub + §8.3 canary) is
+# still owed BEFORE the first real dispatch (SG-V7). Even armed, a real
+# collection still requires the SG-V7 human gate on EVERY run: a manual
+# workflow_dispatch from main + the confirmation phrase RUN-VIDEO-COLLECTION
+# + the acknowledgement I-UNDERSTAND-RAW-IS-IRREVERSIBLE + the
+# youtube-collection Environment's required-reviewer approval. Deleting this
+# file disarms the pipeline.
+#
+# No secret, host, credential, or connection string appears here by design.
