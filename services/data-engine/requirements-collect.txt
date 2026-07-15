@@ -1,0 +1,43 @@
+# ============================================================================
+# NOXUND · collection-runtime dependencies — SINGLE SOURCE OF TRUTH (pins)
+# ----------------------------------------------------------------------------
+# Runtime-only provisioning for the GATED collection `collect` jobs
+# (.github/workflows/video-collection.yml and youtube-collection.yml) and for
+# the CI driver-contract job (data-engine-tests.yml). Added as the root-cause
+# fix for the first SG-V7 dispatch (run 29389945976): the collector fail-closed
+# at _connect with "postgresql driver not provisioned" BEFORE creating a
+# run_id, touching the DB or calling the YouTube API (1 failed workflow run,
+# 0 collections, 0 run_id, 0 writes, 0 quota consumed).
+#
+# This file is NOT part of the deterministic core: pyproject.toml stays
+# `dependencies = []` (stdlib-only) by design — the §8/§8.3 test suites run on
+# in-memory fakes and MUST NOT need anything listed here.
+#
+# Pinning discipline (pip analog of SEC-F17 SHA-pinned actions):
+#   - every requirement pinned to ONE exact version + sha256 wheel hashes;
+#   - install ONLY as:
+#       pip install --require-hashes --only-binary=:all: \
+#         -r services/data-engine/requirements-collect.txt
+#     so pip refuses anything unpinned, any hash mismatch and any sdist build;
+#   - hashes cover the CPython 3.11 Linux runner wheels (x86_64 + aarch64) —
+#     the only platforms these jobs run on. This file is not a dev-machine
+#     requirements file.
+#
+# Anti-drift: workflows MUST NOT inline their own pins — they install from
+# this file only. Changing any pin here is a security-relevant change to the
+# gated collection runtime (matrix #8 / F-2' discipline: DevOps + Security).
+# ============================================================================
+
+# psycopg[binary] == psycopg + psycopg-binary at the same version (libpq
+# bundled in the wheel — no system libpq, no source build). Explicit expansion
+# so --require-hashes covers the full closure.
+psycopg==3.3.4 \
+    --hash=sha256:b6bbc25ccf05c8fad3b061d9db2ef0909a555171b84b07f29458a447253d679a
+psycopg-binary==3.3.4 \
+    --hash=sha256:ab8cca8ef8fb1ccf5b048ae5bd78ba55b9e4b5d472e3ce5ca39ff4d2a9c249e4 \
+    --hash=sha256:7465bfe6087d2d5b42d4c53b9b11ca9f218e477317a4a162a10e3c19e984ba8e
+
+# Transitive: psycopg requires typing-extensions>=4.6 on Python < 3.13 (the
+# workflows pin CPython 3.11). --require-hashes demands it be listed + pinned.
+typing-extensions==4.16.0 \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8

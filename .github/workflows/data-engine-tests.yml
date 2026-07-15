@@ -15,7 +15,11 @@ name: Data Engine · Resolver Tests (CI)
 #
 # HARDENING: permissions contents:read (no write anywhere); actions SHA-pinned
 # (SEC-F17); ZERO secrets; ZERO Environment; ZERO DB. stdlib-only — pyproject
-# dependencies=[] → ZERO pip install, ZERO sensitive env change.
+# dependencies=[] → the TEST jobs do ZERO pip install, ZERO sensitive env
+# change. (The separate collection-driver-contract job below is the one
+# deliberate exception: it installs the hash-pinned collection-runtime driver
+# from requirements-collect.txt to prove `import psycopg` BEFORE any real
+# dispatch — still no secret, no Environment, no DB.)
 #
 # DETERMINISM: the full suite runs TWICE in independent processes and BOTH must
 # report exactly "Ran 171 tests ... OK" (18 resolver + 18 channel-filter + 26 scoring + 36 opportunity + 13 channel-collection + 39 video-collection + 21 repro-harness). A
@@ -168,3 +172,35 @@ jobs:
           # silent numeric drift). Python exits non-zero fail-closed on any mismatch.
           python -c "import sys, test_repro_harness as t; from noxund_data_engine.pipeline import run_pipeline as r, pipeline_digest as p; d1=p(r(t.golden_snapshot())); d2=p(r(t.golden_snapshot())); print('digest#1', d1); print('digest#2', d2); print('golden  ', t.GOLDEN_DIGEST); sys.exit('::error::pipeline_digest not byte-identical across 2 runs (%s != %s)' % (d1, d2) if d1 != d2 else ('::error::pipeline_digest drifted from GOLDEN_DIGEST (%s != %s)' % (d1, t.GOLDEN_DIGEST) if d1 != t.GOLDEN_DIGEST else 0))"
           echo "Reproducibility proven: pipeline_digest byte-identical ×2 and == GOLDEN_DIGEST."
+
+  collection-driver-contract:
+    name: Collection driver contract (hash-pinned psycopg installs + imports; no secret, no DB)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Set up Python 3.11 (pinned)
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
+        with:
+          python-version: '3.11'
+
+      - name: Install from the single pin source (hash-verified, binary-only)
+        run: |
+          set -euo pipefail
+          # Contract added after the first SG-V7 dispatch (run 29389945976)
+          # failed with "postgresql driver not provisioned" — fail-closed,
+          # pre-write: 1 failed workflow run, 0 collections, 0 run_id,
+          # 0 writes, 0 quota. The §8 suites use in-memory fakes by design, so
+          # they can never exercise this import; this job closes that blind
+          # spot in CI, BEFORE any real dispatch. Same install line as the
+          # collect jobs of video-collection.yml / youtube-collection.yml;
+          # the pins live ONLY in requirements-collect.txt (anti-drift).
+          python -m pip install --require-hashes --only-binary=:all: \
+            -r services/data-engine/requirements-collect.txt
+
+      - name: Prove import psycopg + pinned version (the exact check the collect jobs run)
+        run: |
+          set -euo pipefail
+          expected="$(grep -Eo '^psycopg==[0-9][^ \\]*' services/data-engine/requirements-collect.txt | cut -d= -f3)"
+          python -c "import sys, psycopg; e=sys.argv[1]; a=psycopg.__version__; assert a==e, f'driver contract: psycopg {a} != pinned {e}'; print(f'driver contract OK — psycopg {a} (pinned, hash-verified)')" "$expected"

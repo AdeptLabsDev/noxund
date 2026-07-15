@@ -209,6 +209,24 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Provision PostgreSQL driver (pinned + hash-verified, binary-only)
+        run: |
+          set -euo pipefail
+          # Same provisioning gap as the video pipeline's first SG-V7 dispatch
+          # (run 29389945976, fail-closed pre-write): channel_collection.py has
+          # the identical psycopg import (_connect) and this job never installed
+          # a driver. Fixed BEFORE this pipeline's first real dispatch (SG-6).
+          # Single pin source (SEC-F17 analog — exact versions + sha256 hashes;
+          # sdist builds refused); core pyproject stays stdlib-only by design.
+          python -m pip install --require-hashes --only-binary=:all: \
+            -r services/data-engine/requirements-collect.txt
+
+      - name: Driver contract — import psycopg + assert pinned version BEFORE any DB/API contact
+        run: |
+          set -euo pipefail
+          expected="$(grep -Eo '^psycopg==[0-9][^ \\]*' services/data-engine/requirements-collect.txt | cut -d= -f3)"
+          python -c "import sys, psycopg; e=sys.argv[1]; a=psycopg.__version__; assert a==e, f'driver contract: psycopg {a} != pinned {e}'; print(f'driver contract OK — psycopg {a} (pinned, hash-verified)')" "$expected"
+
       - name: Build masked DB URL (session pooler — least-privilege owner path)
         env:
           # From the youtube-collection Environment (SG-4). NO SUPABASE_ACCESS_TOKEN

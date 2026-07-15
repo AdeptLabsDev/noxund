@@ -222,6 +222,26 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Provision PostgreSQL driver (pinned + hash-verified, binary-only)
+        run: |
+          set -euo pipefail
+          # Root-cause fix for the first SG-V7 dispatch (run 29389945976): the
+          # collector fail-closed at _connect ("postgresql driver not
+          # provisioned") BEFORE creating a run_id, touching the DB or calling
+          # the YouTube API — 1 failed workflow run, 0 collections, 0 run_id,
+          # 0 writes, 0 quota. Provisioning lives HERE (workflow runtime), NOT
+          # in pyproject.toml: the data-engine core stays stdlib-only by
+          # design. Single pin source (SEC-F17 analog — exact versions +
+          # sha256 hashes; sdist builds refused):
+          python -m pip install --require-hashes --only-binary=:all: \
+            -r services/data-engine/requirements-collect.txt
+
+      - name: Driver contract — import psycopg + assert pinned version BEFORE any DB/API contact
+        run: |
+          set -euo pipefail
+          expected="$(grep -Eo '^psycopg==[0-9][^ \\]*' services/data-engine/requirements-collect.txt | cut -d= -f3)"
+          python -c "import sys, psycopg; e=sys.argv[1]; a=psycopg.__version__; assert a==e, f'driver contract: psycopg {a} != pinned {e}'; print(f'driver contract OK — psycopg {a} (pinned, hash-verified)')" "$expected"
+
       - name: Build masked DB URL (session pooler — least-privilege owner path)
         env:
           # From the youtube-collection Environment. NO SUPABASE_ACCESS_TOKEN here
