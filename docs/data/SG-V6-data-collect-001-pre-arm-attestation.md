@@ -99,3 +99,13 @@ Ou seja: o código inerte (SG-V4/V5) está **todo presente** — a **única** co
 - **Intocados:** `.github/workflows/video-collection.yml`; `.github/workflows/youtube-collection.yml`; `.github/collection/*` (nenhum `.armed` criado — `video-collection.armed` permanece **ausente**); `services/data-engine/*` (collector/testes); `supabase/migrations/*` (schema já vivo, **zero ALTER**); `supabase/tests/*` (verify); `20260620000007_phase6_producer_events.*` (**PARKED**, intocado).
 - **Vetos ativos reafirmados:** arm NO-GO; SG-V7 dispatch NO-GO; SG-6 NO-GO; sem coleta; `0007` intocado; Fase 9/RLS vetada; publish barrado até SG-8/P5-REPRO-01; secrets/GCP/Supabase/Environment intocados; zero commit/push/PR além deste doc single-purpose.
 - **Zero valor sensível.** Cita apenas **nomes** de secrets/vars (`YOUTUBE_API_KEY`, `SUPABASE_DB_PASSWORD`) e o project ref (não-secreto, aparece na URL do projeto) — nenhum valor, token, URL com query string, senha, connection string ou credencial. Nenhum screenshot.
+
+---
+
+## 10. Adendo (2026-07-14) — `F1'-c`/`F1'-d` fechados GREEN + correção de redação
+
+Os §§1–9 acima são o snapshot congelado de 2026-07-08 e **não foram reescritos**. Este adendo registra a mudança de estado posterior:
+
+- **`F1'-c` e `F1'-d` fecharam ✅ GREEN em 2026-07-14**, por atestação out-of-band do Product Lead sob os thresholds finais de **OD-V2** (`DEC-0020`). Registro completo: `docs/security/SEC-0024-sg-v6-f1c-f1d-closeout.md`. Com isso, **não resta bloqueio de arm no F-1'**.
+- **Correção de redação:** este doc (§3/§6/§8) e o `SEC-0023 §8` descreviam o fechamento de `F1'-c` como "re-confirmação" de alertas existentes. O fechamento real deu-se pela **criação de três políticas novas** de alerta no GCP (`noxund-prod`) em 2026-07-14 — **ato humano de configuração do Product Lead, dentro da própria alçada** — nos thresholds de OD-V2 (≥ 1.500/run em rolling 30 min com avaliação a cada 60 s; diários ≥ 5.000 e ≥ 8.000; quota diária confirmada em 10.000). A única política pré-existente (legada, 30%) **permanece ativa** e intocável sem autorização separada (`DEC-0020`). Ou seja: durante o fechamento de E5a **o GCP foi modificado pelo Product Lead**; as declarações de "zero toque em GCP" deste doc valem para os agentes e para o mandato docs-only de 2026-07-08, e permanecem verdadeiras nesse escopo. Requisito satisfeito em rigor igual ou superior ao previsto.
+- **O NO-GO de arm do §7 está superado apenas quanto a `F1'-c`/`F1'-d`.** A criação do marker `video-collection.armed` permanece **ato humano consciente, não autorizado** até ordem explícita; `F1'-f` segue **pré-live** (bloqueia o 1º dispatch/SG-V7, não o arm); SG-V7 e SG-6 seguem **NO-GO**.
