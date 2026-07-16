@@ -50,7 +50,7 @@ Alta. Constantes/regras vivem em `rubric_version`/`rule_version` versionados e c
 
 ### Sequenciamento (próximo)
 1. Landar `DATA-OPP-001` + `DATA-CONST-001` + esta DEC (PR revisado, sem auto-merge).
-2. Confirmar `self_channel` (item aberto).
+2. Confirmar `self_channel` — **resolvido**: ratificado MANTER pela emenda desta própria DEC (2026-07-01, commit `4be9519`) e formalizado em DEC-0019 §1 (2026-07-02); **reconfirmado pelo Product Lead em 2026-07-16**. *(Linha corrigida em 2026-07-16 — estava stale desde a emenda; ver DATA-AUDIT-001 §6.)*
 3. Iniciar a trilha gated do Passo 4 (rotear Security/DevOps/Database/Data-AI — review/design only).
 4. Rascunhar o código determinístico (atrás das constantes + coleta gated; sem compute-live).
 5. **P5-REPRO-01** como gate fail-closed antes de qualquer publish. Fase 9 vetada; `0007` parked.
