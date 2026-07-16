@@ -17,7 +17,7 @@ The landed code is a **faithful, high-quality implementation of DEC-0017**. Ever
 Two conformance findings gate P5-REPRO-01 closure:
 
 1. **DC2-01 (fail-closed on missing channel) is a GAP** — nothing in the landed code aborts when a channel needed by the run has no raw channel record; the Channel Filter silently degrades (self_channel cannot fire) and a unit test locks that tolerant behavior in. *(P1 — publish-gating)*
-2. **`self_channel` is implemented but formally unratified** — DEC-0017 explicitly leaves it as an open item awaiting Product Lead confirmation, yet it is landed as active Gate 1 and frozen into `rule_hash`. *(P1 — ratification debt)*
+2. **`self_channel` is implemented but formally unratified** — DEC-0017 explicitly leaves it as an open item awaiting Product Lead confirmation, yet it is landed as active Gate 1 and frozen into `rule_hash`. *(P1 — ratification debt)* *(Superado — ver Adendo §6, 2026-07-16.)*
 
 Everything else is PASS or P2 hygiene. Details below.
 
@@ -166,6 +166,8 @@ Additional coverage gaps found (no behavior bug, missing lock-in):
 - **Why it matters:** DEC-0017 item 5 ratifies run-domination as "the only active quantitative gate" and explicitly parks `self_channel` under "Itens abertos remanescentes — aguarda confirmação do Product Lead". The code implements the Orchestrator's recommendation ahead of that confirmation and freezes it into `channel-filter-v1`'s hash. If the Product Lead declines (or amends matching semantics), the landed `channel-filter-v1` identity is wrong and must be reissued as a new `rule_version` — and any run computed meanwhile is non-conformant in Competition (self-channels excluded without ratified authority).
 - **Minimal fix direction:** obtain the pending Product Lead confirmation and record it (a DEC addendum or DEC-0018) **before** any compute-live; no code change needed if confirmed as-is. If not confirmed, removing the gate is a `rule_version` bump (`channel-filter-v2`), never an in-place edit — exactly as the module's own docstring demands.
 
+> **Adendo 2026-07-16 — finding SUPERADO.** A confirmação pedida já existia no registro (DEC-0017, emenda de 2026-07-01; DEC-0019 §1, 2026-07-02) e foi **reconfirmada pelo Product Lead em 2026-07-16**. Texto original preservado; ver §6.
+
 ### P2 (hygiene / hardening — deterministic today, but worth closing before live)
 
 **P2-01 — `score_run` silently returns an empty result for an empty run.** `scoring.py:605-618`. Asymmetric with Opportunity's fail-closed `ContractViolation` (`opportunity.py:573-574`); a bug that filters out all artists upstream would yield a plausible empty run instead of an alarm. *Fix direction:* raise `ContractViolation` on `artists == ()` (a run reaching scoring has ≥1 scorable artist per DATA-SCORING-001 §3), or document the empty result as a legitimate contract and pin it with a test.
@@ -195,3 +197,17 @@ Additional coverage gaps found (no behavior bug, missing lock-in):
 - Conformance matrix covers 100% of DEC-0017 §items 1–6 (plus the locked Competition/Example rule sets consumed by the code), each row with file:line and a PASS/GAP/DRIFT/OPEN verdict — §1.
 - Nondeterminism catalog gives an explicit SAFE/AT-RISK verdict for every requested source (dict/set order, percentile method + p90 ties, rounding, ranking total order, accumulation order, age floor, div-by-zero/empty-run, input row order) plus LLM/DB replay — §2.
 - Findings are ordered P1→P2 with file:line and minimal fix directions; **no code was changed, no pipeline was executed, no data was collected, nothing was published.**
+
+---
+
+## 6. Adendo (2026-07-16) — P1-02 superado pela ratificação registrada
+
+**P1-02 está SUPERADO como finding.** Cadeia de registro, em ordem:
+
+1. **2026-07-01** — a DEC-0017 foi emendada no mesmo dia da sua criação (commit `4be9519`, landed via PR #12) registrando **"self_channel — RATIFICADO: MANTER (Product Lead, 2026-07-01)"**. O finding refletiu o texto pré-emenda ("aguarda confirmação do Product Lead"); a ratificação é do dia anterior à data deste audit.
+2. **2026-07-02** — a **DEC-0019 §1** resolveu formalmente o P1: `self_channel` ratificado como parte de `channel-filter-v1` — zero mudança de código, `rule_hash` inalterado, golden digest do harness preservado.
+3. **2026-07-16** — o Product Lead **reconfirmou** a ratificação (`self_channel = MANTER`, "conforme ratificação de 2026-07-01") e ordenou esta reconciliação documental.
+
+O texto original do finding (§0 item 2 e §4 P1-02) permanece **intacto acima**, por ordem expressa do Product Lead: este adendo apenas o marca como superado — nada foi reescrito retrospectivamente. **P1-01 não é tocado por este adendo** e permanece registrado como está, com tratamento em unidade própria.
+
+*Registro relacionado:* DEC-0017 (linha de sequenciamento corrigida em 2026-07-16, mesma unidade documental) · DEC-0019 §1 · DEC-0021 (RO-1, mesma unidade documental).
