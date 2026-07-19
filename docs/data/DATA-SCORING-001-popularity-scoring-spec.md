@@ -341,3 +341,16 @@ O Scoring **entrega ao Opportunity**: `final_score` (para HOT/exibição), `sign
 - **Não muda** keyword/janela/volume/fonte (`chicago drill type beat`, 30d, ~500/`run_id`); **não muda** pesos 40/25/20/15 (§7, travados).
 - **Migration `0007` / `producer_events`: PARKED** (DEC-0013). **Fase 9 (RLS Policies + VIEW pública): VETADA** — esta spec só assume a postura default-deny já aplicada (RLS-on + revoke).
 - **Fora do escopo:** ML scoring; exposure penalty; data lake / baseline histórico; multi-keyword/multi-nicho; cross-report normalization; rodar o rubric sobre dados reais; computar/inserir `rubric_versions`. **Raw imutável; computed reconstruível.**
+
+---
+
+## Adendo — 2026-07-19 — Spec-refresh (DEC-0023), aditivo, histórico preservado
+
+> Este adendo **não reescreve** o corpo acima e **não altera** nenhum valor, `rubric_version` ou `rubric_hash`. O rubric `score_rubric_2026_06_v1` foi ratificado **como proposto** por [DEC-0017] (valores congelados no `rubric_hash`); estas ratificações apenas **nomeiam/fixam por escrito** o que já está congelado, fechando OPEN-A/OPEN-B do `DATA-AUDIT-001`.
+
+- **§5.3 / §5.5 (normalização percentil-âncora) — método RATIFICADO: type-7 / interpolação linear inclusiva (vinculado a [DEC-0023] D-A).** A parte "método de cálculo do percentil" da `OPEN-DATA-SCORING-02` fica **fechada**: `V_REF`/`E_REF` usam **type-7** (numpy `linear` / `PERCENTILE.INC`), como já implementado (`scoring.py:103`, `:467-490`) e congelado. `V_REF`/`E_REF` efetivos seguem congelados em `metrics_detail_json.normalization`.
+- **§5.3 / §5.7 e `OPEN-DATA-SCORING-04` — conjunto de referência com exclusão NULL RATIFICADA (vinculado a [DEC-0023] D-B).** A referência é **a run** (sem baseline histórico) e é formada **apenas por artistas com valor definido**: um artista com `vel_artist = NULL` (nenhum vídeo com `views`) **não entra na âncora** e **nunca** é convertido em zero — permanece pontuado, com contribuição normalizada `0` (auditada, coerente com o §5.3 item 2). Confirma `scoring.py:745-751`.
+- **Sem mudança de valor/hash:** as constantes/pesos/curvas permanecem as de DEC-0017; nenhum código é tocado — `rubric_hash` e golden digest **inalterados**.
+
+[DEC-0017]: ../product/decisions/DEC-0017-pipeline-v1-ratifications.md
+[DEC-0023]: ../product/decisions/DEC-0023-audit-residual-ratifications-spec-refresh.md

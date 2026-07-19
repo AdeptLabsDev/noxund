@@ -345,3 +345,16 @@ Remover um canal via qualquer gate custa **−1 em Competition** e **−(vídeos
 - **Não** altera pesos (§7 travado), estrutura/semântica das constantes (já fechadas em `DATA-SCORING-001`/`DATA-CHANNEL-001`), keyword/janela/volume/vertical.
 - **Não** define ranking, HOT-tag, label de Competition, Example nem gate de exibição — são do **Opportunity (Agente 6)**.
 - **Não** apresenta valor como final/ratificado — **todos são PROPOSTAS pendentes de ratificação do Product Lead.** `0007` PARKED; Fase 9 VETADA.
+
+---
+
+## Adendo — 2026-07-19 — Spec-refresh (DEC-0023), aditivo, histórico preservado
+
+> Este adendo **não reescreve** as propostas acima e **não altera** nenhum valor, `rubric_version`/`rule_version` ou hash. Nomeia/anota o que **decisão já existente** congelou. O banner DEC-0017 no topo continua sendo a fonte de verdade v1.
+
+- **§3.1 — método de percentil NOMEADO: type-7 / interpolação linear inclusiva (vinculado a [DEC-0023] D-A, fecha OPEN-A do `DATA-AUDIT-001`).** O §3.1 exigia "congelar no `rubric_hash`" o método e recomendava "interpolação linear entre postos adjacentes"; D-A **nomeia** essa variante como **type-7** (numpy `linear` / Excel `PERCENTILE.INC`), exatamente a implementada e já congelada (`scoring.py:103`, `:467-490`). Nomeação do método vigente — **sem** mudança de valor/hash.
+- **§5 (SCORING-04, conjunto de referência) — exclusão NULL-velocity RATIFICADA (vinculado a [DEC-0023] D-B, fecha OPEN-B).** A âncora p90 (`V_REF`/`E_REF`) é computada **apenas** sobre artistas com valor definido; um artista com sinal `NULL` **não entra na âncora** e **nunca** vira zero, mas **permanece pontuado**. Confirma `scoring.py:745-751` e o non-negotiable "NULL nunca vira 0".
+- **§1.3 (tabela) e §6.2 — `MAX_RUN_VIDEOS_PER_CHANNEL` proposto `50` SUPERSEDIDO por [DEC-0017]: `60`** (banner do topo; único gate quantitativo de `channel-filter-v1`, congelado em `rule_hash`). Anotação de drift; o código sempre usou `60`.
+
+[DEC-0017]: ../product/decisions/DEC-0017-pipeline-v1-ratifications.md
+[DEC-0023]: ../product/decisions/DEC-0023-audit-residual-ratifications-spec-refresh.md

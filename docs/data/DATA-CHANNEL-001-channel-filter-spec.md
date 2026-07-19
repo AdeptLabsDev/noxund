@@ -285,3 +285,18 @@ P5-REPRO-01 segue **bloqueante antes do 1º publish**: duas rodadas sobre o mesm
 - **Zero IA / zero número gerado por modelo.** Toda elegibilidade e contagem é determinística sobre raw.
 - **Sem mudar keyword/janela/volume** (`chicago drill type beat`, 30d, ~500/`run_id`). **Raw imutável; computed reconstruível.**
 - **Fora do escopo:** rodar a regra sobre dados reais; coletar canais; Scoring; Opportunity; Example; multi-keyword; multi-nicho; data lake; exposure penalty; ML.
+
+---
+
+## Adendo — 2026-07-19 — Spec-refresh (DEC-0023), aditivo, histórico preservado
+
+> Este adendo **não reescreve** o corpo acima e **não altera** nenhum valor, `rule_version` ou `rule_hash`. Cada item vincula-se a uma **decisão já existente**.
+
+- **DC2-01 — pré-condição fail-closed do Channel Filter (vinculado a [DEC-0022], que emenda [DEC-0019] §2).** Além de a coleta gated **garantir e provar** (via `DATA-COLLECT-001 §7` / `DATA-COLLECT-002 §7`) que todo canal referenciado tem `raw_youtube_channels`, o Channel Filter **reafirma** essa completude como **última linha de defesa**: em `channel_filter.evaluate_run`, todo `channel_id` presente no footprint de vídeos **deve** possuir um `ChannelRecord`; na ausência de qualquer registro exigido, o filtro levanta `ContractViolation` **antes** de produzir vereditos, Competition ou Signals. Um registro com `title=None` **conta como presente** ("sem sinal" ≠ "sem registro"). É **pré-condição de contrato, não mudança de gate** — gates (§5.2), ordem, constantes e allow-list (§5.3) permanecem idênticos; `rule_version=channel-filter-v1` e `rule_hash` **inalterados**; golden digest **inalterado**. Reforça a stop-condition do §8.2 ("run incompleta alcançando o Channel Filter") e o `OPEN-DATA-CHANNEL-01` no lado do **uso** do filtro.
+- **OPEN-C do `DATA-AUDIT-001` — FECHADA (vinculado a [DEC-0019] §2 + [DEC-0022], registrado em [DEC-0023] D-C).** A propriedade do DC2-01 está resolvida: **coleta gated é dona do abort** (aborta a run + recoleta como novo `run_id`); **Channel Filter reafirma** fail-closed. Nenhuma camada fica sem dono. A implementação do abort **na camada de coleta** permanece **design-only** (DEC-0019 §2), sem código nesta etapa.
+- **`self_channel` + colapso 4→2 gates:** já documentados no **banner DEC-0017** no topo desta spec (mantém `self_channel`; único gate quantitativo `MAX_RUN_VIDEOS_PER_CHANNEL=60`; demais gates disabled). Reafirmado aqui sem alteração.
+
+[DEC-0017]: ../product/decisions/DEC-0017-pipeline-v1-ratifications.md
+[DEC-0019]: ../product/decisions/DEC-0019-p1-resolutions-self-channel-dc2-01.md
+[DEC-0022]: ../product/decisions/DEC-0022-dc2-01-channel-filter-fail-closed-reaffirmation.md
+[DEC-0023]: ../product/decisions/DEC-0023-audit-residual-ratifications-spec-refresh.md

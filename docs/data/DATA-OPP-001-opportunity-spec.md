@@ -426,3 +426,16 @@ Auditoria por célula (metodologia §10) — mapeada ao shape aplicado, sem inve
 - **Não muda** keyword/janela/volume/fonte (`chicago drill type beat`, 30d, ~500/`run_id`); **não muda** os limiares textuais `>90`/`>83`/`5`/`15`/`50%` (só os **ratifica/estrutura** — OPEN-01).
 - **Migration `0007` / `producer_events`: PARKED** (DEC-0013). **Fase 9 (RLS Policies + VIEW pública): VETADA** (SEC-0001 §0) — esta spec só assume a postura default-deny já aplicada (RLS-on + revoke).
 - **Fora do escopo:** ML scoring; exposure penalty; data lake / baseline histórico; multi-keyword/multi-nicho; cross-report normalization; insight textual por IA; rodar o pipeline sobre dados reais; publicar; VIEW pública. **Raw imutável; computed reconstruível; snapshot congelado no publish.**
+
+---
+
+## Adendo — 2026-07-19 — Spec-refresh (DEC-0023), aditivo, histórico preservado
+
+> Este adendo **não reescreve** o corpo acima e **não altera** código, `opportunity_version`, hashes ou golden digest. Apenas anota **drift documental** já resolvido por decisão existente ([DEC-0017]), corrigindo `DATA-AUDIT-001` P2-06.
+
+- **§5 (Ranking) e §6.1 (conjunto HOT) — chave de desempate `raw_score` SUPERSEDIDA por [DEC-0017] (OPP-03).** O corpo documenta `raw_score DESC` como 2º critério; a chave **ratificada e codificada** **não** usa `raw_score` (verificado em `DATA-AUDIT-001 §1.2`, verdict **PASS** — "code contains no `raw_score` in any ordering"). Fonte de verdade da chave = DEC-0017 (OPP-03). Drift de doc, não de código.
+- **§7 (gate de exibição) — `final_score > 83` SUPERSEDIDO por [DEC-0017] (OPP-06): `final_score ≥ 83`.** O corpo (e o §2/§3.1/§4.3) mostram `> 83` estrito; a regra ratificada e codificada é **`≥ 83`** (`opportunity.py` `DISPLAY_GATE_MIN = 83`, `>=`; boundary testado em 83/82; `DATA-AUDIT-001 §1.3`, **PASS**). A coerência com HOT permanece (`HOT ⇒ >90 ⇒ ≥83`).
+- **Sem impacto numérico:** nenhuma linha do golden fixture repousa exatamente em 83, e nenhum código é alterado aqui — `opportunity_hash` e golden digest **inalterados**.
+
+[DEC-0017]: ../product/decisions/DEC-0017-pipeline-v1-ratifications.md
+[DEC-0023]: ../product/decisions/DEC-0023-audit-residual-ratifications-spec-refresh.md
