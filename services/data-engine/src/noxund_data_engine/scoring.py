@@ -378,7 +378,14 @@ class _PreparedArtist:
 def age_days(
     published_at: datetime, window_end: datetime, *, context: Context = DEFAULT_CONTEXT
 ) -> Decimal:
-    """``(window_end - published_at) / 86400`` from an integer timedelta (no float)."""
+    """``(window_end - published_at) / 86400`` from an integer timedelta (no float).
+
+    Fail-closed (DATA-AUDIT-001 P2-02): ``published_at`` strictly after ``window_end``
+    is a raw/collection contract violation (a video "from the future" relative to the
+    frozen window) and raises ``ContractViolation`` — never a negative age silently
+    floored into a fresh video. ``published_at == window_end`` (age 0) stays valid; the
+    floor in ``effective_age_days`` protects near-zero ages, not negative ones.
+    """
 
     _require_aware(published_at, "published_at")
     _require_aware(window_end, "window_end")
@@ -389,7 +396,10 @@ def age_days(
             + Decimal(delta.seconds)
             + Decimal(delta.microseconds) / Decimal(1_000_000)
         )
-        return seconds / Decimal(86400)
+        days = seconds / Decimal(86400)
+    if days < ZERO:
+        raise ContractViolation("published_at must not be after window_end")
+    return days
 
 
 def effective_age_days(
