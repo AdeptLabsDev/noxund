@@ -22,6 +22,15 @@ All size/history/duplicate gates from the design proposal are **disabled** in v1
 ``DUP_TITLE_CAP``). Where the spec's 4-gate proposal conflicts with DEC-0017,
 DEC-0017 wins. NULL channel statistics are never coerced to zero.
 
+Fail-closed precondition (DC2-01 · DEC-0022, amends DEC-0019 §2). Every channel in
+the run footprint MUST carry a raw ``ChannelRecord``. Gated collection owns and
+proves completeness upstream (§7); the filter reaffirms the same invariant here as
+the last line of defense — a missing record raises ``ContractViolation`` *before*
+any verdict, Competition or Signals is produced, never a silent tolerant pass. A
+record with ``title=None`` still counts as present ("no signal" ≠ "no record"). This
+is a contract precondition, not a gate change: gate order, constants, ``rule_version``
+and ``rule_hash`` are untouched and the golden digest is unchanged.
+
 No DB, secret, network, LLM, or real collection is touched. Verdicts are returned
 in memory; a future gated writer persists them to ``channel_eligibility``.
 """
@@ -72,7 +81,11 @@ class ChannelFilterError(RuntimeError):
 
 
 class ContractViolation(ChannelFilterError):
-    """An input violated the channel-filter contract (e.g. blank key, run mismatch)."""
+    """An input violated the channel-filter contract.
+
+    E.g. a blank key, a run mismatch, or a channel present in the run footprint with
+    no raw ``ChannelRecord`` (fail-closed DC2-01 · DEC-0022).
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -294,6 +307,11 @@ class ChannelFilter:
         ``human_overrides`` maps ``channel_id -> is_eligible`` and models a recorded
         human review decision (which lives in ``audit_events``); it is never
         model-generated. Only channels contributing at least one video are judged.
+
+        Fail-closed (DC2-01 · DEC-0022): every channel in the run footprint must carry
+        a raw ``ChannelRecord``; otherwise ``ContractViolation`` is raised before any
+        verdict, Competition or Signals is produced. A human override does not exempt a
+        channel from this precondition — the channel was still collected.
         """
 
         _require_nonblank(run_id, "run_id")
@@ -301,6 +319,7 @@ class ChannelFilter:
         overrides = human_overrides or {}
 
         footprint = run_video_ids_by_channel(videos)
+        self._assert_channel_records_present(footprint, channels)
         links = artist_ids_by_channel(videos)
         titles = {record.channel_id: record.title for record in channels}
 
@@ -411,6 +430,26 @@ class ChannelFilter:
             )
             for artist_id in sorted(all_artists)
         )
+
+    @staticmethod
+    def _assert_channel_records_present(
+        footprint: Mapping[str, set[str]], channels: Sequence[ChannelRecord]
+    ) -> None:
+        """Fail-closed (DC2-01 · DEC-0022, amends DEC-0019 §2).
+
+        Every channel contributing at least one video to the run MUST have a raw
+        ``ChannelRecord``. Gated collection guarantees this upstream and proves it via
+        §7; the filter reaffirms it here as the last line of defense instead of
+        silently tolerating a gap. Raised before any verdict / Competition / Signals.
+        A record with ``title=None`` counts as present ("no signal" ≠ "no record"), so
+        a complete run stays byte-identical to the prior output.
+        """
+
+        recorded = {record.channel_id for record in channels}
+        if any(channel_id not in recorded for channel_id in footprint):
+            raise ContractViolation(
+                "every channel in the run footprint requires a raw ChannelRecord"
+            )
 
     @staticmethod
     def _assert_run_scope(
