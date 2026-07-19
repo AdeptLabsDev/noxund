@@ -27,6 +27,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Sequence
 
 from noxund_data_engine.channel_filter import (
     DEFAULT_CONFIG as CHANNEL_FILTER_DEFAULT_CONFIG,
@@ -104,6 +105,21 @@ def _artist_videos(
 # Synthetic fixtures (each builder returns a fresh snapshot — the determinism
 # tests deliberately construct two independent, structurally-identical inputs).
 # ---------------------------------------------------------------------------
+def _channel_rows_for(videos: Sequence[RawVideoRow]) -> tuple[ChannelRow, ...]:
+    """One title-less raw ``ChannelRow`` per channel the videos reference.
+
+    channel-filter-v1 is fail-closed (DC2-01 · DEC-0022, amends DEC-0019 §2): every
+    channel in the run footprint MUST carry a raw record — a complete collected run.
+    Titles are ``None`` (no self_channel signal), so a complete snapshot stays
+    byte-identical to the pre-fail-closed output and the GOLDEN_DIGEST is unchanged.
+    """
+
+    return tuple(
+        ChannelRow(channel_id)
+        for channel_id in sorted({video.channel_id for video in videos})
+    )
+
+
 def golden_videos() -> list[RawVideoRow]:
     videos: list[RawVideoRow] = []
     # Two structurally-identical leaders both sit at the run's p90 velocity/engagement
@@ -137,12 +153,13 @@ GOLDEN_ARTISTS = (
 
 def golden_snapshot(videos: list[RawVideoRow] | None = None,
                     artists: tuple[ArtistRow, ...] | None = None) -> PipelineSnapshot:
+    effective_videos = tuple(golden_videos() if videos is None else videos)
     return PipelineSnapshot(
         run_id="run-golden",
         report_title="Golden Run",
         window_end=WINDOW_END,
-        videos=tuple(golden_videos() if videos is None else videos),
-        channels=(),
+        videos=effective_videos,
+        channels=_channel_rows_for(effective_videos),
         artists=GOLDEN_ARTISTS if artists is None else artists,
     )
 
@@ -162,7 +179,10 @@ def insufficient_snapshot() -> PipelineSnapshot:
         RawVideoRow("b0", "b-ch", "Beta Two Type Beat", 800, 40, 8, _dt(6, 18)),
     )
     artists = (ArtistRow("artist-alpha", "Alpha One"), ArtistRow("artist-beta", "Beta Two"))
-    return PipelineSnapshot("run-insuf", "Insufficient Run", WINDOW_END, videos, (), artists)
+    return PipelineSnapshot(
+        "run-insuf", "Insufficient Run", WINDOW_END, videos,
+        _channel_rows_for(videos), artists,
+    )
 
 
 def one_hot_snapshot() -> PipelineSnapshot:
@@ -172,7 +192,10 @@ def one_hot_snapshot() -> PipelineSnapshot:
     )
     videos += [RawVideoRow("w0", "w-ch", "Weak Guy Type Beat", 200, 5, 1, _dt(6, 10))]
     artists = (ArtistRow("artist-kairo", "Kairo Vee"), ArtistRow("artist-weak", "Weak Guy"))
-    return PipelineSnapshot("run-onehot", "One HOT Run", WINDOW_END, tuple(videos), (), artists)
+    return PipelineSnapshot(
+        "run-onehot", "One HOT Run", WINDOW_END, tuple(videos),
+        _channel_rows_for(videos), artists,
+    )
 
 
 def domination_boundary_snapshot() -> PipelineSnapshot:
@@ -209,7 +232,10 @@ def unresolvable_snapshot() -> PipelineSnapshot:
         RawVideoRow("bad-blank", "z-ch", "   ", 1000, 50, 10, _dt(6, 20)),
     )
     artists = (ArtistRow("artist-solo", "Solo Star"),)
-    return PipelineSnapshot("run-unres", "Unresolvable Run", WINDOW_END, videos, (), artists)
+    return PipelineSnapshot(
+        "run-unres", "Unresolvable Run", WINDOW_END, videos,
+        _channel_rows_for(videos), artists,
+    )
 
 
 def _final_scores(result: PipelineResult) -> dict[str, int]:

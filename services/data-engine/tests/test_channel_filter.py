@@ -48,6 +48,23 @@ def videos_for_channel(
     ]
 
 
+def channel_records(
+    videos: Sequence[RunVideo], *, titles: dict[str, str | None] | None = None
+) -> list[ChannelRecord]:
+    """One raw ``ChannelRecord`` per channel the videos reference (a complete run).
+
+    channel-filter-v1 is fail-closed (DC2-01 · DEC-0022): every channel in the run
+    footprint needs a raw record. Titles default to ``None`` (no self_channel signal);
+    pass ``titles`` to give a specific channel a title.
+    """
+
+    lookup = titles or {}
+    return [
+        ChannelRecord(RUN_ID, channel_id, title=lookup.get(channel_id))
+        for channel_id in sorted({video.channel_id for video in videos})
+    ]
+
+
 class ChannelFilterTests(unittest.TestCase):
     def test_self_channel_excluded_from_its_own_competition(self) -> None:
         catalog = FakeArtistCatalog({"artist-1": ("Kairo Vée",)})
@@ -106,7 +123,9 @@ class ChannelFilterTests(unittest.TestCase):
             videos_for_channel("chan-60", 60)
             + videos_for_channel("chan-61", 61, artist_id="artist-2")
         )
-        result = run_filter.evaluate_run(run_id=RUN_ID, videos=videos)
+        result = run_filter.evaluate_run(
+            run_id=RUN_ID, videos=videos, channels=channel_records(videos)
+        )
 
         at_cap = result.verdict_for("chan-60")
         over_cap = result.verdict_for("chan-61")
@@ -166,7 +185,9 @@ class ChannelFilterTests(unittest.TestCase):
         videos = videos_for_channel("chan-prolific", 10) + [
             RunVideo(RUN_ID, "solo", "chan-solo", "artist-1"),
         ]
-        result = run_filter.evaluate_run(run_id=RUN_ID, videos=videos)
+        result = run_filter.evaluate_run(
+            run_id=RUN_ID, videos=videos, channels=channel_records(videos)
+        )
 
         projection = result.projection_for("artist-1")
         assert projection is not None
@@ -185,7 +206,9 @@ class ChannelFilterTests(unittest.TestCase):
             videos_for_channel("chan-dom", 61)
             + [RunVideo(RUN_ID, "ok-1", "chan-ok", "artist-1")]
         )
-        result = run_filter.evaluate_run(run_id=RUN_ID, videos=videos)
+        result = run_filter.evaluate_run(
+            run_id=RUN_ID, videos=videos, channels=channel_records(videos)
+        )
 
         dom = result.verdict_for("chan-dom")
         assert dom is not None
@@ -206,7 +229,9 @@ class ChannelFilterTests(unittest.TestCase):
             RunVideo(RUN_ID, "a2", "chan-shared", "artist-1"),
             RunVideo(RUN_ID, "b1", "chan-shared", "artist-2"),
         ]
-        result = run_filter.evaluate_run(run_id=RUN_ID, videos=videos)
+        result = run_filter.evaluate_run(
+            run_id=RUN_ID, videos=videos, channels=channel_records(videos)
+        )
 
         first = result.projection_for("artist-1")
         second = result.projection_for("artist-2")
@@ -240,7 +265,8 @@ class ChannelFilterTests(unittest.TestCase):
         ]
         # A human forces the otherwise-eligible chan-a to ineligible.
         result = run_filter.evaluate_run(
-            run_id=RUN_ID, videos=videos, human_overrides={"chan-a": False}
+            run_id=RUN_ID, videos=videos, channels=channel_records(videos),
+            human_overrides={"chan-a": False},
         )
 
         overridden = result.verdict_for("chan-a")
@@ -258,7 +284,8 @@ class ChannelFilterTests(unittest.TestCase):
         run_filter = make_filter()
         videos = videos_for_channel("chan-dom", 61)
         result = run_filter.evaluate_run(
-            run_id=RUN_ID, videos=videos, human_overrides={"chan-dom": True}
+            run_id=RUN_ID, videos=videos, channels=channel_records(videos),
+            human_overrides={"chan-dom": True},
         )
 
         verdict = result.verdict_for("chan-dom")
@@ -275,7 +302,8 @@ class ChannelFilterTests(unittest.TestCase):
             + videos_for_channel("chan-self", 3)
             + videos_for_channel("chan-dom", 61, artist_id="artist-2")
         )
-        channels = [ChannelRecord(RUN_ID, "chan-self", title="BeatFactory")]
+        # chan-a / chan-dom carry title-less records; only chan-self is a self match.
+        channels = channel_records(videos, titles={"chan-self": "BeatFactory"})
 
         first = run_filter.evaluate_run(run_id=RUN_ID, videos=videos, channels=channels)
         second = run_filter.evaluate_run(run_id=RUN_ID, videos=videos, channels=channels)
@@ -294,7 +322,9 @@ class ChannelFilterTests(unittest.TestCase):
         self.assertEqual(FilterConfig().rule_hash, rule_hash)
         # A verdict carries the same frozen version + hash.
         result = make_filter().evaluate_run(
-            run_id=RUN_ID, videos=[RunVideo(RUN_ID, "v1", "chan", "artist-1")]
+            run_id=RUN_ID,
+            videos=[RunVideo(RUN_ID, "v1", "chan", "artist-1")],
+            channels=[ChannelRecord(RUN_ID, "chan")],
         )
         self.assertEqual(result.rule_hash, rule_hash)
         self.assertEqual(result.rule_version, RULE_VERSION)
@@ -307,18 +337,58 @@ class ChannelFilterTests(unittest.TestCase):
             {"eligible", "self_channel", "run_domination", "human_override"},
         )
 
-    def test_channel_without_record_has_no_title_signal(self) -> None:
+    def test_channel_without_record_fails_closed(self) -> None:
+        # Fail-closed (DC2-01 · DEC-0022, amends DEC-0019 §2): a channel present in the
+        # run footprint with no raw ChannelRecord is a ContractViolation, NOT a silently
+        # tolerated eligible pass. Enforced before any verdict / Competition / Signals.
         catalog = FakeArtistCatalog({"artist-1": ("BeatFactory",)})
         run_filter = make_filter(catalog=catalog)
-        # No ChannelRecord => title is None => self_channel cannot fire.
-        videos = [RunVideo(RUN_ID, "v1", "chan-untitled", "artist-1")]
+        videos = [
+            RunVideo(RUN_ID, "v1", "chan-a", "artist-1"),
+            RunVideo(RUN_ID, "v2", "chan-b", "artist-1"),
+        ]
 
-        result = run_filter.evaluate_run(run_id=RUN_ID, videos=videos, channels=())
+        # (a) no records at all.
+        with self.assertRaises(ContractViolation):
+            run_filter.evaluate_run(run_id=RUN_ID, videos=videos, channels=())
 
-        verdict = result.verdict_for("chan-untitled")
-        assert verdict is not None
-        self.assertTrue(verdict.is_eligible)
-        self.assertEqual(verdict.reason_code, ReasonCode.ELIGIBLE)
+        # (b) partial coverage — chan-b still missing a record fails closed just the same.
+        with self.assertRaises(ContractViolation):
+            run_filter.evaluate_run(
+                run_id=RUN_ID,
+                videos=videos,
+                channels=[ChannelRecord(RUN_ID, "chan-a")],
+            )
+
+    def test_complete_channel_records_run_the_full_green_path(self) -> None:
+        # The satisfied precondition (every footprint channel has a raw record) runs the
+        # full deterministic path: self_channel, eligible and run_domination all resolve
+        # and Signals/Competition project honestly — no verdict is skipped or fabricated.
+        catalog = FakeArtistCatalog({"artist-1": ("Kairo Vée",)})
+        run_filter = make_filter(catalog=catalog)
+        videos = (
+            [RunVideo(RUN_ID, "s1", "chan-self", "artist-1")]
+            + [RunVideo(RUN_ID, "r1", "chan-rival", "artist-1")]
+            + videos_for_channel("chan-dom", 61, artist_id="artist-1")
+        )
+        channels = channel_records(videos, titles={"chan-self": "KAIRO—Vée"})
+
+        result = run_filter.evaluate_run(run_id=RUN_ID, videos=videos, channels=channels)
+
+        self_v = result.verdict_for("chan-self")
+        rival_v = result.verdict_for("chan-rival")
+        dom_v = result.verdict_for("chan-dom")
+        assert self_v is not None and rival_v is not None and dom_v is not None
+        self.assertEqual(self_v.reason_code, ReasonCode.SELF_CHANNEL)
+        self.assertTrue(rival_v.is_eligible)
+        self.assertEqual(rival_v.reason_code, ReasonCode.ELIGIBLE)
+        self.assertEqual(dom_v.reason_code, ReasonCode.RUN_DOMINATION)
+
+        projection = result.projection_for("artist-1")
+        assert projection is not None
+        # self + dominated both drop from Competition and Signals; only the rival remains.
+        self.assertEqual(projection.eligible_channel_ids, ("chan-rival",))
+        self.assertEqual(projection.valid_video_ids, ("r1",))
 
     def test_is_self_channel_pure_helper_guards_empty_title(self) -> None:
         names = frozenset({normalize_for_match("BeatFactory")})
