@@ -23,6 +23,7 @@ from noxund_data_engine.opportunity import (
     ValidVideo,
     base_competition_level,
     format_velocity_display,
+    growth_trigger,
     publication_windows,
 )
 
@@ -377,6 +378,16 @@ class CompetitionTests(unittest.TestCase):
         self.assertIsNone(competition["growth_7d"])
         self.assertFalse(competition["growth_triggered"])
         self.assertEqual(competition["prior_zero_rule"], "no-trigger")
+
+    def test_growth_trigger_exactly_50pct_does_not_fire(self) -> None:
+        # P2-04 (DATA-AUDIT-001): the growth override is STRICT '>'. Exactly +50%
+        # (recent 3 vs prior 2) does NOT raise Competition to High; just above does.
+        fired, growth = growth_trigger(recent_7d=3, prior_7d=2)
+        self.assertEqual(growth, Decimal("0.5"))
+        self.assertFalse(fired)
+        fired_above, growth_above = growth_trigger(recent_7d=4, prior_7d=2)
+        self.assertTrue(fired_above)
+        self.assertEqual(growth_above, Decimal("1"))
 
     def test_growth_never_lowers_level(self) -> None:
         # Medium base with negative growth stays Medium; High base stays High.

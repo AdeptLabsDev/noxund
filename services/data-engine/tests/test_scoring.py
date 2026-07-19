@@ -24,6 +24,7 @@ from noxund_data_engine.scoring import (
     PopularityScorer,
     RubricConfig,
     VideoStats,
+    age_days,
     effective_age_days,
     engagement_rate,
     final_score_from_raw,
@@ -251,10 +252,35 @@ class PrimitiveTests(unittest.TestCase):
         self.assertEqual(engagement_rate(None, None, 100), ZERO)
         self.assertEqual(engagement_rate(50, 0, 100), Decimal("0.5"))
 
+    def test_published_at_after_window_end_fails_closed(self) -> None:
+        # P2-02 (DATA-AUDIT-001): a video published AFTER the frozen window_end is a
+        # raw/collection contract violation, not a fresh video. Both age primitives
+        # fail closed; the == window_end boundary stays valid (age 0, floored to 1).
+        after = _dt(2026, 7, 1)  # window_end (2026-06-30) + 1 day
+        with self.assertRaises(ContractViolation):
+            age_days(after, WINDOW_END)
+        with self.assertRaises(ContractViolation):
+            effective_age_days(after, WINDOW_END)
+        # Boundary: published_at == window_end -> age 0 -> valid, floored to 1.
+        self.assertEqual(age_days(WINDOW_END, WINDOW_END), ZERO)
+        self.assertEqual(effective_age_days(WINDOW_END, WINDOW_END), AGE_FLOOR_DAYS)
+        # A near-zero VALID age (hours before window_end) is still floored to 1, not raised.
+        near = datetime(2026, 6, 29, 23, tzinfo=timezone.utc)
+        self.assertEqual(effective_age_days(near, WINDOW_END), AGE_FLOOR_DAYS)
+
 
 class ScoringBehaviourTests(unittest.TestCase):
     def setUp(self) -> None:
         self.scorer = PopularityScorer()
+
+    def test_empty_run_scores_empty_without_raising(self) -> None:
+        # P2-01 (DATA-AUDIT-001): an empty artist set is an honest empty run — zero
+        # scores WITHOUT raising, and the frozen rubric identity is still stamped
+        # (rubric_version / rubric_hash unchanged).
+        result = self.scorer.score_run(run_id=RUN_ID, artists=(), window_end=WINDOW_END)
+        self.assertEqual(result.scores, ())
+        self.assertEqual(result.rubric_version, RUBRIC_VERSION)
+        self.assertEqual(result.rubric_hash, DEFAULT_RUBRIC.rubric_hash)
 
     def test_velocity_uses_frozen_window_end_not_wall_clock(self) -> None:
         # Published exactly 10 days before the frozen window_end.
