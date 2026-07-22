@@ -170,13 +170,13 @@ Additional coverage gaps found (no behavior bug, missing lock-in):
 
 ### P2 (hygiene / hardening — deterministic today, but worth closing before live)
 
-**P2-01 — `score_run` silently returns an empty result for an empty run.** `scoring.py:605-618`. Asymmetric with Opportunity's fail-closed `ContractViolation` (`opportunity.py:573-574`); a bug that filters out all artists upstream would yield a plausible empty run instead of an alarm. *Fix direction:* raise `ContractViolation` on `artists == ()` (a run reaching scoring has ≥1 scorable artist per DATA-SCORING-001 §3), or document the empty result as a legitimate contract and pin it with a test.
+**P2-01 — `score_run` silently returns an empty result for an empty run.** *(FECHADO — U2 / PR #51; ver Adendo §7.)* `scoring.py:605-618`. Asymmetric with Opportunity's fail-closed `ContractViolation` (`opportunity.py:573-574`); a bug that filters out all artists upstream would yield a plausible empty run instead of an alarm. *Fix direction:* raise `ContractViolation` on `artists == ()` (a run reaching scoring has ≥1 scorable artist per DATA-SCORING-001 §3), or document the empty result as a legitimate contract and pin it with a test.
 
-**P2-02 — `published_at` after `window_end` is silently floored to age 1.** `scoring.py:378-405`. A video "from the future" is a raw/collection contract violation; masking it as a fresh video is deterministic but wrong. *Fix direction:* raise `ContractViolation` when raw `age_days < 0` (the floor should protect near-zero ages, not negative ones). Add a test.
+**P2-02 — `published_at` after `window_end` is silently floored to age 1.** *(FECHADO — U2 / PR #51; ver Adendo §7.)* `scoring.py:378-405`. A video "from the future" is a raw/collection contract violation; masking it as a fresh video is deterministic but wrong. *Fix direction:* raise `ContractViolation` when raw `age_days < 0` (the floor should protect near-zero ages, not negative ones). Add a test.
 
 **P2-03 — Transient LLM failures are persisted as terminal rejected replay facts.** `entity_resolution.py:318-323` → `_record_llm_rejection` → `record_rejected_fact`. A network blip permanently rejects `(run, video, resolver_version)`; replay-deterministic but lossy — the video can never enter the review queue for that resolver version. *Fix direction:* distinguish transient adapter failure (do not persist; surface as retryable/needs_review-without-fact) from deterministic contract rejections (`llm_contract_violation`, `llm_no_single_candidate`, `candidate_outside_source_title`), which are correctly terminal.
 
-**P2-04 — Growth-trigger boundary (exactly +50%) untested.** `opportunity.py:392-409` implements strict `>` correctly, but no test pins `growth_7d == 0.50 ⇒ no High`. *Fix direction:* add one boundary test (e.g. recent=3, prior=2).
+**P2-04 — Growth-trigger boundary (exactly +50%) untested.** *(FECHADO — U2 / PR #51; ver Adendo §7.)* `opportunity.py:392-409` implements strict `>` correctly, but no test pins `growth_7d == 0.50 ⇒ no High`. *Fix direction:* add one boundary test (e.g. recent=3, prior=2).
 
 **P2-05 — No end-to-end synthetic replay test across the three deterministic zones.** Each module has its own determinism test, but nothing composes `ChannelFilter.evaluate_run → PopularityScorer.score_run → OpportunityBuilder.build_report` on one synthetic run and asserts byte-identical double-execution — which is precisely the shape of the P5-REPRO-01 gate. *Fix direction:* add one integration test building the full chain twice from the same synthetic raw and comparing `RunFilterResult`/`RunScoreResult`/`OpportunityReport` for equality (they are frozen dataclasses; `==` is byte-equivalent given Decimal-exact fields).
 
@@ -211,3 +211,19 @@ Additional coverage gaps found (no behavior bug, missing lock-in):
 O texto original do finding (§0 item 2 e §4 P1-02) permanece **intacto acima**, por ordem expressa do Product Lead: este adendo apenas o marca como superado — nada foi reescrito retrospectivamente. **P1-01 não é tocado por este adendo** e permanece registrado como está, com tratamento em unidade própria.
 
 *Registro relacionado:* DEC-0017 (linha de sequenciamento corrigida em 2026-07-16, mesma unidade documental) · DEC-0019 §1 · DEC-0021 (RO-1, mesma unidade documental).
+
+---
+
+## 7. Adendo (2026-07-21) — P2-01 / P2-02 / P2-04 fechados pelo U2 (PR #51)
+
+**P2-01, P2-02 e P2-04 estão FECHADOS.** A unidade de hardening **U2** — **PR #51**, merge `0cced4f`, commit de implementação `c40b96d` — fechou os três, **hash-neutro por construção**:
+
+- **P2-02 (código):** `age_days` levanta `ContractViolation("published_at must not be after window_end")` quando a idade bruta é `< 0`; `published_at == window_end` (idade 0) permanece válido, floorado a 1 por `effective_age_days`. É pré-condição de contrato de input (paralela a DEC-0022 no Channel Filter), **não** uma constante de rubric → **sem** `rubric_version` bump.
+- **P2-01 (teste):** `test_empty_run_scores_empty_without_raising` registra `score_run(artists=())` como contrato legítimo — resultado vazio **sem** raise, com `rubric_version`/`rubric_hash` carimbados.
+- **P2-04 (teste):** `test_growth_trigger_exactly_50pct_does_not_fire` trava o `>` estrito: exatamente +50% (recent 3 vs prior 2) **não** dispara High; logo acima (+100%) dispara.
+
+**Inalterado (before == after):** `rule_version`/`rubric_version`/`opportunity_version`; `rule_hash` `7a1e3c76…eaea7`, `rubric_hash` `f0c465fb…3ca54`, `opportunity_hash` `ce7c7c1a…ba52f`; golden digest `c8e33fe8…74ca8` (byte-idêntico ×2 e == `GOLDEN_DIGEST`). Suíte 172 → 175 (×2 GREEN); repro harness 21 intacto. **Nenhum run bem-formado muda de output** — no dataset `f0485de6` (janela de 30d) nenhum vídeo tem `published_at > window_end`.
+
+O texto original dos findings (§2 N6/N7, §3 e §4 P2-01/02/04) permanece **intacto acima**; este adendo apenas os marca como fechados — nada foi reescrito retrospectivamente. **P2-03, P2-05, P2-06 e P2-07 não são tocados** por este adendo (P2-05 já coberto pelo repro harness `test_repro_harness`; P2-06 endereçado no spec-refresh aditivo do U1/DEC-0023; P2-03 e P2-07 permanecem como registrados).
+
+*Registro completo:* `docs/data/DATA-AUDIT-001-U2-p2-closeout.md`. *Relacionado:* DEC-0023 (D-D não-bloqueantes · D-E U2 antes do 1º compute) · DEC-0017 item 4 (rubric) · DEC-0022 (precedente de pré-condição fail-closed no Channel Filter). **Atribuição:** DEC-0021 é RO-1 e **não** fecha `self_channel`/P1-02 — o fechamento de P1-02 está em §6.
