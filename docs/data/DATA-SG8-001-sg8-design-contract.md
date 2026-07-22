@@ -3,7 +3,7 @@
 - **Artefato:** contrato de design **docs-only** do gate SG-8 — o protocolo canônico de duas rodadas (Round 1 compute + Round 2 replay) sobre o dataset congelado, provando `P5-REPRO-01` antes de qualquer publish.
 - **Autor (registro):** Product Orchestrator
 - **Data:** 2026-07-22
-- **Status:** **PROPOSTO — aguardando revisões obrigatórias (Data/AI Pipeline · QA · Database · Security) e ratificação do Product Lead.** Não ratificado; não implementado; não executado.
+- **Status:** **RATIFICADO — contrato vinculante de design do SG-8 (Product Lead, 2026-07-22).** Quatro revisões obrigatórias concluídas (Data/AI Pipeline · QA · Database · Security); **não implementado; não executado.**
 - **Modo:** DOCS-ONLY. Zero código, zero runner, zero workflow, zero banco, zero schema, zero Environment, zero secret, zero GCP, zero dry-run, zero compute, zero SG-8. **Não** altera versões, hashes, rubrics ou regras de negócio — todas são referenciadas como **substrato congelado**.
 - **Relaciona:** DEC-0017 (ratificações v1) · DEC-0023 (1º compute real = SG-8 Round 1 + Round 2; D-D/D-E) · DEC-0021 (RO-1) · DEC-0022 (pré-condição fail-closed no Channel Filter) · `DATA-AUDIT-001` (§1 N10/N11, §7) · `DATA-SCORING-001` · `DATA-OPP-001` · `DATA-CHANNEL-001` · `DATA-ENTITY-001`.
 - **Substrato de código (congelado; referenciado, não modificado):** `pipeline.canonical_report` / `canonical_json` / `pipeline_digest` (a superfície de comparação do P5-REPRO-01); `entity_resolution.resolve` (`entity-resolver-v1`); `report_runs.status` (enum `created/collecting/processed/published/failed`).
@@ -244,13 +244,13 @@ Cada fronteira é **inequívoca**: nada de estágio N+1 acontece sob o GO do est
 
 ## Revisões obrigatórias
 
-Antes da ratificação (A0), **quatro** revisões obrigatórias + ratificação humana:
+Quatro revisões obrigatórias — **todas concluídas** — + ratificação humana (A0), 2026-07-22:
 
-- [ ] **Data/AI Pipeline** (obrigatória — metodologia, determinismo, fronteira LLM, superfície comparável)
-- [ ] **QA** (obrigatória — PASS/FAIL sem drift, falha parcial, retomada, cobertura offline do runner)
-- [ ] **Database** (obrigatória — writes/atomicidade, inelegibilidade, snapshot, imutabilidade)
-- [ ] **Security** (obrigatória — postura de banco/secret/LLM, RO-1, proveniência, acesso fechado)
-- [ ] **Product Lead** — **ratifica** (A0)
+- [x] **Data/AI Pipeline** (obrigatória — metodologia, determinismo, fronteira LLM, superfície comparável) — **APPROVE WITH NOTES**
+- [x] **QA** (obrigatória — PASS/FAIL sem drift, falha parcial, retomada, cobertura offline do runner) — **APPROVE WITH NOTES**
+- [x] **Database** (obrigatória — writes/atomicidade, inelegibilidade, snapshot, imutabilidade) — **APPROVE PENDING** (Q-1/Q-2 = pré-condições obrigatórias do estágio 3)
+- [x] **Security** (obrigatória — postura de banco/secret/LLM, RO-1, proveniência, acesso fechado) — **APPROVE WITH NOTES**
+- [x] **Product Lead** — **RATIFICA (A0)** — ratificado 2026-07-22
 
 ## Non-goals (explícitos)
 
