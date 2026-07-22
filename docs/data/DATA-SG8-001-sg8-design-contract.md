@@ -52,6 +52,8 @@ Cada identificador tem **um** papel; nenhum é sobrecarregado. A regra-mãe: **p
 
 **Decisão de contrato D-1 (report run_id congelado na sessão).** Os dois `report run_id` são fixados **uma vez** no nível da `sg8_session` e **reusados** por ambas as rodadas. Assim a superfície `canonical_report` existente permanece **inalterada** (nenhum novo hash, nenhuma mudança de código/regra), e Round 2 é um replay verdadeiro para dentro das mesmas identidades de relatório. O `round_execution_id` — que difere entre rodadas — **nunca** é passado ao pipeline nem entra na saída comparável. *(Alternativa considerada e rejeitada: excluir `run_id` do payload via uma superfície comparável sob medida — rejeitada por criar uma segunda superfície de hash divergente de `pipeline_digest`, violando o non-goal "não alterar hashes".)*
 
+> **Payload compartilhado ≠ armazenamento compartilhado (ver §6.5 / D-10).** O `report run_id` reusado é uma identidade **lógica / de dado** que aparece no payload comparável das **duas** rodadas — é *exatamente* o que precisa casar para provar reprodutibilidade. Ele **não** implica linha ou artefato de armazenamento compartilhado: a materialização física de cada rodada (resultados, digests, atestações) é **particionada por `round_execution_id`**. Round 1 e Round 2 gravam em espaços **separados**; a Round 2 **jamais** atualiza ou sobrescreve qualquer artefato da Round 1.
+
 ### §2.2 Entradas congeladas (before == after; verificadas na abertura da sessão)
 
 | Entrada | Valor congelado |
@@ -153,7 +155,7 @@ Esta proveniência é **pré-condição de PASS**: um snapshot com invocação d
 
 ### §6.1 O que cada rodada pode ler e escrever
 - **Round 1** — **lê** raw (read-only, §2.3), fatos/fila de resolução; **escreve** (append/estado inelegível): fatos de resolução + decisões humanas (⇒ `resolution_snapshot_id`), resultados de compute e digests canônicos de Round 1, tudo em estado **pré-`published`**.
-- **Round 2** — **lê** raw + `resolution_snapshot_id` congelado + evidência de Round 1; **escreve** **somente** sua própria evidência de comparação/veredicto. **Não** escreve fatos de resolução, **não** cria relatórios novos, **não** toca a evidência de Round 1.
+- **Round 2** — **lê** raw + `resolution_snapshot_id` congelado + evidência de Round 1 (read-only, para comparar); **escreve** **somente** sua própria evidência de comparação/veredicto, num espaço **particionado por seu `round_execution_id`** (distinto do de Round 1). **Não** escreve fatos de resolução, **não** cria relatórios novos, **não** atualiza nem sobrescreve nenhum artefato da Round 1.
 
 ### §6.2 Inelegibilidade antes do PASS
 Nenhum resultado transita para `published` antes de PASS. Enquanto a sessão não passa, os relatórios permanecem em estado inelegível (pré-`published` no enum `report_runs.status`); publish é um gate **separado e posterior** (§1). "Computado" nunca implica "publicável".
@@ -169,6 +171,8 @@ Nenhum resultado transita para `published` antes de PASS. Enquanto a sessão nã
 
 ### §6.5 Proibição de sobrescrever evidência anterior
 Evidências (fatos de resolução, resultados, digests, atestações) são **append-only e imutáveis**. Nenhuma rodada, retomada ou nova sessão **sobrescreve** evidência anterior; uma nova sessão **adiciona**, nunca substitui. Isto preserva a auditabilidade completa da cadeia (paralelo à imutabilidade do raw, `DATA-AUDIT-001`).
+
+**Separação por rodada (imutabilidade entre rodadas).** As evidências de Round 1 e de Round 2 são **armazenadas separadamente, particionadas por `round_execution_id`**. Os **mesmos** dois `report run_id` podem — e devem — aparecer no payload canônico das **duas** rodadas (identidade lógica de dado, §2.1 D-1); isso **nunca** significa artefato de armazenamento compartilhado. A Round 2 **nunca** atualiza nem sobrescreve os artefatos da Round 1 — ela **adiciona** sua própria evidência sob seu `round_execution_id` e apenas **lê** a de Round 1 para comparar. Um write de Round 2 que colidisse com um artefato de Round 1 é violação de contrato ⇒ **FAIL**.
 
 ---
 
@@ -226,6 +230,7 @@ Cada fronteira é **inequívoca**: nada de estágio N+1 acontece sob o GO do est
 | **D-7** | Qualquer drift ⇒ **FAIL** ⇒ publish **absolutamente barrado**; sem tolerância (§1). |
 | **D-8** | Proveniência de LLM (provider/modelo/versão/prompt-hash/params/adaptador) é **obrigatória** em Round 1 e **pré-condição de PASS**, mas **excluída** do digest (§5.3). |
 | **D-9** | Dois preflights RO-1 por sessão (um por rodada), obrigatórios antes de cada ato vivo (§7). |
+| **D-10** | **Imutabilidade entre rodadas.** Os mesmos dois `report run_id` aparecem no payload canônico das duas rodadas (identidade lógica, D-1), mas as evidências de Round 1 e Round 2 são **armazenadas separadamente, particionadas por `round_execution_id`**; Round 2 **nunca** atualiza/sobrescreve artefatos de Round 1 — só os lê para comparar (§2.1 / §6.1 / §6.5). |
 
 ## §Q. Questões abertas (para revisores / Product Lead)
 
@@ -233,7 +238,7 @@ Cada fronteira é **inequívoca**: nada de estágio N+1 acontece sob o GO do est
 - **Q-2 — Estado inelegível exato.** Qual valor do enum `report_runs.status` representa "computado mas inelegível a publish" para a sessão SG-8 (`processed`?), e como distinguir Round 1 vs Round 2 sem poluir a superfície comparável? *(Owner: Database + Data/AI.)*
 - **Q-3 — Determinismo do provider de LLM.** A proveniência (§5.3) é suficiente para auditoria, mas o provider é não-determinístico por natureza; o contrato já isola isso (LLM só gera candidato `PENDING`, humano decide, Round 2 é replay). Confirmar que nenhuma configuração de provider pode vazar para um número. *(Owner: Data/AI + Security.)*
 - **Q-4 — Reexecução de Round 2.** Recomputar Round 2 a partir do mesmo snapshot é retomada idempotente (§6.4) — confirmar que nenhuma condição de corrida com o estado inelegível de Round 1 exige nova sessão. *(Owner: QA + Database.)*
-- **Q-5 — Rotação de credencial.** A credencial da LLM (Round 1) e a postura de secret entram no estágio 3 (integração live); confirmar que a rotação/So (chave YouTube ≈ 2026-10-13) não interfere na janela SG-8. *(Owner: Security.)*
+- **Q-5 — Credencial da LLM (independente da YouTube API key).** A credencial da LLM (Round 1) e a **YouTube API key são independentes**: chaves distintas, escopos distintos, **ciclos de rotação distintos**. O deadline ≈ **2026-10-13 pertence exclusivamente à YouTube key** (rotação A7, SEC-0026) e **não** define nem governa a rotação da futura credencial da LLM, que terá política própria a definir. A credencial da LLM e sua postura de secret entram no estágio 3 (integração live); confirmar que **nenhuma** das duas rotações, independentes entre si, interfere na janela SG-8. *(Owner: Security.)*
 
 ---
 
