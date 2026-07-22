@@ -376,12 +376,23 @@ def run_pipeline(
     filter_config: FilterConfig = CHANNEL_FILTER_DEFAULT_CONFIG,
     opportunity_config: OpportunityConfig = OPPORTUNITY_DEFAULT_CONFIG,
     resolver_version: str = RESOLVER_VERSION,
+    resolver: EntityResolver | None = None,
 ) -> PipelineResult:
     """Compose the four deterministic zones over one synthetic snapshot.
 
     Order (DEC-0017): Entity Resolution -> Channel Filter -> Scoring -> Opportunity.
     Pure and total: no I/O, no network, no DB, no LLM, no wall clock. Returns the
     ordered, provenance-stamped report rows plus the intermediate audit artifacts.
+
+    ``resolver`` is an OPTIONAL injection seam (DATA-SG8-001, stage 2). When ``None``
+    (the default) the pipeline builds its own regex-only resolver with the generative
+    boundary OFF (``llm=None``) — the exact, byte-identical behavior the golden digest
+    is locked to. A caller MAY inject a resolver whose durable stores replay a *frozen*
+    resolution snapshot (the SG-8 runner does this for both rounds); the injected
+    resolver must carry ``resolver_version`` and only ever return facts whose
+    ``final_name`` is a span of the source title (the resolver's own contract). The
+    injection changes NO produced number, order, label or version identity: the default
+    path — and therefore the golden digest — is untouched.
     """
 
     if not snapshot.run_id or not snapshot.run_id.strip():
@@ -394,8 +405,8 @@ def run_pipeline(
     raw_by_id = _raw_by_id(snapshot.videos)
     name_index, names_by_artist, canonical_by_artist = _index_registry(snapshot.artists)
 
-    # -- Zone 1: Entity Resolution (regex-first; generative boundary OFF). --------
-    resolver = EntityResolver(
+    # -- Zone 1: Entity Resolution (regex-first; generative boundary OFF by default). --
+    active_resolver = resolver if resolver is not None else EntityResolver(
         catalog=_RegistryCatalog(name_index),
         queue=_NullQueue(),
         replay_facts=_NullReplayFacts(),
@@ -406,7 +417,7 @@ def run_pipeline(
     mappings: list[tuple[str, str]] = []          # (video_id, artist_id) — final only
     unresolved: list[str] = []
     for video in snapshot.videos:                 # order-independent (per-video pure)
-        outcome = resolver.resolve(
+        outcome = active_resolver.resolve(
             RawVideo(
                 run_id=snapshot.run_id,
                 video_id=video.video_id,
