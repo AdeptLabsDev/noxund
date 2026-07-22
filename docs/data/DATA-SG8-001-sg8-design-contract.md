@@ -234,11 +234,46 @@ Cada fronteira é **inequívoca**: nada de estágio N+1 acontece sob o GO do est
 
 ## §Q. Questões abertas (para revisores / Product Lead)
 
-- **Q-1 — Persistência do snapshot de resolução.** O `resolution_snapshot_id` exige tabela/coluna nova ou é expressável sobre o modelo de entity-resolution já landado (fatos de replay + fila)? Se exigir schema, isso é trabalho **Database** no estágio 3 (fora deste contrato) e deve nascer de decisão registrada. *(Owner: Database.)*
-- **Q-2 — Estado inelegível exato.** Qual valor do enum `report_runs.status` representa "computado mas inelegível a publish" para a sessão SG-8 (`processed`?), e como distinguir Round 1 vs Round 2 sem poluir a superfície comparável? *(Owner: Database + Data/AI.)*
-- **Q-3 — Determinismo do provider de LLM.** A proveniência (§5.3) é suficiente para auditoria, mas o provider é não-determinístico por natureza; o contrato já isola isso (LLM só gera candidato `PENDING`, humano decide, Round 2 é replay). Confirmar que nenhuma configuração de provider pode vazar para um número. *(Owner: Data/AI + Security.)*
-- **Q-4 — Reexecução de Round 2.** Recomputar Round 2 a partir do mesmo snapshot é retomada idempotente (§6.4) — confirmar que nenhuma condição de corrida com o estado inelegível de Round 1 exige nova sessão. *(Owner: QA + Database.)*
-- **Q-5 — Credencial da LLM (independente da YouTube API key).** A credencial da LLM (Round 1) e a **YouTube API key são independentes**: chaves distintas, escopos distintos, **ciclos de rotação distintos**. O deadline ≈ **2026-10-13 pertence exclusivamente à YouTube key** (rotação A7, SEC-0026) e **não** define nem governa a rotação da futura credencial da LLM, que terá política própria a definir. A credencial da LLM e sua postura de secret entram no estágio 3 (integração live); confirmar que **nenhuma** das duas rotações, independentes entre si, interfere na janela SG-8. *(Owner: Security.)*
+> **Todas RESOLVIDAS em 2026-07-22 por decisão do Product Lead — ver §R.** O texto original de cada questão é preservado abaixo (marcação de resolução, sem reescrita).
+
+- **Q-1 — Persistência do snapshot de resolução.** *(RESOLVIDO 2026-07-22 — ver §R.)* O `resolution_snapshot_id` exige tabela/coluna nova ou é expressável sobre o modelo de entity-resolution já landado (fatos de replay + fila)? Se exigir schema, isso é trabalho **Database** no estágio 3 (fora deste contrato) e deve nascer de decisão registrada. *(Owner: Database.)*
+- **Q-2 — Estado inelegível exato.** *(RESOLVIDO 2026-07-22 — ver §R.)* Qual valor do enum `report_runs.status` representa "computado mas inelegível a publish" para a sessão SG-8 (`processed`?), e como distinguir Round 1 vs Round 2 sem poluir a superfície comparável? *(Owner: Database + Data/AI.)*
+- **Q-3 — Determinismo do provider de LLM.** *(RESOLVIDO 2026-07-22 — ver §R.)* A proveniência (§5.3) é suficiente para auditoria, mas o provider é não-determinístico por natureza; o contrato já isola isso (LLM só gera candidato `PENDING`, humano decide, Round 2 é replay). Confirmar que nenhuma configuração de provider pode vazar para um número. *(Owner: Data/AI + Security.)*
+- **Q-4 — Reexecução de Round 2.** *(RESOLVIDO 2026-07-22 — ver §R.)* Recomputar Round 2 a partir do mesmo snapshot é retomada idempotente (§6.4) — confirmar que nenhuma condição de corrida com o estado inelegível de Round 1 exige nova sessão. *(Owner: QA + Database.)*
+- **Q-5 — Credencial da LLM (independente da YouTube API key).** *(RESOLVIDO 2026-07-22 — ver §R.)* A credencial da LLM (Round 1) e a **YouTube API key são independentes**: chaves distintas, escopos distintos, **ciclos de rotação distintos**. O deadline ≈ **2026-10-13 pertence exclusivamente à YouTube key** (rotação A7, SEC-0026) e **não** define nem governa a rotação da futura credencial da LLM, que terá política própria a definir. A credencial da LLM e sua postura de secret entram no estágio 3 (integração live); confirmar que **nenhuma** das duas rotações, independentes entre si, interfere na janela SG-8. *(Owner: Security.)*
+
+---
+
+## §R. Reconciliação Q-1…Q-5 + definições derivadas (Product Lead, 2026-07-22)
+
+As cinco questões de §Q estão **RESOLVIDAS** por decisão do Product Lead (2026-07-22). O texto original de §Q permanece **intacto acima** (marcado como resolvido, sem reescrita). Esta seção registra as decisões e as definições derivadas; ela **estende** as decisões §D (D-1…D-10) — **nenhuma** é revertida.
+
+### §R.1 Decisões Q-1…Q-5
+
+| Q | Decisão (Product Lead, 2026-07-22) |
+|---|---|
+| **Q-1** | **Registro leve e dedicado** de `resolution_snapshot`, **sem duplicar** os fatos de entity-resolution já existentes. O snapshot é **imutável** e identificado por `resolution_snapshot_id`, carregando: `sg8_session_id`, `source_collection_run_id`, identidade do resolver (`resolver_version`), `fact_count`, `content_hash` **canônico** e `frozen_at`. |
+| **Q-2** | **NÃO** usar `report_runs.status` para representar elegibilidade SG-8. Estado e elegibilidade pertencem à **`sg8_session`**; publish só é permitido com a sessão em **`PASSED`**. **NÃO** adicionar `computed_pending_repro` a `report_runs`. |
+| **Q-3** | A garantia é **determinismo condicionado ao `resolution_snapshot` congelado**, **NÃO** independência absoluta do provider. **Toda** saída da LLM exige **decisão humana**. Persistir: **provider**, **modelo exato**, **prompt hash**, **parâmetros** e **adapter version**. `temperature=0` **não** é tratado como prova de determinismo. |
+| **Q-4** | **Uma única** Round 2 persistida por `sg8_session_id`. **PASS ou FAIL tornam a sessão terminal**; nova tentativa canônica exige **nova sessão**. Retry **técnico** só pode ocorrer **antes do commit** e **sem** evidência persistida. |
+| **Q-5** | **Secret e Environment dedicados ao SG-8**, separados de `youtube-collection`, com **required reviewer**, **credenciais mínimas**, **rotação própria** e **modelo pinado por identificador exato** — **nunca** por alias "latest". |
+
+### §R.2 Definições derivadas (normativas)
+
+- **DD-1 — Elegibilidade de publish.** Deriva **exclusivamente** de `sg8_session.status = PASSED`. Nenhuma outra tabela, status ou decurso confere elegibilidade. Isto **reconcilia §6.2**: `report_runs.status` pode acompanhar o ciclo de vida do relatório, mas a elegibilidade de publish do SG-8 vem **apenas** de `sg8_session.status = PASSED` — nunca de `report_runs.status`.
+- **DD-2 — Estado SG-8 fora do payload.** O estado da `sg8_session` e todos os metadados operacionais (`sg8_session_id`, `round_execution_id`, `resolution_snapshot_id`, proveniência de LLM, timestamps operacionais) permanecem **fora** do payload canônico comparável (reafirma §3.2/§3.5 · D-3).
+- **DD-3 — Terminalidade.** Nenhuma sessão terminal (`PASSED`/`FAILED`) pode ser **reaberta** (reafirma §6.4 · D-6 · Q-4).
+- **DD-4 — Append-only.** `fatos`, `resolution_snapshot`s, `rodadas` e `evidências` são **append-only e imutáveis**; nenhum é atualizado in-place (reafirma §6.5 · D-6 · D-10).
+- **DD-5 — Unidade de schema futura.** A futura unidade de schema (estágio 3) **deverá** possuir **migração, verify e rollback próprios** (paralelo ao padrão do repositório), sob revisão **Database + Data Integrity**, nascendo de decisão registrada. Este contrato **não** cria schema.
+
+### §R.3 Revisões obrigatórias desta reconciliação
+
+Reconciliação docs-only (o Product Lead já decidiu Q-1…Q-5); revisão de conformância:
+
+- [ ] **Database** (registro `resolution_snapshot` Q-1 · `sg8_session` elegibilidade Q-2 · append-only DD-4 · schema-unit DD-5)
+- [ ] **Data/AI Pipeline** (determinismo condicionado Q-3 · estado fora do payload DD-2)
+- [ ] **QA** (terminalidade/retry Q-4/DD-3 · elegibilidade DD-1)
+- [ ] **Security** (secret/Environment dedicados + rotação própria + modelo pinado Q-5)
 
 ---
 
