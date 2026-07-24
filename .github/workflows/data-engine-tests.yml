@@ -22,7 +22,7 @@ name: Data Engine · Resolver Tests (CI)
 # dispatch — still no secret, no Environment, no DB.)
 #
 # DETERMINISM: the full suite runs TWICE in independent processes and BOTH must
-# report exactly "Ran 197 tests ... OK" (18 resolver + 19 channel-filter + 28 scoring + 37 opportunity + 13 channel-collection + 39 video-collection + 21 repro-harness + 22 sg8-runner). A
+# report exactly "Ran 228 tests ... OK" (18 resolver + 19 channel-filter + 28 scoring + 37 opportunity + 13 channel-collection + 39 video-collection + 21 repro-harness + 22 sg8-runner + 31 sg8-postgres-adapter). A
 # discovery regression that silently ran fewer tests
 # would still exit 0 in unittest, so the job asserts the COUNT fail-closed. The
 # dedicated repro-harness job additionally proves the P5-REPRO-01 golden digest is
@@ -76,14 +76,14 @@ jobs:
             *) echo "::error::Expected Python 3.11.x, got ${ver}."; exit 1 ;;
           esac
 
-      - name: Run data-engine suite ×2 — require 197/197 on every run (determinism)
+      - name: Run data-engine suite ×2 — require 228/228 on every run (determinism)
         working-directory: services/data-engine
         env:
           PYTHONPATH: src
         run: |
           set -euo pipefail
           # Exact QA command, stdlib-only (no pip install). Run twice in independent
-          # processes; both must be exactly "Ran 197 tests ... OK". Count asserted
+          # processes; both must be exactly "Ran 228 tests ... OK". Count asserted
           # fail-closed so an under-discovery regression cannot pass as green.
           for attempt in 1 2; do
             echo "::group::resolver suite — attempt ${attempt}/2"
@@ -99,14 +99,14 @@ jobs:
               echo "::error::data-engine resolver tests FAILED on attempt ${attempt} (unittest exit ${status})."
               exit 1
             fi
-            if ! grep -qE '^Ran 197 tests in ' <<<"$out"; then
+            if ! grep -qE '^Ran 228 tests in ' <<<"$out"; then
               ran="$(grep -oE '^Ran [0-9]+ tests' <<<"$out" || true)"
-              echo "::error::attempt ${attempt}: expected exactly 197 tests, got '${ran:-<none>}' (determinism/discovery regression)."
+              echo "::error::attempt ${attempt}: expected exactly 228 tests, got '${ran:-<none>}' (determinism/discovery regression)."
               exit 1
             fi
-            echo "attempt ${attempt}: 197/197 OK"
+            echo "attempt ${attempt}: 228/228 OK"
           done
-          echo "Determinism proven: 197/197 across 2 independent runs (P5-REPRO-01 seed)."
+          echo "Determinism proven: 228/228 across 2 independent runs (P5-REPRO-01 seed)."
 
   repro-harness:
     name: P5-REPRO-01 reproducibility harness (Python 3.11, ×2 + golden digest)
