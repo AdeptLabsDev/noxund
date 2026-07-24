@@ -1,0 +1,269 @@
+name: Migrations · Hermetic Local Verify (no remote, no secrets)
+
+# =============================================================================
+# GENERIC, HERMETIC validator for a single Supabase migration + its rollback,
+# run against a DISPOSABLE LOCAL stack — NEVER a remote/live project.
+#
+# THREAT MODEL / HERMETIC INVARIANTS (Security + DevOps review surface):
+#   • MANUAL ONLY — workflow_dispatch; never on push/schedule/PR.
+#   • NO `environment:` on any job  → this workflow can NEVER read the
+#     `production-db` Environment secrets.
+#   • NO secrets referenced anywhere. NO `supabase link`. NO access token,
+#     remote host, password, or external DB URL is accepted or referenced.
+#   • `permissions: contents: read` ONLY (no write scope, no id-token).
+#   • DBURL is HARD-PINNED to loopback 127.0.0.1 (the local stack) and asserted
+#     at runtime; any non-loopback value aborts the run.
+#   • Supabase CLI is pinned to an EXACT version (never `latest`).
+#   • Every `uses:` action is pinned by full commit SHA (SEC-F17).
+#   • The local stack is destroyed in `if: always()` with `--no-backup`.
+#
+# INPUT CONTRACT (generic — works for ANY migration unit):
+#   target_sha  — a FULL 40-char lowercase Git commit SHA (NOT a branch/tag/short
+#                 SHA). Rejected otherwise. The repo is checked out EXACTLY at it.
+#   *_path      — migration / rollback / post-apply verify / post-rollback verify.
+#                 Each MUST be tracked at target_sha, under `supabase/`, contain no
+#                 `..`, and end in `.sql`. Passed to psql as shell variables (never
+#                 interpolated into the script body) → no command injection.
+#
+# CYCLE (fail-closed at every stage; ON_ERROR_STOP=1):
+#   [1] start disposable local stack →
+#   [2] apply the canonical migration sequence at target_sha (`supabase db reset`) →
+#   [3] post-apply verify →
+#   [4] rollback →
+#   [5] post-rollback verify (objects gone + prior contracts intact) →
+#   [6] reapply the migration →
+#   [7] repeat post-apply verify →
+#   [8] destroy the stack (always, no backup).
+#
+# This workflow applies NOTHING to any remote/live database and holds NO
+# credential capable of doing so. Reviews: DevOps + Security + Database + QA.
+# =============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: 'FULL 40-char lowercase Git commit SHA to validate (NOT a branch, tag, or short SHA).'
+        required: true
+        type: string
+      migration_path:
+        description: 'Forward migration path — must be under supabase/migrations/ and end .sql (e.g. supabase/migrations/<timestamp>_<name>.sql).'
+        required: true
+        type: string
+      rollback_path:
+        description: 'Paired rollback path — must be under supabase/rollback/ and end .sql (e.g. supabase/rollback/<timestamp>_<name>.rollback.sql).'
+        required: true
+        type: string
+      post_apply_verify_path:
+        description: 'Post-apply verify path — must be under supabase/tests/ and end .sql (e.g. supabase/tests/<name>_post_apply_verify.sql).'
+        required: true
+        type: string
+      post_rollback_verify_path:
+        description: 'Post-rollback verify path — must be under supabase/tests/ and end .sql; asserts all objects removed + prior contracts intact (e.g. supabase/tests/<name>_post_rollback_verify.sql).'
+        required: true
+        type: string
+
+# Least privilege: read-only, no write, no id-token, no packages.
+permissions:
+  contents: read
+
+# Serialize runs for the same target so disposable stacks do not pile up;
+# different targets may run in parallel. Never cancel a running validation.
+concurrency:
+  group: migrations-local-verify-${{ github.event.inputs.target_sha }}-${{ github.event.inputs.migration_path }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Validate inputs (format only — no checkout, no DB, no network to a DB)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert target_sha is a FULL 40-char lowercase commit SHA
+        shell: bash
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          set -euo pipefail
+          # Whole-string bash regex (not `grep -q`, which matches per line and would
+          # let a multi-line "<40hex>\n<payload>" value pass). Rejects branch/tag/
+          # short SHA/uppercase/malformed/multi-line.
+          if [[ ! "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::target_sha must be a full 40-char lowercase hex commit SHA. Rejected. Aborting with no checkout."
+            exit 1
+          fi
+          echo "target_sha format OK."
+
+      - name: Assert each path is under its REQUIRED supabase/ subdir, no '..', ends in .sql
+        shell: bash
+        env:
+          P_MIGRATION: ${{ inputs.migration_path }}
+          P_ROLLBACK: ${{ inputs.rollback_path }}
+          P_POST_APPLY: ${{ inputs.post_apply_verify_path }}
+          P_POST_ROLLBACK: ${{ inputs.post_rollback_verify_path }}
+        run: |
+          set -euo pipefail
+          # Per-input SEMANTIC restriction — each input may live ONLY under its role's
+          # directory: migration→migrations/, rollback→rollback/, verifies→tests/.
+          # Whole-string bash regex (rejects multi-line); '..' rejected separately;
+          # safe charset; .sql required. Inputs arrive via env and stay quoted.
+          entries=(
+            "$P_MIGRATION|supabase/migrations/"
+            "$P_ROLLBACK|supabase/rollback/"
+            "$P_POST_APPLY|supabase/tests/"
+            "$P_POST_ROLLBACK|supabase/tests/"
+          )
+          for e in "${entries[@]}"; do
+            p="${e%%|*}"; dir="${e#*|}"
+            if [[ "$p" == *..* ]]; then
+              echo "::error::path '$p' contains '..' — rejected."; exit 1
+            fi
+            re="^${dir}[A-Za-z0-9._/-]+\.sql$"
+            if [[ ! "$p" =~ $re ]]; then
+              echo "::error::path '$p' must be under ${dir}, end .sql, safe charset. Rejected."
+              exit 1
+            fi
+          done
+          # The 4 paths must be pairwise DISTINCT — fail HERE, in the guard job,
+          # before any checkout or `supabase start`.
+          dupes="$(printf '%s\n' "$P_MIGRATION" "$P_ROLLBACK" "$P_POST_APPLY" "$P_POST_ROLLBACK" | sort | uniq -d)"
+          if [[ -n "$dupes" ]]; then
+            echo "::error::path inputs must be pairwise distinct — duplicated: ${dupes//$'\n'/ }"
+            exit 1
+          fi
+          echo "All 4 path inputs are well-formed, under their required subdir, and pairwise distinct."
+
+  local-verify:
+    name: Hermetic apply → verify → rollback → verify → reapply → verify
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # DELIBERATELY no `environment:` — cannot reach production-db secrets.
+    env:
+      # DBURL pinned to LOOPBACK ONLY. No remote host, no external URL, no secret.
+      # (postgres/postgres is the Supabase CLI's fixed LOCAL dev credential.)
+      DBURL: 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+    steps:
+      - name: Re-assert target_sha format (defense-in-depth, before checkout)
+        shell: bash
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::target_sha is not a 40-char lowercase SHA."; exit 1
+          fi
+
+      - name: Checkout EXACTLY target_sha
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          ref: ${{ inputs.target_sha }}
+          fetch-depth: 0            # guarantee the commit is present regardless of ref reachability
+          persist-credentials: false
+
+      - name: Assert HEAD == target_sha and it is a commit object
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          if [ "$head" != "$TARGET_SHA" ]; then
+            echo "::error::checked-out HEAD ($head) != target_sha ($TARGET_SHA)."; exit 1
+          fi
+          if [ "$(git cat-file -t "$TARGET_SHA")" != "commit" ]; then
+            echo "::error::target_sha is not a commit object."; exit 1
+          fi
+          echo "HEAD is exactly target_sha (a commit)."
+
+      - name: Validate the 4 paths BELONG to the checkout (tracked, required subdir, no '..', .sql, present)
+        shell: bash
+        env:
+          P_MIGRATION: ${{ inputs.migration_path }}
+          P_ROLLBACK: ${{ inputs.rollback_path }}
+          P_POST_APPLY: ${{ inputs.post_apply_verify_path }}
+          P_POST_ROLLBACK: ${{ inputs.post_rollback_verify_path }}
+        run: |
+          set -euo pipefail
+          # Same per-input SEMANTIC restriction as the guard job, now also proving the
+          # file is tracked at target_sha and present on disk. Inputs via env + quoted.
+          entries=(
+            "$P_MIGRATION|supabase/migrations/"
+            "$P_ROLLBACK|supabase/rollback/"
+            "$P_POST_APPLY|supabase/tests/"
+            "$P_POST_ROLLBACK|supabase/tests/"
+          )
+          for e in "${entries[@]}"; do
+            p="${e%%|*}"; dir="${e#*|}"
+            if [[ "$p" == *..* ]]; then
+              echo "::error::path '$p' contains '..'."; exit 1
+            fi
+            re="^${dir}[A-Za-z0-9._/-]+\.sql$"
+            if [[ ! "$p" =~ $re ]]; then
+              echo "::error::path '$p' is not under its required subdir (${dir}) or not .sql."; exit 1
+            fi
+            # BELONGS to the checkout: tracked in the target_sha tree AND present on disk.
+            git cat-file -e "HEAD:$p" 2>/dev/null \
+              || { echo "::error::path '$p' is not tracked at target_sha."; exit 1; }
+            test -f "$p" \
+              || { echo "::error::path '$p' does not exist in the checkout."; exit 1; }
+          done
+          echo "All 4 paths are tracked at target_sha, under their required subdir, .sql, and present."
+
+      - name: Install psql client (talks ONLY to the local stack)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Setup Supabase CLI (EXACT pin — never latest)
+        uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1  # v1.7.1
+        with:
+          version: 2.109.1
+
+      - name: Assert DBURL is loopback-only (127.0.0.1)
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$DBURL" in
+            postgresql://*@127.0.0.1:*/*) echo "DBURL is loopback-only (127.0.0.1)." ;;
+            *) echo "::error::DBURL is not restricted to 127.0.0.1 — refusing to run."; exit 1 ;;
+          esac
+
+      - name: '[1] Start disposable LOCAL Supabase stack (offline; NO link)'
+        run: |
+          set -euo pipefail
+          # Local Docker stack only. No `supabase link`, no access token, no remote.
+          supabase start
+
+      - name: '[2..7] apply canonical → verify → rollback → post-rollback verify → reapply → verify'
+        env:
+          P_MIGRATION: ${{ inputs.migration_path }}
+          P_ROLLBACK: ${{ inputs.rollback_path }}
+          P_POST_APPLY: ${{ inputs.post_apply_verify_path }}
+          P_POST_ROLLBACK: ${{ inputs.post_rollback_verify_path }}
+        run: |
+          set -euo pipefail
+
+          echo "== [2] apply canonical migration sequence at target_sha (fail-closed) =="
+          # Drops + re-applies EVERY supabase/migrations file in order; non-zero on any failure.
+          supabase db reset
+
+          echo "== [3] post-apply verify (proves invariants, not just object existence) =="
+          psql "$DBURL" -v ON_ERROR_STOP=1 -f "$P_POST_APPLY"
+
+          echo "== [4] rollback the migration =="
+          psql "$DBURL" -v ON_ERROR_STOP=1 -f "$P_ROLLBACK"
+
+          echo "== [5] post-rollback verify (all objects removed + prior contracts intact) =="
+          psql "$DBURL" -v ON_ERROR_STOP=1 -f "$P_POST_ROLLBACK"
+
+          echo "== [6] reapply the migration (psql -f; the migrations ledger still marks it applied) =="
+          psql "$DBURL" -v ON_ERROR_STOP=1 -f "$P_MIGRATION"
+
+          echo "== [7] repeat post-apply verify (idempotency of apply→rollback→apply) =="
+          psql "$DBURL" -v ON_ERROR_STOP=1 -f "$P_POST_APPLY"
+
+          echo "All cycle stages passed."
+
+      - name: '[8] Destroy disposable stack (always; no backup)'
+        if: always()
+        run: supabase stop --no-backup || true
