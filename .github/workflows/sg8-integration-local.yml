@@ -1,0 +1,162 @@
+name: SG-8 Integration · Local E2E (disposable Supabase, no remote, no secrets)
+
+# =============================================================================
+# SG-8 end-to-end integration (U2B): drives the runner ↔ PostgresSg8Store against
+# a DISPOSABLE LOCAL Supabase — NEVER a remote/live project. Separate from the
+# driver-free unit suite (data-engine-tests.yml): this job installs the hash-pinned
+# psycopg driver in an isolated environment and runs ONLY tests_integration.
+#
+# HERMETIC INVARIANTS (Security + DevOps review surface):
+#   • NO `environment:` on any job → cannot read the production-db Environment secrets.
+#   • NO secrets referenced anywhere. NO `supabase link`. NO access token / remote host.
+#   • `permissions: contents: read` ONLY (no write scope, no id-token).
+#   • DBURL HARD-PINNED to loopback 127.0.0.1:54322 and asserted at runtime.
+#   • Supabase CLI + every `uses:` action pinned by exact version / full commit SHA.
+#   • The driver is installed with --require-hashes from requirements-sg8-integration.txt.
+#   • The exact HEAD SHA under review is checked out (NOT the PR merge ref) and asserted.
+#   • The local stack is destroyed in `if: always()` with `--no-backup`. Finite timeout.
+#
+# The E2E test count is asserted fail-closed HERE (its own count, independent of the
+# unit guard's 258).
+# =============================================================================
+
+on:
+  pull_request:
+    paths:
+      - 'services/data-engine/**'
+      - 'supabase/migrations/**'
+      - '.github/workflows/sg8-integration-local.yml'
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: 'FULL 40-char lowercase Git commit SHA to validate (NOT a branch/tag/short SHA).'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sg8-integration-${{ github.event.pull_request.head.sha || github.event.inputs.target_sha }}
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    name: SG-8 E2E (runner ↔ PostgresSg8Store, disposable local Supabase)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # DELIBERATELY no `environment:` — cannot reach production-db secrets.
+    env:
+      # Loopback ONLY. postgres/postgres is the Supabase CLI's fixed LOCAL dev credential.
+      DBURL: 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+      # The exact SHA under review: PR head (never the merge ref) or the dispatch input.
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.inputs.target_sha }}
+    steps:
+      - name: Assert HEAD_SHA is a FULL 40-char lowercase commit SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::HEAD_SHA must be a full 40-char lowercase hex commit SHA (got '${HEAD_SHA}')."
+            exit 1
+          fi
+          echo "HEAD_SHA format OK: ${HEAD_SHA}"
+
+      - name: Checkout EXACTLY the head SHA (not the merge ref)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assert HEAD == HEAD_SHA and it is a commit object
+        shell: bash
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          if [ "$head" != "$HEAD_SHA" ]; then
+            echo "::error::checked-out HEAD ($head) != HEAD_SHA ($HEAD_SHA)."; exit 1
+          fi
+          if [ "$(git cat-file -t "$HEAD_SHA")" != "commit" ]; then
+            echo "::error::HEAD_SHA is not a commit object."; exit 1
+          fi
+          echo "HEAD is exactly HEAD_SHA (a commit)."
+
+      - name: Assert DBURL is loopback-only (127.0.0.1)
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$DBURL" in
+            postgresql://*@127.0.0.1:54322/*) echo "DBURL is loopback-only (127.0.0.1:54322)." ;;
+            *) echo "::error::DBURL is not restricted to 127.0.0.1:54322 — refusing to run."; exit 1 ;;
+          esac
+
+      - name: Set up Python 3.11 (pinned)
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
+        with:
+          python-version: '3.11'
+
+      - name: Assert interpreter is CPython 3.11.x
+        run: |
+          set -euo pipefail
+          ver="$(python -c 'import platform; print(platform.python_version())')"
+          case "$ver" in
+            3.11.*) echo "OK — Python 3.11.x pinned (${ver})." ;;
+            *) echo "::error::Expected Python 3.11.x, got ${ver}."; exit 1 ;;
+          esac
+
+      - name: Install the SG-8 integration driver (hash-pinned, isolated)
+        run: |
+          set -euo pipefail
+          # The pins live ONLY in requirements-sg8-integration.txt (anti-drift). --require-hashes
+          # refuses anything unpinned / any hash mismatch / any sdist build.
+          python -m pip install --require-hashes --only-binary=:all: \
+            -r services/data-engine/requirements-sg8-integration.txt
+
+      - name: Prove import psycopg + pinned version (isolated; no secret, no remote)
+        run: |
+          set -euo pipefail
+          expected="$(grep -Eo '^psycopg==[0-9][^ \\]*' services/data-engine/requirements-sg8-integration.txt | cut -d= -f3)"
+          python -c "import sys, psycopg; e=sys.argv[1]; a=psycopg.__version__; assert a==e, f'driver {a} != pinned {e}'; print(f'psycopg {a} (pinned, hash-verified)')" "$expected"
+
+      - name: Setup Supabase CLI (EXACT pin — never latest)
+        uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1  # v1.7.1
+        with:
+          version: 2.109.1
+
+      - name: '[1] Start disposable LOCAL Supabase stack (offline; NO link)'
+        run: |
+          set -euo pipefail
+          supabase start   # local Docker stack only — no `supabase link`, no token, no remote
+
+      - name: '[2] Apply canonical migration sequence (supabase db reset)'
+        run: |
+          set -euo pipefail
+          supabase db reset
+
+      - name: '[3] Run SG-8 E2E ×1 — require exactly 6 tests OK'
+        working-directory: services/data-engine
+        env:
+          PYTHONPATH: src
+        run: |
+          set -euo pipefail
+          # tests_integration is DISCOVERED SEPARATELY from the driver-free unit suite.
+          if out="$(python -m unittest discover -s tests_integration -p 'test_*.py' -v 2>&1)"; then
+            status=0
+          else
+            status=$?
+          fi
+          echo "$out"
+          if [ "$status" -ne 0 ]; then
+            echo "::error::SG-8 E2E FAILED (unittest exit ${status})."; exit 1
+          fi
+          if ! grep -qE '^Ran 6 tests in ' <<<"$out"; then
+            ran="$(grep -oE '^Ran [0-9]+ tests' <<<"$out" || true)"
+            echo "::error::expected exactly 6 E2E tests, got '${ran:-<none>}' (discovery regression)."
+            exit 1
+          fi
+          echo "SG-8 E2E: 6/6 OK against the disposable local stack."
+
+      - name: '[4] Destroy disposable stack (always; no backup)'
+        if: always()
+        run: supabase stop --no-backup || true
