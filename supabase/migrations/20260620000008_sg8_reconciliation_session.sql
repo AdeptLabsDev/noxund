@@ -12,11 +12,17 @@
 -- MODELA o estado durável que o runner (estágio 2, sg8_runner.py) e a integração live
 -- (estágio 3) irão gravar atrás das MESMAS ports.
 --
+-- DEC-0025 (LLM decoupling): o SG-8 é INTEGRALMENTE DETERMINÍSTICO e NÃO depende de LLM,
+--   modelo remoto ou provider externo. A proveniência por rodada é de COMPUTAÇÃO DETERMINÍSTICA
+--   (compute_engine_name/version, compute_manifest_hash, compute_adapter_version, compute_params_json),
+--   obrigatória e SIMÉTRICA nas 2 rodadas — SEM provider/model/prompt e SEM colunas ext_llm_*.
+--   DEC-0025 supera §5.3 e §R (Q-3/Q-5) nas partes LLM-specific e DEC-0024 item 4.
+--
 -- Fontes vinculantes:
 --   docs/data/DATA-SG8-001-sg8-design-contract.md
 --     §1 (PASS/FAIL) · §2.1 taxonomia + D-1 (report run_id congelado) + D-10 (imutabilidade
---     entre rodadas) · §5.3 (proveniência LLM obrigatória, FORA do digest) · §6 (writes/
---     atomicidade/append-only) · §R.1 Q-1..Q-5 + §R.2 DD-1..DD-5
+--     entre rodadas) · §5.3-DEC0025 (proveniência de COMPUTAÇÃO determinística, FORA do digest) ·
+--     §6 (writes/atomicidade/append-only) · §R.1 Q-1..Q-5 + §R.2 DD-1..DD-5
 --   services/data-engine/src/noxund_data_engine/sg8_runner.py — Sg8State (os 7 marcos
 --     duráveis: session_open, r1_awaiting_review, r1_resolved, r1_snapshot_frozen,
 --     r1_computed, passed, failed) + InMemoryEvidenceStore (append-only por round_execution_id)
@@ -197,22 +203,23 @@ comment on table public.sg8_resolution_snapshots is
 --    round_execution_id ≠ por rodada (identidade de EXECUÇÃO, nunca de dataset — §4.3). Uma
 --    única Round 1 e uma única Round 2 por sessão. Round 2 reusa o MESMO source_collection_run_id
 --    e o MESMO resolution_snapshot_id da Round 1 (garantido por FKs compostas: ambos amarrados
---    à sessão, e o snapshot é único por sessão). PROVENIÊNCIA OPERACIONAL da LLM (Round 1) vive
---    AQUI — FORA da superfície comparável (§3.2/§5.3); Round 2 é zero-LLM (CHECK).
+--    à sessão, e o snapshot é único por sessão). PROVENIÊNCIA DE COMPUTAÇÃO DETERMINÍSTICA
+--    (DEC-0025) vive AQUI — FORA da superfície comparável (§3.2); obrigatória e SIMÉTRICA nas 2
+--    rodadas; SEM provider/model/prompt (o caminho autoritativo não depende de LLM/provider externo).
 -- ----------------------------------------------------------------------------
 create table public.sg8_round_executions (
   id                       uuid primary key default gen_random_uuid(),          -- round_execution_id
   sg8_session_id           uuid not null references public.sg8_sessions (id) on delete restrict,
-  round_number             smallint not null,   -- 1 = Round 1 (compute) · 2 = Round 2 (replay zero-LLM)
+  round_number             smallint not null,   -- 1 = Round 1 (compute) · 2 = Round 2 (replay determinístico)
   source_collection_run_id uuid not null references public.report_runs (id) on delete restrict,
   resolution_snapshot_id   uuid not null references public.sg8_resolution_snapshots (id) on delete restrict,
-  -- Proveniência LLM (§5.3) — SÓ Round 1; auditável; NUNCA entra no digest. Params opacos (jsonb).
-  llm_provider             text,
-  llm_model                text,    -- modelo EXATO (pinado por id, nunca alias "latest" — Q-5)
-  llm_model_version        text,
-  llm_prompt_hash          text,
-  llm_params_json          jsonb,
-  llm_adapter_version      text,
+  -- PROVENIÊNCIA DE COMPUTAÇÃO DETERMINÍSTICA (DEC-0025) — obrigatória em AMBAS as rodadas;
+  -- auditável; NUNCA entra no digest. SEM provider/model/prompt.
+  compute_engine_name      text not null,   -- motor determinístico (ex.: noxund-pipeline) — nunca um model id
+  compute_engine_version   text not null,   -- versão do motor (ex.: pipeline-wiring-2026_06_v1)
+  compute_manifest_hash    text not null,   -- sha256 (64 hex minúsculo) dos artefatos+config versionados que DETERMINAM o resultado
+  compute_adapter_version  text not null,   -- versão do adapter SG-8
+  compute_params_json      jsonb,           -- parâmetros determinísticos canônicos (contexto; OPCIONAL)
   created_at               timestamptz not null default now(),
 
   -- alvo da FK composta da evidência (a rodada pertence à sessão declarada).
@@ -229,48 +236,33 @@ create table public.sg8_round_executions (
   constraint sg8_round_executions_snapshot_session_fk
     foreign key (resolution_snapshot_id, sg8_session_id)
     references public.sg8_resolution_snapshots (id, sg8_session_id) on delete restrict,
-  -- §5.3 PROVENIÊNCIA POR RODADA — contrato EXPLÍCITO e SIMÉTRICO, campo a campo (U2A Gate 2).
-  --   Substitui os antigos round2_zero_llm_chk + llm_provenance_complete_chk, que dependiam de
-  --   num_nonnulls(...) in (0,5): uma CONTAGEM que ocultava a semântica (não dizia QUAIS campos).
-  --   As 6 colunas de proveniência são: llm_provider, llm_model, llm_model_version,
-  --   llm_prompt_hash, llm_params_json, llm_adapter_version. Os 5 campos-núcleo de IDENTIDADE
-  --   (todos exceto llm_params_json) são obrigatórios na Round 1; llm_params_json é contexto
-  --   OPCIONAL (§5.3). round_number já ∈ {1,2} (round_chk); o ramo else é defensivo (fail-closed).
-  --     Round 1 → os 5 campos-núcleo NÃO-NULOS e NÃO-BRANCOS (params livre: NULL ou objeto);
-  --     Round 2 → TODOS os 6 campos llm_* NULOS (zero-LLM), sem exceção.
-  constraint sg8_round_executions_provenance_by_round_chk
+  -- DEC-0025 PROVENIÊNCIA DE COMPUTAÇÃO — os 4 campos de identidade determinística são
+  --   obrigatórios (NOT NULL acima) e NÃO-BRANCOS em AMBAS as rodadas. Substitui integralmente a
+  --   antiga proveniência LLM (llm_provider/llm_model/llm_model_version/llm_prompt_hash/
+  --   llm_params_json/llm_adapter_version) + os antigos provenance_by_round_chk e
+  --   prompt_hash_format_chk. NÃO há campos ext_llm_*; NÃO há engine_kind='llm_assisted';
+  --   NÃO há provider/model/prompt antecipados (DEC-0025 supera §5.3/Q-3/Q-5 LLM-specific + DEC-0024 item 4).
+  constraint sg8_round_executions_compute_provenance_nonblank_chk
     check (
-      case
-        when round_number = 1 then
-              llm_provider        is not null and btrim(llm_provider)        <> ''
-          and llm_model           is not null and btrim(llm_model)           <> ''
-          and llm_model_version   is not null and btrim(llm_model_version)   <> ''
-          and llm_prompt_hash     is not null and btrim(llm_prompt_hash)     <> ''
-          and llm_adapter_version is not null and btrim(llm_adapter_version) <> ''
-        when round_number = 2 then
-              llm_provider        is null
-          and llm_model           is null
-          and llm_model_version   is null
-          and llm_prompt_hash     is null
-          and llm_params_json     is null
-          and llm_adapter_version is null
-        else false
-      end
+          btrim(compute_engine_name)     <> ''
+      and btrim(compute_engine_version)  <> ''
+      and btrim(compute_manifest_hash)   <> ''
+      and btrim(compute_adapter_version) <> ''
     ),
-  -- §5.3 FORMATO DO HASH DO PROMPT (U2A Gate 1 · backstop de defesa-em-profundidade): quando
-  --   presente (Round 1), llm_prompt_hash DEVE ser um SHA-256 em hex minúsculo de 64 chars —
-  --   NUNCA um token de versão, nome de template, id, metadado ou substituto. A DERIVAÇÃO (hash
-  --   dos bytes exatos do prompt) é do upstream que possui os bytes; o adapter valida o formato
-  --   antes do 1º SQL; o banco é a ÚLTIMA linha de defesa. Round 2: llm_prompt_hash NULO (ok).
-  constraint sg8_round_executions_prompt_hash_format_chk
-    check (llm_prompt_hash is null or llm_prompt_hash ~ '^[0-9a-f]{64}$')
+  -- FORMATO DO MANIFESTO (backstop de defesa-em-profundidade): compute_manifest_hash DEVE ser um
+  --   SHA-256 em hex minúsculo de 64 chars — NUNCA um token de versão, nome, id ou metadado. A
+  --   DERIVAÇÃO (hash canônico dos artefatos+config versionados: resolver/rule/rubric/opportunity
+  --   versions+hashes + pipeline version) é do upstream (sg8_coordinator.canonical_compute_manifest);
+  --   o adapter valida o formato antes do 1º SQL; o banco é a ÚLTIMA linha de defesa.
+  constraint sg8_round_executions_manifest_hash_format_chk
+    check (compute_manifest_hash ~ '^[0-9a-f]{64}$')
 );
 
 create index sg8_round_executions_session_idx  on public.sg8_round_executions (sg8_session_id);
 create index sg8_round_executions_snapshot_idx on public.sg8_round_executions (resolution_snapshot_id);
 
 comment on table public.sg8_round_executions is
-  'RODADAS SG-8 (append-only/imutável). round_execution_id distinto por rodada (execução, nunca dataset — §4.3). UNIQUE (session, round) ⇒ 1 Round 1 + 1 Round 2. Round 2 reusa mesmo dataset+snapshot da Round 1 (FKs compostas). Proveniência LLM (§5.3) só Round 1, FORA do digest; Round 2 zero-LLM (CHECK).';
+  'RODADAS SG-8 (append-only/imutável). round_execution_id distinto por rodada (execução, nunca dataset — §4.3). UNIQUE (session, round) ⇒ 1 Round 1 + 1 Round 2. Round 2 reusa mesmo dataset+snapshot da Round 1 (FKs compostas). Proveniência de COMPUTAÇÃO DETERMINÍSTICA (DEC-0025) obrigatória e SIMÉTRICA nas 2 rodadas, FORA do digest; SEM provider/model/prompt. A igualdade de compute_manifest_hash R1==R2 é exigida pelo PASS gate.';
 
 -- ----------------------------------------------------------------------------
 -- 4. sg8_round_report_evidence  (a EVIDÊNCIA comparável — digest do payload canônico por
@@ -345,6 +337,7 @@ declare
   v_r1_exec uuid; v_r2_exec uuid;
   v_r1_src  uuid; v_r2_src  uuid;
   v_r1_snap uuid; v_r2_snap uuid;
+  v_r1_manifest text; v_r2_manifest text;
   v_ev1     int;  v_ev2     int;
   v_pairs   int;  v_mism    int;
 begin
@@ -434,9 +427,11 @@ begin
       raise exception 'sg8_sessions PASS gate: exige exatamente 1 Round 1 e 1 Round 2 (r1=%, r2=%)', v_n1, v_n2
         using errcode = 'restrict_violation';
     end if;
-    select id, source_collection_run_id, resolution_snapshot_id into v_r1_exec, v_r1_src, v_r1_snap
+    select id, source_collection_run_id, resolution_snapshot_id, compute_manifest_hash
+      into v_r1_exec, v_r1_src, v_r1_snap, v_r1_manifest
       from public.sg8_round_executions where sg8_session_id = new.id and round_number = 1;
-    select id, source_collection_run_id, resolution_snapshot_id into v_r2_exec, v_r2_src, v_r2_snap
+    select id, source_collection_run_id, resolution_snapshot_id, compute_manifest_hash
+      into v_r2_exec, v_r2_src, v_r2_snap, v_r2_manifest
       from public.sg8_round_executions where sg8_session_id = new.id and round_number = 2;
     if v_r1_src is distinct from v_r2_src then
       raise exception 'sg8_sessions PASS gate: rodadas em source_collection_run_id distintos'
@@ -444,6 +439,12 @@ begin
     end if;
     if v_r1_snap is distinct from v_r2_snap then
       raise exception 'sg8_sessions PASS gate: rodadas em resolution_snapshot_id distintos'
+        using errcode = 'restrict_violation';
+    end if;
+    -- DEC-0025: divergência de MANIFESTO de computação impede passed, MESMO se os digests
+    --   coincidirem (motor/artefatos/config diferentes ⇒ resultado não reproduzível de fato).
+    if v_r1_manifest is distinct from v_r2_manifest then
+      raise exception 'sg8_sessions PASS gate: compute_manifest_hash da Round 1 != Round 2 (motor/artefatos divergentes) — PASS negado'
         using errcode = 'restrict_violation';
     end if;
     select count(*) into v_ev1 from public.sg8_round_report_evidence where round_execution_id = v_r1_exec;

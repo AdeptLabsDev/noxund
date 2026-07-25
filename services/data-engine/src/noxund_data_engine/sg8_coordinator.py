@@ -1,27 +1,32 @@
 """Driver-agnostic wiring between the SG-8 runner and ``PostgresSg8Store`` (U2B).
 
-U2B of DATA-SG8-001 stage 3 part 2. This is the **smallest** layer that lets the live
-integration drive the durable store from the runner's own results, for the E2E test
-against a disposable local Supabase. It is **driver-free** (imports no database driver;
-the real connection is injected upstream by the integration bootstrap) and **offline**.
+U2B of DATA-SG8-001 stage 3 part 2, revised by DEC-0025 (LLM decoupling). This is the
+**smallest** layer that lets the live integration drive the durable store from the
+runner's own results, for the E2E test against a disposable local Supabase. It is
+**driver-free** (imports no database driver; the real connection is injected upstream by
+the integration bootstrap), **offline** and **provider-neutral** (no LLM, model or
+external provider anywhere).
 
 What this layer MAY do (and only this):
   * translate the results/events the runner already produced into store calls;
   * mint application-owned ids through an injected :class:`IdFactory`;
-  * build Round-1 provenance from the **bytes the provider received** (never a version
-    token) via :func:`build_round1_provenance`;
+  * build the **deterministic compute provenance** (:func:`build_compute_provenance`),
+    deriving the canonical ``compute_manifest_hash`` from the versioned artifacts +
+    configuration that actually determine the result (:func:`canonical_compute_manifest`);
+  * persist the SAME provenance for Round 1 and Round 2;
   * coordinate persistence and resume.
 
 What this layer MUST NOT do:
   * create a second finite-state machine — it never *decides* a transition, it mirrors
     the state the runner reports and lets the schema (0008) reject an illegal one;
   * duplicate the PASS gate — ``mark_passed`` is issued to the store, and the schema's
-    PASS gate independently accepts/rejects it;
+    PASS gate independently accepts/rejects it (including manifest equality R1==R2);
   * recompute or reinterpret any score/digest — Round-1 digests are taken verbatim from
     the runner's ``RoundEvidence``; on PASS the runner's verdict CERTIFIES Round 2 is
     byte-identical to Round 1, so the same digests are persisted as Round-2 evidence and
     the schema re-verifies the equality (no recomputation here);
-  * alter the canonical payload, versions or the golden digest — it touches none of them.
+  * alter the canonical payload, versions or the golden digest — it touches none of them;
+  * make any external/network call.
 
 Transition legality lives in the runner (``sg8_runner.Sg8Session``) and — authoritatively
 — in the schema. ``sg8_runner`` is imported and driven **unchanged**.
@@ -33,11 +38,15 @@ import hashlib
 import itertools
 import json
 import uuid
-from typing import Protocol, Sequence
+from typing import Mapping, Protocol, Sequence
 
-from .postgres_sg8 import Sg8RoundProvenance, Sg8Store, canonical_prompt_sha256
+from .channel_filter import DEFAULT_CONFIG as CHANNEL_FILTER_DEFAULT_CONFIG
+from .entity_resolution import RESOLVER_VERSION
+from .opportunity import DEFAULT_CONFIG as OPPORTUNITY_DEFAULT_CONFIG
+from .pipeline import PIPELINE_VERSION
+from .postgres_sg8 import Sg8ComputeProvenance, Sg8Store
+from .scoring import DEFAULT_RUBRIC
 from .sg8_runner import (
-    LlmProvenance,
     ReviewDecision,
     RoundEvidence,
     Sg8Session,
@@ -45,6 +54,12 @@ from .sg8_runner import (
     Sg8State,
     Sg8Verdict,
 )
+
+
+# The deterministic engine identity SG-8 records for every round (never a model id).
+COMPUTE_ENGINE_NAME = "noxund-pipeline"
+# The SG-8 durable-store adapter's own version.
+SG8_ADAPTER_VERSION = "sg8-store-adapter-v1"
 
 
 # ---------------------------------------------------------------------------
@@ -88,26 +103,78 @@ class SequentialIdFactory:
 
 
 # ---------------------------------------------------------------------------
-# Provenance bridge — derive prompt_hash from the EXACT bytes the provider received.
+# Compute manifest — the canonical, versioned hash of what determines the result.
 # ---------------------------------------------------------------------------
-def build_round1_provenance(
-    prompt_bytes: bytes, provenance: LlmProvenance
-) -> Sg8RoundProvenance:
-    """Map the runner's ``LlmProvenance`` to a persistable ``Sg8RoundProvenance``.
+def canonical_compute_manifest(
+    *,
+    pipeline_version: str,
+    resolver_version: str,
+    rule_version: str,
+    rule_hash: str,
+    rubric_version: str,
+    rubric_hash: str,
+    opportunity_version: str,
+    opportunity_hash: str,
+) -> str:
+    """Canonical §DEC-0025 derivation of ``compute_manifest_hash``.
 
-    ``prompt_hash`` is derived HERE, at the boundary that owns the prompt bytes, as
-    ``canonical_prompt_sha256(prompt_bytes)`` — never from ``prompt_version``, a template
-    id/name or any metadata. Every other field maps 1:1 (``adapter_identity`` →
-    ``adapter_version``). The store validates the digest's format and persists it; U2 E2E
-    recomputes it from the captured bytes and proves byte-for-byte equality.
+    The manifest is the ordered, versioned identity of every deterministic artifact +
+    configuration that actually determines the report: the pipeline wiring version, the
+    entity-resolver version, and the rule / rubric / opportunity versions + hashes. It is
+    serialized canonically (sorted keys, compact, UTF-8) and hashed with SHA-256 → 64
+    lowercase hex chars. It contains NO credential, timestamp, execution UUID or unstable
+    datum — identical artifacts ⇒ identical manifest; any versioned-artifact change flips it.
+
+    This is the single, non-parallel provenance hash of a round (there is no prompt/model
+    hash). Both rounds of an attempt derive the SAME manifest; the schema PASS gate refuses
+    ``passed`` when the two rounds' manifests differ, even if the digests coincide.
     """
-    return Sg8RoundProvenance(
-        provider=provenance.provider,
-        model=provenance.model,
-        model_version=provenance.model_version,
-        prompt_hash=canonical_prompt_sha256(prompt_bytes),
-        adapter_version=provenance.adapter_identity,
-        params=provenance.params,
+    manifest = {
+        "pipeline_version": pipeline_version,
+        "resolver_version": resolver_version,
+        "rule_version": rule_version,
+        "rule_hash": rule_hash,
+        "rubric_version": rubric_version,
+        "rubric_hash": rubric_hash,
+        "opportunity_version": opportunity_version,
+        "opportunity_hash": opportunity_hash,
+    }
+    canonical = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def default_compute_manifest() -> str:
+    """The canonical manifest for the frozen default configs (the golden-digest lineage)."""
+    return canonical_compute_manifest(
+        pipeline_version=PIPELINE_VERSION,
+        resolver_version=RESOLVER_VERSION,
+        rule_version=CHANNEL_FILTER_DEFAULT_CONFIG.rule_version,
+        rule_hash=CHANNEL_FILTER_DEFAULT_CONFIG.rule_hash,
+        rubric_version=DEFAULT_RUBRIC.rubric_version,
+        rubric_hash=DEFAULT_RUBRIC.rubric_hash,
+        opportunity_version=OPPORTUNITY_DEFAULT_CONFIG.opportunity_version,
+        opportunity_hash=OPPORTUNITY_DEFAULT_CONFIG.opportunity_hash,
+    )
+
+
+def build_compute_provenance(
+    *, manifest_hash: str | None = None, params: Mapping[str, object] | None = None
+) -> Sg8ComputeProvenance:
+    """Build the deterministic ``Sg8ComputeProvenance`` persisted for every round.
+
+    ``manifest_hash`` defaults to :func:`default_compute_manifest` (the frozen default
+    lineage). The SAME provenance is persisted for Round 1 and Round 2, so the schema's
+    PASS-gate manifest equality holds by construction. There is no provider, model or
+    prompt: the value describes only the deterministic engine + versioned artifacts.
+    """
+    return Sg8ComputeProvenance(
+        engine_name=COMPUTE_ENGINE_NAME,
+        engine_version=PIPELINE_VERSION,
+        manifest_hash=manifest_hash or default_compute_manifest(),
+        adapter_version=SG8_ADAPTER_VERSION,
+        params=dict(params) if params else {},
     )
 
 
@@ -152,7 +219,7 @@ class Sg8Coordinator:
     Each method calls the runner's transition, reads the state the runner reports, and
     issues the corresponding store write. It never decides legality (the runner raises on
     an illegal sequence; the schema rejects an illegal write) and never recomputes a
-    digest.
+    digest. Both rounds persist the SAME deterministic compute provenance.
     """
 
     def __init__(
@@ -170,6 +237,7 @@ class Sg8Coordinator:
         self._snapshot_id: str | None = None
         self._round_ids: dict[int, str] = {}
         self._round2_evidence: RoundEvidence | None = None
+        self._compute_provenance: Sg8ComputeProvenance | None = None
 
     # -- accessors (for assertions/resume) ------------------------------------
     @property
@@ -226,12 +294,15 @@ class Sg8Coordinator:
     def compute_round1(
         self,
         *,
-        provenance: Sg8RoundProvenance,
+        provenance: Sg8ComputeProvenance,
         report_run_id_1: str,
         report_run_id_2: str,
     ) -> RoundEvidence:
         if self._snapshot_id is None:
             raise RuntimeError("freeze() must precede compute_round1()")
+        # The deterministic compute provenance is captured ONCE and reused verbatim for
+        # Round 2 — same engine, same versioned artifacts, same compute_manifest_hash.
+        self._compute_provenance = provenance
         round_id = self._ids.new_id()
         evidence = self._runner.compute_round1(round_execution_id=round_id)
         # Binding advances the DB session to r1_computed; the schema enforces both-or-
@@ -256,17 +327,21 @@ class Sg8Coordinator:
     def run_round2(self) -> Sg8Verdict:
         if self._snapshot_id is None:
             raise RuntimeError("compute_round1() must precede run_round2()")
+        if self._compute_provenance is None:
+            raise RuntimeError("compute_round1() must set the compute provenance first")
         round_id = self._ids.new_id()
         # Round 2 is computed EXACTLY ONCE by the runner; we persist the evidence it
         # ACTUALLY produced — never Round 1's, never inferred from PASS, never recomputed.
         result = self._runner.run_round2_result(round_execution_id=round_id)
+        # Round 2 persists the SAME deterministic compute provenance as Round 1 (identical
+        # engine + manifest). The schema PASS gate independently re-checks manifest equality.
         self._store.append_round(
             round_execution_id=round_id,
             sg8_session_id=self._runner.sg8_session_id,
             round_number=2,
             source_collection_run_id=self._src,
             resolution_snapshot_id=self._snapshot_id,
-            provenance=None,  # Round 2 is zero-LLM
+            provenance=self._compute_provenance,
         )
         self._round_ids[2] = round_id
         self._round2_evidence = result.evidence

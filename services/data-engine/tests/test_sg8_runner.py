@@ -1,17 +1,22 @@
-"""SG-8 offline runner tests (DATA-SG8-001, stage 2).
+"""SG-8 offline runner tests (DATA-SG8-001, stage 2; DEC-0025 provider-neutral).
 
 Synthetic + fail-closed coverage of the two-round state machine. stdlib ``unittest``
 only (no pytest / no third-party); run with
 ``PYTHONPATH=src python -m unittest discover -s tests -p test_sg8_runner.py``.
 
-No DB, no network, no real LLM, no schema, no workflow, no secret.
+No DB, no network, no LLM, no external resolver/model, no schema, no workflow, no secret.
+The SG-8 authoritative path is entirely deterministic: entity resolution runs with the
+generative boundary OFF (``llm=None``) and an ambiguous title goes to HUMAN REVIEW.
 """
 
 from __future__ import annotations
 
+import ast
+import inspect
 import unittest
 from datetime import datetime, timezone
 
+from noxund_data_engine import sg8_runner as sg8
 from noxund_data_engine.channel_filter import DEFAULT_CONFIG as CHANNEL_FILTER_DEFAULT_CONFIG
 from noxund_data_engine.opportunity import DEFAULT_CONFIG as OPPORTUNITY_DEFAULT_CONFIG
 from noxund_data_engine.pipeline import (
@@ -25,22 +30,20 @@ from noxund_data_engine.pipeline import (
 from noxund_data_engine.scoring import DEFAULT_RUBRIC
 from noxund_data_engine.sg8_runner import (
     EvidenceArtifact,
-    ForbiddenLLMCandidateExtractor,
+    ForbiddenExternalResolver,
     InMemoryEvidenceStore,
     InMemoryReplayFactStore,
-    LlmProvenance,
     ReviewDecision,
     RoundEvidence,
     Sg8ContractViolation,
     Sg8EvidenceCollision,
     Sg8Report,
-    Sg8ReplayLlmForbidden,
+    Sg8ReplayExternalCallForbidden,
     Sg8Session,
     Sg8SessionInput,
     Sg8SnapshotIncomplete,
     Sg8State,
     Sg8TerminalSessionError,
-    StubLLMCandidateExtractor,
     assert_snapshot_complete,
     compare_round_evidence,
 )
@@ -53,7 +56,9 @@ from test_repro_harness import GOLDEN_DIGEST, golden_snapshot
 
 WINDOW_END = datetime(2026, 6, 30, tzinfo=timezone.utc)
 SOURCE_RUN_ID = "src-collection-synthetic-001"
-LLM_TITLE = "Free Zephyr Prime Type Beat"  # "Free" -> regex_metadata_residual -> LLM
+# "Free ... Type Beat": "Free" is a metadata residual the rules cannot cleanly resolve,
+# so with the generative boundary OFF it is routed to human review (never to a model).
+AMBIGUOUS_TITLE = "Free Zephyr Prime Type Beat"
 
 
 def _dt(day: int) -> datetime:
@@ -65,14 +70,14 @@ def _channels(videos: tuple[RawVideoRow, ...]) -> tuple[ChannelRow, ...]:
 
 
 def _happy_snapshot(report_run_id: str) -> PipelineSnapshot:
-    """One clean regex artist (Kairo) + one LLM-then-human artist (Zephyr)."""
+    """One clean regex artist (Kairo) + one ambiguous-then-human artist (Zephyr)."""
 
     videos = tuple(
         RawVideoRow(f"k{i:02d}", f"k-ch-{i % 4:02d}", "Kairo Vee Type Beat",
                     40000 + i * 10, 5000, 900, _dt(29))
         for i in range(6)
     ) + tuple(
-        RawVideoRow(f"z{i:02d}", f"z-ch-{i % 2:02d}", LLM_TITLE,
+        RawVideoRow(f"z{i:02d}", f"z-ch-{i % 2:02d}", AMBIGUOUS_TITLE,
                     30000 + i * 10, 4200, 760, _dt(29))
         for i in range(3)
     )
@@ -83,36 +88,17 @@ def _happy_snapshot(report_run_id: str) -> PipelineSnapshot:
     return PipelineSnapshot(report_run_id, "Report", WINDOW_END, videos, _channels(videos), artists)
 
 
-def _stub(provenance: LlmProvenance | None = None) -> StubLLMCandidateExtractor:
-    return StubLLMCandidateExtractor(
-        {LLM_TITLE: "Zephyr Prime"},
-        provenance=provenance or _complete_provenance(),
-    )
-
-
-def _complete_provenance() -> LlmProvenance:
-    return LlmProvenance(
-        provider="anthropic",
-        model="claude-opus-4-8",
-        model_version="claude-opus-4-8",
-        prompt_version="llm-fallback-v1",
-        adapter_identity="offline-stub-adapter",
-        params={"temperature": "0", "max_tokens": "64"},
-    )
-
-
-def _session(report_run_id: str = "report-1of2", *, llm: StubLLMCandidateExtractor | None = None,
+def _session(report_run_id: str = "report-1of2", *,
              source_run_id: str = SOURCE_RUN_ID, session_id: str = "sg8-session-A") -> Sg8Session:
     report = Sg8Report(report_run_id, _happy_snapshot(report_run_id))
     return Sg8Session(
         Sg8SessionInput(source_run_id, (report,)),
         sg8_session_id=session_id,
-        llm=llm or _stub(),
     )
 
 
 def _drive_to_frozen(session: Sg8Session, report_run_id: str = "report-1of2") -> None:
-    """resolve -> review (approve the LLM item as Zephyr) -> freeze."""
+    """resolve -> review (approve the ambiguous item as Zephyr) -> freeze."""
 
     session.resolve_round1()
     if session.state is Sg8State.R1_AWAITING_REVIEW:
@@ -131,13 +117,13 @@ def _drive_to_pass(session: Sg8Session) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 1. Happy path — complete + deterministic ×2.
+# 1. Happy path — complete + deterministic ×2, with NO LLM object.
 # ---------------------------------------------------------------------------
 class HappyPathTests(unittest.TestCase):
-    def test_happy_path_passes(self) -> None:
+    def test_happy_path_passes_without_any_llm(self) -> None:
         session = _session()
         session.resolve_round1()
-        # The LLM path was genuinely exercised (Zephyr routed to review).
+        # The ambiguous item was genuinely routed to human review (rules-only, no model).
         self.assertEqual(session.state, Sg8State.R1_AWAITING_REVIEW)
         self.assertTrue(session.pending_review_keys)
         session.submit_review(
@@ -163,12 +149,11 @@ class HappyPathTests(unittest.TestCase):
             digests.append(dict(ev1.report_digests))
         self.assertEqual(digests[0], digests[1])  # determinism across independent runs
 
-    def test_stub_llm_was_used_but_compute_is_zero_llm(self) -> None:
-        llm = _stub()
-        session = _session(llm=llm)
+    def test_both_computes_make_no_external_resolver_call(self) -> None:
+        session = _session()
         _drive_to_pass(session)
-        self.assertGreaterEqual(llm.call_count, 1)          # Round 1 used the stub
-        self.assertEqual(session.compute_llm_call_count, 0)  # both computes are zero-LLM
+        # Neither compute round ever reached an external resolver (deterministic replay).
+        self.assertEqual(session.external_resolver_call_count, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -209,20 +194,20 @@ class ReviewGateBypassTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 4 & 5. Round 2 completeness + zero-LLM.
+# 4 & 5. Round 2 completeness + no external resolver call.
 # ---------------------------------------------------------------------------
 class Round2CompletenessTests(unittest.TestCase):
-    def test_complete_snapshot_zero_llm_calls(self) -> None:
+    def test_complete_snapshot_zero_external_calls(self) -> None:
         session = _session()
         _drive_to_frozen(session)
         session.compute_round1(round_execution_id="r1")
         verdict = session.run_round2(round_execution_id="r2")
         self.assertTrue(verdict.passed)
-        self.assertEqual(session.compute_llm_call_count, 0)
+        self.assertEqual(session.external_resolver_call_count, 0)
 
-    def test_missing_fact_fails_before_any_llm_call(self) -> None:
-        # Pure completeness guard: a gap raises BEFORE any resolver/LLM call.
-        forbidden = ForbiddenLLMCandidateExtractor()
+    def test_missing_fact_fails_before_any_resolver_call(self) -> None:
+        # Pure completeness guard: a gap raises BEFORE any resolver call.
+        forbidden = ForbiddenExternalResolver()
         facts = InMemoryReplayFactStore()
         facts.freeze()
         with self.assertRaises(Sg8SnapshotIncomplete):
@@ -240,16 +225,16 @@ class Round2CompletenessTests(unittest.TestCase):
         verdict = session.run_round2(round_execution_id="r2")
         self.assertFalse(verdict.passed)
         self.assertEqual(session.state, Sg8State.FAILED)
-        self.assertEqual(session.compute_llm_call_count, 0)  # never reached the adapter
+        self.assertEqual(session.external_resolver_call_count, 0)  # never reached a resolver
 
 
 # ---------------------------------------------------------------------------
-# 6. The forbidden adapter fails closed on any call.
+# 6. The forbidden external-resolver guard fails closed on any call.
 # ---------------------------------------------------------------------------
-class ForbiddenAdapterTests(unittest.TestCase):
+class ForbiddenResolverGuardTests(unittest.TestCase):
     def test_any_call_raises_and_counts(self) -> None:
-        forbidden = ForbiddenLLMCandidateExtractor()
-        with self.assertRaises(Sg8ReplayLlmForbidden):
+        forbidden = ForbiddenExternalResolver()
+        with self.assertRaises(Sg8ReplayExternalCallForbidden):
             forbidden.extract_candidate(title="anything", prompt_version="v1")
         self.assertEqual(forbidden.call_count, 1)
 
@@ -316,27 +301,34 @@ class EvidenceStoreTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 10. Incomplete LLM provenance in Round 1 => FAIL.
+# 10. DEC-0025 — the SG-8 path is provider-neutral: no LLM object, no LLM import.
 # ---------------------------------------------------------------------------
-class LlmProvenanceTests(unittest.TestCase):
-    def test_incomplete_provenance_fails_at_freeze(self) -> None:
-        incomplete = LlmProvenance(
-            provider="anthropic", model="", model_version="claude-opus-4-8",
-            prompt_version="llm-fallback-v1", adapter_identity="offline-stub-adapter",
-        )
-        self.assertFalse(incomplete.is_complete())
-        session = _session(llm=_stub(incomplete))
-        session.resolve_round1()
-        session.submit_review(
-            [ReviewDecision(rid, vid, approved=True, artist_id="artist-zephyr")
-             for (rid, vid) in session.pending_review_keys]
-        )
-        with self.assertRaises(Sg8ContractViolation):
-            session.freeze_snapshot(resolution_snapshot_id="rs")
-        self.assertEqual(session.state, Sg8State.FAILED)
+class ProviderNeutralityTests(unittest.TestCase):
+    def test_session_constructor_takes_no_llm_argument(self) -> None:
+        params = set(inspect.signature(Sg8Session.__init__).parameters)
+        self.assertNotIn("llm", params)
 
-    def test_complete_provenance_is_accepted(self) -> None:
-        self.assertTrue(_complete_provenance().is_complete())
+    def test_ambiguous_title_goes_to_human_review_without_a_model(self) -> None:
+        session = _session()
+        state = session.resolve_round1()
+        self.assertIs(state, Sg8State.R1_AWAITING_REVIEW)
+        self.assertTrue(session.pending_review_keys)  # routed to review, not a model
+        self.assertEqual(session.external_resolver_call_count, 0)
+
+    def test_runner_module_imports_no_llm_port(self) -> None:
+        # The SG-8 path must not import the optional LLM candidate-extractor port.
+        names: set[str] = set()
+        for node in ast.walk(ast.parse(inspect.getsource(sg8))):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                names.update(a.name for a in node.names)
+            elif isinstance(node, ast.Import):
+                names.update(a.name for a in node.names)
+        self.assertNotIn("LLMCandidateExtractor", names)
+
+    def test_no_llm_specific_symbols_remain_in_runner(self) -> None:
+        for forbidden in ("LlmProvenance", "StubLLMCandidateExtractor",
+                          "ForbiddenLLMCandidateExtractor", "Sg8ReplayLlmForbidden"):
+            self.assertFalse(hasattr(sg8, forbidden), f"residual LLM symbol: {forbidden}")
 
 
 # ---------------------------------------------------------------------------

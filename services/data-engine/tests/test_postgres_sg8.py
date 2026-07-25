@@ -1,16 +1,20 @@
-"""Unit tests for the SG-8 Postgres persistence adapter (U1, stage-3 part-2).
+"""Unit tests for the SG-8 Postgres persistence adapter (U1, stage-3 part-2; DEC-0025).
 
 Pure and offline: every test drives ``PostgresSg8Store`` against a recording fake
 connection — NO database, NO network, NO driver. These tests prove the ADAPTER's
 behavior (parameterized SQL, transaction boundaries, error translation, append-only
-surface); they deliberately do NOT assert that the database's constraints/triggers
-hold — that is U2, against a local disposable Supabase.
+surface, deterministic compute provenance); they deliberately do NOT assert that the
+database's constraints/triggers hold — that is the E2E, against a local disposable
+Supabase.
+
+Provider-neutral (DEC-0025): each round persists a deterministic compute provenance
+(``Sg8ComputeProvenance``) with a canonical ``compute_manifest_hash`` — no provider,
+model or prompt anywhere.
 """
 
 from __future__ import annotations
 
 import ast
-import hashlib
 import inspect
 import json
 import unittest
@@ -19,15 +23,15 @@ from noxund_data_engine import postgres_sg8 as pg
 from noxund_data_engine.postgres_sg8 import (
     PostgresSg8Store,
     Sg8CheckViolation,
+    Sg8ComputeProvenance,
     Sg8ContractViolation,
     Sg8ForeignKeyViolation,
     Sg8IntegrityGuardViolation,
+    Sg8NotNullViolation,
     Sg8PersistenceError,
-    Sg8RoundProvenance,
     Sg8SessionState,
     Sg8SnapshotState,
     Sg8UniqueViolation,
-    canonical_prompt_sha256,
 )
 
 
@@ -88,15 +92,17 @@ class _RecConn:
         self.rollbacks += 1
 
 
-# A real sha256-shaped prompt hash (never a version token) for the llm_prompt_hash column.
-_PROMPT_HASH = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-_PROVENANCE = Sg8RoundProvenance(
-    provider="anthropic",
-    model="claude-opus-4-8",
-    model_version="2026-01",
-    prompt_hash=_PROMPT_HASH,
-    adapter_version="adapter-v1",
-    params={"temperature": 0},
+# A real sha256-shaped compute manifest hash (never a version token).
+_MANIFEST_HASH = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+_PROVENANCE = Sg8ComputeProvenance(
+    engine_name="noxund-pipeline",
+    engine_version="pipeline-wiring-2026_06_v1",
+    manifest_hash=_MANIFEST_HASH,
+    adapter_version="sg8-store-adapter-v1",
+    params={"deterministic": True},
+)
+_PROVENANCE_JSON = json.dumps(
+    {"deterministic": True}, ensure_ascii=False, separators=(",", ":"), sort_keys=True
 )
 
 
@@ -199,7 +205,7 @@ class BindReportsTests(unittest.TestCase):
 
 
 class RoundTests(unittest.TestCase):
-    def test_append_round1_persists_full_provenance(self) -> None:
+    def test_append_round1_persists_full_compute_provenance(self) -> None:
         conn = _RecConn()
         PostgresSg8Store(conn).append_round(
             round_execution_id="re-1",
@@ -215,21 +221,19 @@ class RoundTests(unittest.TestCase):
             1,
             "src-1",
             "snap-1",
-            "anthropic",
-            "claude-opus-4-8",
-            "2026-01",
-            _PROMPT_HASH,  # -> llm_prompt_hash: a real hash, NOT a version token
-            json.dumps(
-                {"temperature": 0}, ensure_ascii=False, separators=(",", ":"), sort_keys=True
-            ),
-            "adapter-v1",  # -> llm_adapter_version
+            "noxund-pipeline",              # -> compute_engine_name
+            "pipeline-wiring-2026_06_v1",   # -> compute_engine_version
+            _MANIFEST_HASH,                 # -> compute_manifest_hash (a real 64-hex sha256)
+            "sg8-store-adapter-v1",         # -> compute_adapter_version
+            _PROVENANCE_JSON,               # -> compute_params_json
         )
         self.assertEqual(conn.executed, [(pg._INSERT_ROUND, expected_params)])
-        # The prompt-hash column receives the hash (index 8), never the model_version.
-        self.assertEqual(conn.executed[0][1][8], _PROMPT_HASH)
+        # The manifest-hash column receives the hash (index 7), never a version token.
+        self.assertEqual(conn.executed[0][1][7], _MANIFEST_HASH)
         self.assertEqual(conn.commits, 1)
 
-    def test_append_round2_is_zero_llm(self) -> None:
+    def test_append_round2_also_persists_full_compute_provenance(self) -> None:
+        # DEC-0025: Round 2 carries the SAME deterministic provenance as Round 1 (no zero-LLM).
         conn = _RecConn()
         PostgresSg8Store(conn).append_round(
             round_execution_id="re-2",
@@ -237,12 +241,16 @@ class RoundTests(unittest.TestCase):
             round_number=2,
             source_collection_run_id="src-1",
             resolution_snapshot_id="snap-1",
-            provenance=None,
+            provenance=_PROVENANCE,
         )
         sql, params = conn.executed[0]
         self.assertEqual(sql, pg._INSERT_ROUND)
         self.assertEqual(params[:5], ("re-2", "sess-1", 2, "src-1", "snap-1"))
-        self.assertEqual(params[5:], (None, None, None, None, None, None))  # zero-LLM
+        self.assertEqual(
+            params[5:],
+            ("noxund-pipeline", "pipeline-wiring-2026_06_v1", _MANIFEST_HASH,
+             "sg8-store-adapter-v1", _PROVENANCE_JSON),
+        )
 
     def test_append_round_rejects_bad_round_number(self) -> None:
         conn = _RecConn()
@@ -253,6 +261,7 @@ class RoundTests(unittest.TestCase):
                 round_number=3,
                 source_collection_run_id="src-1",
                 resolution_snapshot_id="snap-1",
+                provenance=_PROVENANCE,
             )
         self.assertEqual(conn.executed, [])
 
@@ -310,6 +319,20 @@ class ErrorTranslationTests(unittest.TestCase):
                 canonical_digest="dup",
             )
         self.assertEqual((conn.commits, conn.rollbacks), (0, 1))
+
+    def test_not_null_violation_maps(self) -> None:
+        # DEC-0025: a round missing its compute provenance raises 23502 at the DB.
+        conn = _RecConn(error=_FakeDbError("23502"))
+        with self.assertRaises(Sg8NotNullViolation):
+            PostgresSg8Store(conn).append_round(
+                round_execution_id="re-1",
+                sg8_session_id="sess-1",
+                round_number=1,
+                source_collection_run_id="src-1",
+                resolution_snapshot_id="snap-1",
+                provenance=_PROVENANCE,
+            )
+        self.assertEqual(conn.rollbacks, 1)
 
     def test_foreign_key_violation_maps(self) -> None:
         conn = _RecConn(error=_FakeDbError("23503"))
@@ -449,6 +472,14 @@ class SqlDisciplineTests(unittest.TestCase):
             # every '%' belongs to a '%s' placeholder (no other formatting).
             self.assertEqual(sql.count("%"), sql.count("%s"), f"non-%s formatting in: {sql!r}")
 
+    def test_no_llm_columns_in_any_sql(self) -> None:
+        # DEC-0025: no residual LLM column anywhere in the adapter's SQL.
+        for sql in _all_sql_constants():
+            low = sql.lower()
+            for forbidden in ("llm_provider", "llm_model", "llm_prompt_hash", "llm_params_json",
+                              "llm_adapter_version", "llm_model_version", "ext_llm"):
+                self.assertNotIn(forbidden, low, f"residual LLM column in: {sql!r}")
+
     def test_adapter_imports_no_database_driver_via_ast(self) -> None:
         # Positive: the real adapter imports no forbidden driver (AST, not substring).
         roots = _imported_root_modules(inspect.getsource(pg))
@@ -542,81 +573,57 @@ class ReadTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Gate 1 — cryptographic prompt hash: structural format (adapter) + canonical derivation.
+# Compute manifest hash — structural format (adapter); store never derives it.
 # ---------------------------------------------------------------------------
-class PromptHashContractTests(unittest.TestCase):
-    def _round1(self, conn, prompt_hash):
+class ManifestHashContractTests(unittest.TestCase):
+    def _round(self, conn, manifest_hash):
         PostgresSg8Store(conn).append_round(
             round_execution_id="re-1",
             sg8_session_id="sess-1",
             round_number=1,
             source_collection_run_id="src-1",
             resolution_snapshot_id="snap-1",
-            provenance=Sg8RoundProvenance(
-                provider="anthropic",
-                model="claude-opus-4-8",
-                model_version="2026-01",
-                prompt_hash=prompt_hash,
-                adapter_version="adapter-v1",
+            provenance=Sg8ComputeProvenance(
+                engine_name="noxund-pipeline",
+                engine_version="pipeline-wiring-2026_06_v1",
+                manifest_hash=manifest_hash,
+                adapter_version="sg8-store-adapter-v1",
             ),
         )
 
-    def test_round1_rejects_invalid_prompt_hash_formats_before_sql(self) -> None:
+    def test_round_rejects_invalid_manifest_hash_formats_before_sql(self) -> None:
         bad_values = (
-            "sg8-prompt-v1",                    # a version token (the exact bug class)
+            "sg8-manifest-v1",                   # a version token (the exact bug class)
             "e3b0c442",                          # too short
-            _PROMPT_HASH[:-1],                   # 63 chars
-            _PROMPT_HASH + "a",                  # 65 chars
-            _PROMPT_HASH.upper(),                # uppercase (must be lowercase)
+            _MANIFEST_HASH[:-1],                 # 63 chars
+            _MANIFEST_HASH + "a",                # 65 chars
+            _MANIFEST_HASH.upper(),              # uppercase (must be lowercase)
             "g" * 64,                            # non-hex chars, right length
             "",                                  # blank
         )
         for bad in bad_values:
             conn = _RecConn()
             with self.assertRaises(Sg8ContractViolation, msg=f"accepted: {bad!r}"):
-                self._round1(conn, bad)
-            self.assertEqual(conn.executed, [], f"SQL issued for bad hash {bad!r}")
+                self._round(conn, bad)
+            self.assertEqual(conn.executed, [], f"SQL issued for bad manifest {bad!r}")
 
-    def test_round1_accepts_canonical_sha256_and_persists_at_hash_column(self) -> None:
+    def test_round_accepts_canonical_sha256_and_persists_at_manifest_column(self) -> None:
         conn = _RecConn()
-        self._round1(conn, _PROMPT_HASH)
-        self.assertEqual(conn.executed[0][1][8], _PROMPT_HASH)  # index 8 = llm_prompt_hash
+        self._round(conn, _MANIFEST_HASH)
+        self.assertEqual(conn.executed[0][1][7], _MANIFEST_HASH)  # index 7 = compute_manifest_hash
         self.assertEqual(conn.commits, 1)
 
-    def test_canonical_prompt_sha256_matches_hashlib_over_exact_bytes(self) -> None:
-        prompt = b"chicago drill type beat :: exact prompt bytes"
-        digest = canonical_prompt_sha256(prompt)
-        self.assertEqual(digest, hashlib.sha256(prompt).hexdigest())
-        self.assertRegex(digest, r"^[0-9a-f]{64}$")
-
-    def test_canonical_prompt_sha256_is_deterministic_and_drift_sensitive(self) -> None:
-        prompt = b"the exact bytes sent to the provider"
-        self.assertEqual(canonical_prompt_sha256(prompt), canonical_prompt_sha256(prompt))
-        # a single-byte change flips the digest
-        self.assertNotEqual(
-            canonical_prompt_sha256(prompt), canonical_prompt_sha256(prompt + b"!")
-        )
-        self.assertNotEqual(
-            canonical_prompt_sha256(b"prompt A"), canonical_prompt_sha256(b"prompt B")
-        )
-
-    def test_canonical_prompt_sha256_requires_bytes(self) -> None:
-        # Refuses str/None so the encoding decision is explicit upstream (never implicit).
-        for bad in ("a str prompt", None, 123, {"prompt": "x"}):
-            with self.assertRaises(Sg8ContractViolation):
-                canonical_prompt_sha256(bad)  # type: ignore[arg-type]
-
-    def test_store_validates_but_never_derives_the_prompt_hash(self) -> None:
+    def test_store_validates_but_never_derives_the_manifest_hash(self) -> None:
         # The store owns FORMAT validation, never derivation: its source must not hash.
         store_src = inspect.getsource(pg.PostgresSg8Store)
         self.assertNotIn("hashlib", store_src)
-        self.assertNotIn("canonical_prompt_sha256", store_src)
+        self.assertNotIn("canonical_compute_manifest", store_src)
 
 
 # ---------------------------------------------------------------------------
-# Gate 2 — symmetric per-round provenance, enforced fail-closed before any SQL.
+# Deterministic compute provenance — mandatory + symmetric, fail-closed before any SQL.
 # ---------------------------------------------------------------------------
-class ProvenanceByRoundTests(unittest.TestCase):
+class ComputeProvenanceTests(unittest.TestCase):
     def _append(self, conn, *, round_number, provenance):
         PostgresSg8Store(conn).append_round(
             round_execution_id="re-1",
@@ -633,54 +640,51 @@ class ProvenanceByRoundTests(unittest.TestCase):
             self._append(conn, round_number=1, provenance=None)
         self.assertEqual(conn.executed, [])
 
-    def test_round2_with_provenance_is_rejected_before_sql(self) -> None:
+    def test_round2_without_provenance_is_rejected_before_sql(self) -> None:
+        # DEC-0025: Round 2 also requires provenance (no zero-LLM exemption).
         conn = _RecConn()
         with self.assertRaises(Sg8ContractViolation):
-            self._append(conn, round_number=2, provenance=_PROVENANCE)
+            self._append(conn, round_number=2, provenance=None)
         self.assertEqual(conn.executed, [])
 
-    def test_round1_rejects_each_blank_core_field_before_sql(self) -> None:
+    def test_rejects_each_blank_core_field_before_sql(self) -> None:
         base = dict(
-            provider="anthropic",
-            model="claude-opus-4-8",
-            model_version="2026-01",
-            prompt_hash=_PROMPT_HASH,
-            adapter_version="adapter-v1",
+            engine_name="noxund-pipeline",
+            engine_version="pipeline-wiring-2026_06_v1",
+            manifest_hash=_MANIFEST_HASH,
+            adapter_version="sg8-store-adapter-v1",
         )
-        for field_name in ("provider", "model", "model_version", "adapter_version"):
+        for field_name in ("engine_name", "engine_version", "adapter_version"):
             conn = _RecConn()
             bad = dict(base, **{field_name: "   "})
             with self.assertRaises(Sg8ContractViolation, msg=field_name):
-                self._append(conn, round_number=1, provenance=Sg8RoundProvenance(**bad))
+                self._append(conn, round_number=1, provenance=Sg8ComputeProvenance(**bad))
             self.assertEqual(conn.executed, [], field_name)
 
-    def test_round1_rejects_non_mapping_params_before_sql(self) -> None:
+    def test_rejects_non_mapping_params_before_sql(self) -> None:
         conn = _RecConn()
-        prov = Sg8RoundProvenance(
-            provider="anthropic",
-            model="claude-opus-4-8",
-            model_version="2026-01",
-            prompt_hash=_PROMPT_HASH,
-            adapter_version="adapter-v1",
-            params=[("temperature", 0)],  # not a mapping
+        prov = Sg8ComputeProvenance(
+            engine_name="noxund-pipeline",
+            engine_version="pipeline-wiring-2026_06_v1",
+            manifest_hash=_MANIFEST_HASH,
+            adapter_version="sg8-store-adapter-v1",
+            params=[("deterministic", True)],  # not a mapping
         )
         with self.assertRaises(Sg8ContractViolation):
             self._append(conn, round_number=1, provenance=prov)
         self.assertEqual(conn.executed, [])
 
-    def test_round1_complete_and_round2_zero_llm_are_accepted(self) -> None:
-        # Positive both sides of the symmetric contract.
-        c1 = _RecConn()
-        self._append(c1, round_number=1, provenance=_PROVENANCE)
-        self.assertEqual(c1.commits, 1)
-        c2 = _RecConn()
-        self._append(c2, round_number=2, provenance=None)
-        self.assertEqual(c2.executed[0][1][5:], (None, None, None, None, None, None))
-        self.assertEqual(c2.commits, 1)
+    def test_both_rounds_accept_identical_provenance(self) -> None:
+        # Positive both sides of the symmetric contract: the SAME provenance on each round.
+        for rn in (1, 2):
+            conn = _RecConn()
+            self._append(conn, round_number=rn, provenance=_PROVENANCE)
+            self.assertEqual(conn.commits, 1)
+            self.assertEqual(conn.executed[0][1][7], _MANIFEST_HASH)
 
 
 # ---------------------------------------------------------------------------
-# Gate 3 — read transaction ownership (exclusive-owner model; reusable connection).
+# Read transaction ownership (exclusive-owner model; reusable connection).
 # ---------------------------------------------------------------------------
 class ReadTransactionOwnershipTests(unittest.TestCase):
     def test_successful_read_terminates_txn_and_leaves_connection_reusable(self) -> None:

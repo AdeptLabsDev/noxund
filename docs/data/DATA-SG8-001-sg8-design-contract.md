@@ -10,6 +10,10 @@
 
 > **Natureza deste documento.** Este é um **contrato**: define invariantes, semântica de identificadores, a superfície comparável, o protocolo de rodadas, as regras de write/atomicidade, os gates humanos e as fronteiras. **Não** projeta nem implementa o *runner* (código), o *workflow*, nem o schema. O runner é unidade **separada e posterior**, sob GO próprio, e deve satisfazer este contrato.
 
+> **⚠️ EMENDA VINCULANTE — DEC-0025 (LLM decoupling, Product Lead).** A NOXUND e o SG-8 **não dependem** de LLM, modelo remoto ou provider externo. O caminho autoritativo é **integralmente determinístico**: Round 1 determinística, Round 2 replay determinístico; a resolução é **por regras**, e casos ambíguos vão para **revisão humana** (`llm=None`); a **ausência** de qualquer modelo **nunca bloqueia `passed`**. Nenhuma IA gera score, número, digest ou veredito.
+> **DEC-0025 SUPERA explicitamente**, nas partes LLM-specific: **§1** ("zero-LLM" ⇒ "sem motor externo no replay"), **§2.1** (linha de proveniência LLM), **§3.2/§3.5** (metadados provider/modelo/prompt), **§4.1/§4.2** (fronteira LLM das rodadas), **§5 inteira** (fronteira LLM + proveniência da LLM), **§D D-4/D-8**, **§Q Q-3/Q-5** (provider/modelo) e **§R** nas partes relativas a provider/modelo/prompt — e **DEC-0024 item 4**.
+> **Modelo provider-neutral que passa a valer:** a proveniência por rodada é de **COMPUTAÇÃO DETERMINÍSTICA** — `compute_engine_name`, `compute_engine_version`, `compute_manifest_hash` (SHA-256 64-hex dos artefatos+config versionados: resolver/rule/rubric/opportunity versions+hashes + pipeline version), `compute_adapter_version`, `compute_params_json` — **obrigatória e SIMÉTRICA nas 2 rodadas**, FORA do digest. **SEM** `llm_*`, **sem** `ext_llm_*`, **sem** `engine_kind='llm_assisted'`. O **PASS gate** exige, além dos digests R1==R2, **`compute_manifest_hash` R1==R2** (manifesto divergente ⇒ FAIL mesmo com digests iguais). Uma futura assistência por modelo seria uma feature **separada, não-autoritativa, desligada por padrão**, sob **nova decisão** — não pré-modelada aqui. Detalhe canônico do manifesto: `sg8_coordinator.canonical_compute_manifest`. Ver `docs/product/decisions/DEC-0025-sg8-llm-decoupling.md`.
+
 ---
 
 ## §1. Objetivo, gate e definição de PASS / FAIL
@@ -140,6 +144,9 @@ Fiel a `entity_resolution.resolve` (`entity-resolver-v1`, `DATA-AUDIT-001` §2 N
 - **Zero chamadas à LLM.** O adaptador da Round 2 é um adaptador **proibido**: qualquer tentativa de chamada **levanta e falha a sessão** (FAIL), em vez de silenciosamente resolver. Defesa em profundidade: mesmo um bug lógico que alcançasse o ramo da LLM falha fechado, nunca produz número.
 
 ### §5.3 Proveniência obrigatória da LLM (Round 1)
+
+> **❌ SUPERADO por DEC-0025 (LLM decoupling).** Esta seção descreve a proveniência LLM-específica (`sg8_round_executions.llm_*`, `prompt_hash`, provider/modelo) que **não existe mais**. Substituída pela **proveniência de computação determinística** (`compute_engine_name`/`compute_engine_version`/`compute_manifest_hash`/`compute_adapter_version`/`compute_params_json`), **obrigatória e simétrica nas 2 rodadas**, com igualdade de `compute_manifest_hash` R1==R2 exigida pelo PASS gate. Ver a EMENDA no topo e `DEC-0025`. O texto abaixo é preservado como registro histórico.
+
 Para **cada** invocação de LLM em Round 1, persistir com o snapshot (auditável; **excluído** do digest, §3.2) as **6 colunas** de proveniência (`sg8_round_executions.llm_*`):
 - **`llm_provider`** e **`llm_model`** (família + id exato do modelo, nunca alias "latest");
 - **`llm_model_version`** (snapshot/version pin);

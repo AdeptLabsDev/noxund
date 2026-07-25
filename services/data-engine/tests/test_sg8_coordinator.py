@@ -1,53 +1,60 @@
-"""Unit tests for the SG-8 U2B wiring layer (driver-free, offline).
+"""Unit tests for the SG-8 U2B wiring layer (driver-free, offline; DEC-0025).
 
 These drive the REAL in-memory ``Sg8Session`` runner through ``Sg8Coordinator`` against
-a recording fake store — NO database, NO psycopg, NO Docker, NO network. They prove the
-wiring MIRRORS the runner's transitions onto the store (no second FSM), mints
-application-owned ids, and derives provenance from prompt bytes. The DB-enforced
-behaviour (constraints/triggers/PASS gate) is the E2E suite's job (``tests_integration``).
+a recording fake store — NO database, NO psycopg, NO Docker, NO network, NO LLM. They
+prove the wiring MIRRORS the runner's transitions onto the store (no second FSM), mints
+application-owned ids, and persists the SAME deterministic compute provenance on both
+rounds. The DB-enforced behaviour (constraints/triggers/PASS gate) is the E2E suite's job.
 """
 
 from __future__ import annotations
 
-import hashlib
+import re
 import unittest
 from datetime import datetime, timezone
 
 from noxund_data_engine.entity_resolution import RESOLVER_VERSION
-from noxund_data_engine.pipeline import ArtistRow, ChannelRow, PipelineSnapshot, RawVideoRow
-from noxund_data_engine.postgres_sg8 import Sg8RoundProvenance, canonical_prompt_sha256
+from noxund_data_engine.pipeline import (
+    PIPELINE_VERSION,
+    ArtistRow,
+    ChannelRow,
+    PipelineSnapshot,
+    RawVideoRow,
+)
+from noxund_data_engine.postgres_sg8 import Sg8ComputeProvenance
 from noxund_data_engine.sg8_coordinator import (
     SequentialIdFactory,
     Sg8Coordinator,
     UuidIdFactory,
-    build_round1_provenance,
+    build_compute_provenance,
+    canonical_compute_manifest,
+    default_compute_manifest,
     derive_snapshot_metadata,
 )
 from noxund_data_engine.sg8_runner import (
-    LlmProvenance,
     ReviewDecision,
     Sg8Report,
     Sg8Session,
     Sg8SessionInput,
     Sg8State,
     Sg8TerminalSessionError,
-    StubLLMCandidateExtractor,
 )
 
 WINDOW_END = datetime(2026, 6, 30, tzinfo=timezone.utc)
 PUBLISHED = datetime(2026, 6, 29, tzinfo=timezone.utc)
-LLM_TITLE = "Free Zephyr Prime Type Beat"  # "Free" -> regex residual -> LLM -> review
+# "Free ... Type Beat": a metadata residual the rules cannot resolve -> human review.
+AMBIGUOUS_TITLE = "Free Zephyr Prime Type Beat"
 
 
-def _snapshot(run_id: str, *, with_llm: bool) -> PipelineSnapshot:
+def _snapshot(run_id: str, *, with_ambiguous: bool) -> PipelineSnapshot:
     videos = [
         RawVideoRow(f"{run_id}-k{i:02d}", f"ch-{i % 3}", "Kairo Vee Type Beat",
                     40000 + i, 5000, 900, PUBLISHED)
         for i in range(4)
     ]
-    if with_llm:
+    if with_ambiguous:
         videos.append(
-            RawVideoRow(f"{run_id}-z01", "ch-9", LLM_TITLE, 30000, 4200, 760, PUBLISHED)
+            RawVideoRow(f"{run_id}-z01", "ch-9", AMBIGUOUS_TITLE, 30000, 4200, 760, PUBLISHED)
         )
     videos_t = tuple(videos)
     artists = (ArtistRow("artist-kairo", "Kairo Vee"), ArtistRow("artist-zephyr", "Zephyr Prime"))
@@ -55,21 +62,12 @@ def _snapshot(run_id: str, *, with_llm: bool) -> PipelineSnapshot:
     return PipelineSnapshot(run_id, "Report", WINDOW_END, videos_t, channels, artists)
 
 
-def _provenance() -> LlmProvenance:
-    return LlmProvenance(
-        provider="anthropic", model="claude-opus-4-8", model_version="claude-opus-4-8",
-        prompt_version="llm-fallback-v1", adapter_identity="offline-stub-adapter",
-        params={"temperature": "0"},
-    )
-
-
-def _session(*, with_llm: bool, session_id: str = "sg8-session-A") -> Sg8Session:
+def _session(*, with_ambiguous: bool, session_id: str = "sg8-session-A") -> Sg8Session:
     reports = (
-        Sg8Report("report-1of2", _snapshot("report-1of2", with_llm=with_llm)),
-        Sg8Report("report-2of2", _snapshot("report-2of2", with_llm=False)),
+        Sg8Report("report-1of2", _snapshot("report-1of2", with_ambiguous=with_ambiguous)),
+        Sg8Report("report-2of2", _snapshot("report-2of2", with_ambiguous=False)),
     )
-    llm = StubLLMCandidateExtractor({LLM_TITLE: "Zephyr Prime"}, provenance=_provenance())
-    return Sg8Session(Sg8SessionInput("src-run-1", reports), sg8_session_id=session_id, llm=llm)
+    return Sg8Session(Sg8SessionInput("src-run-1", reports), sg8_session_id=session_id)
 
 
 class _RecStore:
@@ -119,12 +117,11 @@ def _drive_to_passed(coord: Sg8Coordinator, session: Sg8Session) -> None:
         )
     meta = derive_snapshot_metadata(session._input, resolver_version=RESOLVER_VERSION)  # type: ignore[attr-defined]
     coord.freeze(snapshot_metadata=meta)
-    prov = Sg8RoundProvenance(
-        provider="anthropic", model="claude-opus-4-8", model_version="claude-opus-4-8",
-        prompt_hash="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        adapter_version="adapter-v1",
+    coord.compute_round1(
+        provenance=build_compute_provenance(),
+        report_run_id_1="report-1of2",
+        report_run_id_2="report-2of2",
     )
-    coord.compute_round1(provenance=prov, report_run_id_1="report-1of2", report_run_id_2="report-2of2")
     coord.run_round2()
 
 
@@ -157,26 +154,50 @@ class IdFactoryTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Provenance bridge + snapshot metadata.
+# Compute manifest + provenance bridge + snapshot metadata.
 # ---------------------------------------------------------------------------
-class ProvenanceBridgeTests(unittest.TestCase):
-    def test_prompt_hash_is_sha256_of_bytes_never_prompt_version(self) -> None:
-        prompt = b"NOXUND-SG8-PROMPT\nversion=llm-fallback-v1\ntitle=Free Zephyr Prime Type Beat\n"
-        built = build_round1_provenance(prompt, _provenance())
-        self.assertEqual(built.prompt_hash, hashlib.sha256(prompt).hexdigest())
-        self.assertEqual(built.prompt_hash, canonical_prompt_sha256(prompt))
-        # the version token never leaks into the hash column value
-        self.assertNotEqual(built.prompt_hash, "llm-fallback-v1")
-        self.assertNotIn("llm-fallback-v1", built.prompt_hash)
-        self.assertEqual(built.adapter_version, "offline-stub-adapter")  # adapter_identity -> adapter_version
-        self.assertEqual(built.provider, "anthropic")
+class ComputeManifestTests(unittest.TestCase):
+    def test_canonical_manifest_is_deterministic_64hex_and_drift_sensitive(self) -> None:
+        kw = dict(
+            pipeline_version="pv", resolver_version="rv", rule_version="rul", rule_hash="rh",
+            rubric_version="rbv", rubric_hash="rbh", opportunity_version="ov", opportunity_hash="oh",
+        )
+        a = canonical_compute_manifest(**kw)
+        b = canonical_compute_manifest(**kw)
+        self.assertEqual(a, b)  # deterministic
+        self.assertRegex(a, r"^[0-9a-f]{64}$")
+        # any versioned-artifact change flips the manifest
+        self.assertNotEqual(a, canonical_compute_manifest(**{**kw, "rubric_hash": "rbh2"}))
+        self.assertNotEqual(a, canonical_compute_manifest(**{**kw, "pipeline_version": "pv2"}))
 
+    def test_default_manifest_matches_frozen_configs(self) -> None:
+        self.assertEqual(default_compute_manifest(), default_compute_manifest())
+        self.assertRegex(default_compute_manifest(), r"^[0-9a-f]{64}$")
+
+    def test_build_compute_provenance_is_deterministic_engine_identity(self) -> None:
+        prov = build_compute_provenance()
+        self.assertIsInstance(prov, Sg8ComputeProvenance)
+        self.assertEqual(prov.engine_name, "noxund-pipeline")
+        self.assertEqual(prov.engine_version, PIPELINE_VERSION)
+        self.assertEqual(prov.adapter_version, "sg8-store-adapter-v1")
+        self.assertEqual(prov.manifest_hash, default_compute_manifest())
+        # no provider / model / prompt fields exist on the value object
+        for forbidden in ("provider", "model", "model_version", "prompt_hash"):
+            self.assertFalse(hasattr(prov, forbidden), f"residual LLM field: {forbidden}")
+
+    def test_build_compute_provenance_accepts_explicit_manifest(self) -> None:
+        mh = re.sub(r".", "a", "x" * 64)  # 64 'a's — valid format
+        prov = build_compute_provenance(manifest_hash=mh)
+        self.assertEqual(prov.manifest_hash, mh)
+
+
+class SnapshotMetadataTests(unittest.TestCase):
     def test_snapshot_metadata_is_deterministic(self) -> None:
-        s = _session(with_llm=True)
+        s = _session(with_ambiguous=True)
         m1 = derive_snapshot_metadata(s._input, resolver_version=RESOLVER_VERSION)  # type: ignore[attr-defined]
         m2 = derive_snapshot_metadata(s._input, resolver_version=RESOLVER_VERSION)  # type: ignore[attr-defined]
         self.assertEqual(m1, m2)
-        self.assertEqual(m1["fact_count"], 5 + 4)  # report1 (4 regex + 1 llm) + report2 (4 regex)
+        self.assertEqual(m1["fact_count"], 5 + 4)  # report1 (4 regex + 1 ambiguous) + report2 (4 regex)
         self.assertRegex(str(m1["content_hash"]), r"^[0-9a-f]{64}$")
         self.assertRegex(str(m1["resolver_hash"]), r"^[0-9a-f]{64}$")
 
@@ -187,7 +208,7 @@ class ProvenanceBridgeTests(unittest.TestCase):
 class CoordinatorMirrorTests(unittest.TestCase):
     def test_happy_path_with_review_mirrors_full_sequence(self) -> None:
         store = _RecStore()
-        session = _session(with_llm=True)
+        session = _session(with_ambiguous=True)
         coord = Sg8Coordinator(session, store, SequentialIdFactory(namespace=1), source_collection_run_id="src-run-1")
         _drive_to_passed(coord, session)
         self.assertEqual(
@@ -199,28 +220,31 @@ class CoordinatorMirrorTests(unittest.TestCase):
             ],
         )
 
-    def test_no_llm_path_skips_awaiting_review(self) -> None:
+    def test_no_ambiguity_path_skips_awaiting_review(self) -> None:
         store = _RecStore()
-        session = _session(with_llm=False)
+        session = _session(with_ambiguous=False)
         coord = Sg8Coordinator(session, store, SequentialIdFactory(namespace=2), source_collection_run_id="src-run-1")
         state = coord.resolve_round1()
         self.assertIs(state, Sg8State.R1_RESOLVED)
         self.assertEqual(store.names(), ["mark_resolved"])
         self.assertNotIn("mark_awaiting_review", store.names())
 
-    def test_round1_has_provenance_round2_is_zero_llm(self) -> None:
+    def test_both_rounds_persist_identical_compute_provenance(self) -> None:
         store = _RecStore()
-        session = _session(with_llm=True)
+        session = _session(with_ambiguous=True)
         coord = Sg8Coordinator(session, store, SequentialIdFactory(namespace=3), source_collection_run_id="src-run-1")
         _drive_to_passed(coord, session)
         rounds = [c for c in store.calls if c[0] == "append_round"]
         self.assertEqual([r[1] for r in rounds], [1, 2])          # round_number order
         self.assertIsNotNone(rounds[0][2])                        # R1 provenance present
-        self.assertIsNone(rounds[1][2])                           # R2 provenance None (zero-LLM)
+        self.assertIsNotNone(rounds[1][2])                        # R2 provenance present (DEC-0025)
+        # both rounds carry the SAME deterministic manifest (PASS gate equality by construction)
+        self.assertEqual(rounds[0][2].manifest_hash, rounds[1][2].manifest_hash)
+        self.assertIs(rounds[0][2], rounds[1][2])                 # the identical provenance object
 
     def test_exactly_two_evidence_per_round(self) -> None:
         store = _RecStore()
-        session = _session(with_llm=True)
+        session = _session(with_ambiguous=True)
         coord = Sg8Coordinator(session, store, SequentialIdFactory(namespace=4), source_collection_run_id="src-run-1")
         _drive_to_passed(coord, session)
         r1 = coord.round_execution_id(1)
@@ -232,7 +256,7 @@ class CoordinatorMirrorTests(unittest.TestCase):
 
     def test_ids_are_application_owned_and_stable(self) -> None:
         store = _RecStore()
-        session = _session(with_llm=True)
+        session = _session(with_ambiguous=True)
         coord = Sg8Coordinator(session, store, SequentialIdFactory(namespace=7), source_collection_run_id="src-run-1")
         _drive_to_passed(coord, session)
         # snapshot id then r1 then r2, from the injected deterministic factory
@@ -263,15 +287,8 @@ class CoordinatorMirrorTests(unittest.TestCase):
             self.assertNotIn(driver, roots)
 
 
-_PROV_ROW = Sg8RoundProvenance(
-    provider="anthropic", model="claude-opus-4-8", model_version="2026-01",
-    prompt_hash="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    adapter_version="adapter-v1",
-)
-
-
 def _runner_to_computed():
-    session = _session(with_llm=True)
+    session = _session(with_ambiguous=True)
     session.resolve_round1()
     if session.state is Sg8State.R1_AWAITING_REVIEW:
         session.submit_review([ReviewDecision(rid, vid, approved=True, artist_id="artist-zephyr")
@@ -306,14 +323,14 @@ class Round2EvidenceOriginTests(unittest.TestCase):
 
     def test_coordinator_persists_round2_own_evidence_not_round1_copy(self) -> None:
         store = _RecStore()
-        session = _session(with_llm=True)
+        session = _session(with_ambiguous=True)
         coord = Sg8Coordinator(session, store, SequentialIdFactory(namespace=8), source_collection_run_id="src-run-1")
         coord.open_session()
         if coord.resolve_round1() is Sg8State.R1_AWAITING_REVIEW:
             coord.submit_review([ReviewDecision(rid, vid, approved=True, artist_id="artist-zephyr")
                                  for (rid, vid) in session.pending_review_keys])
         coord.freeze(snapshot_metadata=derive_snapshot_metadata(session._input, resolver_version=RESOLVER_VERSION))  # type: ignore[attr-defined]
-        r1_evidence = coord.compute_round1(provenance=_PROV_ROW, report_run_id_1="report-1of2", report_run_id_2="report-2of2")
+        r1_evidence = coord.compute_round1(provenance=build_compute_provenance(), report_run_id_1="report-1of2", report_run_id_2="report-2of2")
         coord.run_round2()
 
         r2 = coord.round2_evidence

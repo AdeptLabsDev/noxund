@@ -17,7 +17,7 @@ name: SG-8 Integration · Local E2E (disposable Supabase, no remote, no secrets)
 #   • The local stack is destroyed in `if: always()` with `--no-backup`. Finite timeout.
 #
 # The E2E test count is asserted fail-closed HERE (its own count, independent of the
-# unit guard's 258).
+# unit guard's 266).
 # =============================================================================
 
 on:
