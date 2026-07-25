@@ -336,6 +336,21 @@ class Sg8Verdict:
     reason: str
 
 
+@dataclass(frozen=True, slots=True)
+class Sg8Round2Result:
+    """Immutable result of ONE Round-2 execution: the verdict AND the REAL per-report
+    evidence Round 2 actually produced.
+
+    ``evidence`` is ``None`` only when Round 2 failed BEFORE producing any evidence (a
+    non-distinct ``round_execution_id``, an incomplete snapshot, or an evidence
+    collision). The Round-2 compute runs exactly once; this carries what it produced so a
+    caller never has to copy Round 1, infer from PASS, or re-run the pipeline.
+    """
+
+    verdict: Sg8Verdict
+    evidence: RoundEvidence | None
+
+
 def compare_round_evidence(round1: RoundEvidence, round2: RoundEvidence) -> Sg8Verdict:
     """Fail-closed comparison of two rounds (contract §1 PASS/FAIL).
 
@@ -561,12 +576,20 @@ class Sg8Session:
 
     # -- transition 5: Round 2 replay + verdict -------------------------------
     def run_round2(self, *, round_execution_id: str) -> Sg8Verdict:
+        """Back-compat wrapper: returns only the verdict (existing callers). Round 2 is
+        computed exactly once, inside ``run_round2_result``."""
+        return self.run_round2_result(round_execution_id=round_execution_id).verdict
+
+    def run_round2_result(self, *, round_execution_id: str) -> Sg8Round2Result:
+        """Round 2 replay + verdict, additionally exposing the REAL per-report evidence
+        Round 2 produced (computed exactly once here). Math, canonicalization, comparison
+        and the FSM are unchanged — only the already-computed evidence is now returned."""
         self._guard_not_terminal()
         self._require_state(Sg8State.R1_COMPUTED, "run_round2")
         assert self._round1_evidence is not None
         if round_execution_id == self._round1_evidence.round_execution_id:
             self._fail("Round 2 must use a round_execution_id distinct from Round 1")
-            return self._verdict  # type: ignore[return-value]
+            return Sg8Round2Result(self._verdict, None)  # type: ignore[arg-type]
 
         # Completeness is checked BEFORE any compute/resolver call (=> before any LLM).
         try:
@@ -579,22 +602,22 @@ class Sg8Session:
                 )
         except Sg8SnapshotIncomplete as exc:
             self._fail(f"Round 2 aborted: {exc}")
-            return self._verdict  # type: ignore[return-value]
+            return Sg8Round2Result(self._verdict, None)  # type: ignore[arg-type]
 
         try:
             round2_evidence = self._compute_round(round_execution_id, validate_completeness=True)
         except Sg8EvidenceCollision as exc:
             self._fail(f"Round 2 evidence collision: {exc}")
-            return self._verdict  # type: ignore[return-value]
+            return Sg8Round2Result(self._verdict, None)  # type: ignore[arg-type]
 
         if self._compute_llm.call_count != 0:
             self._fail("LLM was reached during a zero-LLM replay round")
-            return self._verdict  # type: ignore[return-value]
+            return Sg8Round2Result(self._verdict, round2_evidence)  # type: ignore[arg-type]
 
         verdict = compare_round_evidence(self._round1_evidence, round2_evidence)
         self._verdict = verdict
         self._state = Sg8State.PASSED if verdict.passed else Sg8State.FAILED
-        return verdict
+        return Sg8Round2Result(verdict, round2_evidence)
 
     # -- internals -------------------------------------------------------------
     def _compute_round(
