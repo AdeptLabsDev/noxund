@@ -30,6 +30,7 @@ from noxund_data_engine.sg8_runner import (
     Sg8Session,
     Sg8SessionInput,
     Sg8State,
+    Sg8TerminalSessionError,
     StubLLMCandidateExtractor,
 )
 
@@ -123,8 +124,8 @@ def _drive_to_passed(coord: Sg8Coordinator, session: Sg8Session) -> None:
         prompt_hash="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         adapter_version="adapter-v1",
     )
-    evidence = coord.compute_round1(provenance=prov, report_run_id_1="report-1of2", report_run_id_2="report-2of2")
-    coord.run_round2(round1_evidence=evidence)
+    coord.compute_round1(provenance=prov, report_run_id_1="report-1of2", report_run_id_2="report-2of2")
+    coord.run_round2()
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +261,70 @@ class CoordinatorMirrorTests(unittest.TestCase):
                 roots.add(node.module.split(".", 1)[0])
         for driver in ("psycopg", "psycopg2", "asyncpg", "sqlalchemy", "pg8000"):
             self.assertNotIn(driver, roots)
+
+
+_PROV_ROW = Sg8RoundProvenance(
+    provider="anthropic", model="claude-opus-4-8", model_version="2026-01",
+    prompt_hash="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    adapter_version="adapter-v1",
+)
+
+
+def _runner_to_computed():
+    session = _session(with_llm=True)
+    session.resolve_round1()
+    if session.state is Sg8State.R1_AWAITING_REVIEW:
+        session.submit_review([ReviewDecision(rid, vid, approved=True, artist_id="artist-zephyr")
+                               for (rid, vid) in session.pending_review_keys])
+    session.freeze_snapshot(resolution_snapshot_id="snap-1")
+    r1 = session.compute_round1(round_execution_id="r1-exec")
+    return session, r1
+
+
+# ---------------------------------------------------------------------------
+# Round 2 evidence has its OWN origin (never a Round-1 copy) — computed once.
+# ---------------------------------------------------------------------------
+class Round2EvidenceOriginTests(unittest.TestCase):
+    def test_runner_exposes_real_round2_evidence_distinct_from_round1(self) -> None:
+        session, r1 = _runner_to_computed()
+        result = session.run_round2_result(round_execution_id="r2-exec")
+        self.assertTrue(result.verdict.passed)
+        self.assertIsNotNone(result.evidence)
+        # Round 2 carries its OWN round_execution_id (distinct origin from Round 1)...
+        self.assertEqual(result.evidence.round_execution_id, "r2-exec")
+        self.assertNotEqual(result.evidence.round_execution_id, r1.round_execution_id)
+        self.assertIsNot(result.evidence, r1)                       # distinct object, not a copy
+        # ...over the same two reports, with equal VALUES (byte-for-byte determinism).
+        self.assertEqual(set(result.evidence.report_digests), set(r1.report_digests))
+        self.assertEqual(result.evidence.report_digests, r1.report_digests)
+
+    def test_round2_compute_runs_once_second_call_blocked_by_terminal(self) -> None:
+        session, _ = _runner_to_computed()
+        session.run_round2_result(round_execution_id="r2-exec")           # computes once -> terminal
+        with self.assertRaises(Sg8TerminalSessionError):
+            session.run_round2_result(round_execution_id="r2-exec-again")  # cannot recompute
+
+    def test_coordinator_persists_round2_own_evidence_not_round1_copy(self) -> None:
+        store = _RecStore()
+        session = _session(with_llm=True)
+        coord = Sg8Coordinator(session, store, SequentialIdFactory(namespace=8), source_collection_run_id="src-run-1")
+        coord.open_session()
+        if coord.resolve_round1() is Sg8State.R1_AWAITING_REVIEW:
+            coord.submit_review([ReviewDecision(rid, vid, approved=True, artist_id="artist-zephyr")
+                                 for (rid, vid) in session.pending_review_keys])
+        coord.freeze(snapshot_metadata=derive_snapshot_metadata(session._input, resolver_version=RESOLVER_VERSION))  # type: ignore[attr-defined]
+        r1_evidence = coord.compute_round1(provenance=_PROV_ROW, report_run_id_1="report-1of2", report_run_id_2="report-2of2")
+        coord.run_round2()
+
+        r2 = coord.round2_evidence
+        self.assertIsNotNone(r2)
+        self.assertEqual(r2.round_execution_id, coord.round_execution_id(2))   # R2's own id
+        self.assertNotEqual(r2.round_execution_id, r1_evidence.round_execution_id)
+        self.assertIsNot(r2, r1_evidence)                                      # not a Round-1 copy
+        # exactly the digests Round 2 produced were persisted for round_number = 2
+        r2_id = coord.round_execution_id(2)
+        persisted = {c[2]: c[3] for c in store.calls if c[0] == "append_evidence" and c[1] == r2_id}
+        self.assertEqual(persisted, dict(r2.report_digests))
 
 
 if __name__ == "__main__":

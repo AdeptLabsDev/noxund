@@ -169,6 +169,7 @@ class Sg8Coordinator:
         self._src = source_collection_run_id
         self._snapshot_id: str | None = None
         self._round_ids: dict[int, str] = {}
+        self._round2_evidence: RoundEvidence | None = None
 
     # -- accessors (for assertions/resume) ------------------------------------
     @property
@@ -181,6 +182,11 @@ class Sg8Coordinator:
 
     def round_execution_id(self, round_number: int) -> str | None:
         return self._round_ids.get(round_number)
+
+    @property
+    def round2_evidence(self) -> RoundEvidence | None:
+        """The REAL evidence Round 2 produced (what was persisted for round_number = 2)."""
+        return self._round2_evidence
 
     # -- lifecycle mirror ------------------------------------------------------
     def open_session(self) -> None:
@@ -247,11 +253,13 @@ class Sg8Coordinator:
         self._round_ids[1] = round_id
         return evidence
 
-    def run_round2(self, *, round1_evidence: RoundEvidence) -> Sg8Verdict:
+    def run_round2(self) -> Sg8Verdict:
         if self._snapshot_id is None:
             raise RuntimeError("compute_round1() must precede run_round2()")
         round_id = self._ids.new_id()
-        verdict = self._runner.run_round2(round_execution_id=round_id)
+        # Round 2 is computed EXACTLY ONCE by the runner; we persist the evidence it
+        # ACTUALLY produced — never Round 1's, never inferred from PASS, never recomputed.
+        result = self._runner.run_round2_result(round_execution_id=round_id)
         self._store.append_round(
             round_execution_id=round_id,
             sg8_session_id=self._runner.sg8_session_id,
@@ -261,19 +269,20 @@ class Sg8Coordinator:
             provenance=None,  # Round 2 is zero-LLM
         )
         self._round_ids[2] = round_id
-        if verdict.passed:
-            # The runner's verdict CERTIFIES Round 2 ≡ Round 1 byte-for-byte; persist the
-            # runner's Round-1 digests as Round-2 evidence and let the schema PASS gate
-            # re-verify. No digest is recomputed here.
-            self._persist_evidence(round_id, round1_evidence)
+        self._round2_evidence = result.evidence
+        # Persist Round 2's own per-report digests (present unless Round 2 failed before
+        # producing any evidence). The schema PASS gate independently compares R1 vs R2.
+        if result.evidence is not None:
+            self._persist_evidence(round_id, result.evidence)
+        if result.verdict.passed:
             self._store.mark_passed(
-                self._runner.sg8_session_id, verdict_reason=verdict.reason
+                self._runner.sg8_session_id, verdict_reason=result.verdict.reason
             )
         else:
             self._store.mark_failed(
-                self._runner.sg8_session_id, verdict_reason=verdict.reason
+                self._runner.sg8_session_id, verdict_reason=result.verdict.reason
             )
-        return verdict
+        return result.verdict
 
     def _persist_evidence(self, round_execution_id: str, evidence: RoundEvidence) -> None:
         for report_run_id, digest in sorted(evidence.report_digests.items()):

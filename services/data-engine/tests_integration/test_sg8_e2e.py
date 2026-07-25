@@ -11,6 +11,8 @@ without importing psycopg.
 
 from __future__ import annotations
 
+import json
+import os
 import unittest
 from datetime import datetime, timezone
 
@@ -182,7 +184,7 @@ class HappyPathTests(_E2EBase):
                 session._input, resolver_version=RESOLVER_VERSION))  # type: ignore[attr-defined]
             prov = build_round1_provenance(prompt_bytes, llm.provenance)
             evidence = coord.compute_round1(provenance=prov, report_run_id_1=rep1, report_run_id_2=rep2)
-            verdict = coord.run_round2(round1_evidence=evidence)
+            verdict = coord.run_round2()
             self.assertTrue(verdict.passed)
 
             # terminal state
@@ -215,6 +217,29 @@ class HappyPathTests(_E2EBase):
             self.assertEqual(row1[0], build_round1_provenance(prompt_bytes, llm.provenance).prompt_hash)
             self.assertTrue(all(v is not None for v in row1[:5]))  # R1 five core present
             self.assertEqual(tuple(row2), (None, None, None, None, None, None))  # R2 zero-LLM
+
+            # Round 2 evidence has its OWN origin — persisted verbatim, never an R1 copy.
+            r2_ev = coord.round2_evidence
+            self.assertIsNotNone(r2_ev)
+            self.assertEqual(r2_ev.round_execution_id, r2)
+            self.assertNotEqual(r2_ev.round_execution_id, evidence.round_execution_id)
+            self.assertIsNot(r2_ev, evidence)
+            self.assertEqual(ev2, dict(r2_ev.report_digests))          # persisted == R2's own result
+            self.assertEqual(dict(r2_ev.report_digests), dict(evidence.report_digests))  # equal values, distinct origin
+
+            # Deterministic happy-path manifest (compared byte-for-byte across the ×2 runs).
+            manifest_path = os.environ.get("SG8_E2E_MANIFEST")
+            if manifest_path:
+                with open(manifest_path, "w", encoding="utf-8") as fh:
+                    json.dump({
+                        "status": "passed",
+                        "session_id": session_id,
+                        "snapshot_id": coord.resolution_snapshot_id,
+                        "round1_id": r1, "round2_id": r2,
+                        "round1_digests": dict(sorted(ev1.items())),
+                        "round2_digests": dict(sorted(ev2.items())),
+                        "prompt_hash": row1[0],
+                    }, fh, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         finally:
             conn.close()
 
@@ -252,8 +277,8 @@ class ResumeTests(_E2EBase):
             coord2.freeze(snapshot_metadata=derive_snapshot_metadata(
                 session._input, resolver_version=RESOLVER_VERSION))  # type: ignore[attr-defined]
             prov = build_round1_provenance(prompt_bytes, llm.provenance)
-            evidence = coord2.compute_round1(provenance=prov, report_run_id_1=rep1, report_run_id_2=rep2)
-            self.assertTrue(coord2.run_round2(round1_evidence=evidence).passed)
+            coord2.compute_round1(provenance=prov, report_run_id_1=rep1, report_run_id_2=rep2)
+            self.assertTrue(coord2.run_round2().passed)
             self.assertEqual(store2.read_session_state(session_id).status, "passed")
 
             with conn2.cursor() as cur:

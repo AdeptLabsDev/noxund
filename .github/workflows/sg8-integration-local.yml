@@ -129,33 +129,40 @@ jobs:
           set -euo pipefail
           supabase start   # local Docker stack only — no `supabase link`, no token, no remote
 
-      - name: '[2] Apply canonical migration sequence (supabase db reset)'
+      - name: '[2..3] SG-8 E2E ×2 (supabase db reset each) — 6/6 + byte-identical happy-path manifest'
         run: |
           set -euo pipefail
-          supabase db reset
-
-      - name: '[3] Run SG-8 E2E ×1 — require exactly 6 tests OK'
-        working-directory: services/data-engine
-        env:
-          PYTHONPATH: src
-        run: |
-          set -euo pipefail
-          # tests_integration is DISCOVERED SEPARATELY from the driver-free unit suite.
-          if out="$(python -m unittest discover -s tests_integration -p 'test_*.py' -v 2>&1)"; then
-            status=0
-          else
-            status=$?
+          # TWO independent attempts; each RESETS the database to a clean state first, runs
+          # exactly the 6 E2E tests, requires 6/6, and emits a deterministic happy-path
+          # manifest. Deterministic ids may repeat because the DB is reset before each run.
+          for attempt in 1 2; do
+            echo "::group::SG-8 E2E — attempt ${attempt}/2 (fresh supabase db reset)"
+            supabase db reset
+            manifest="${RUNNER_TEMP}/sg8-e2e-manifest-${attempt}.json"
+            export SG8_E2E_MANIFEST="$manifest"
+            if out="$(cd services/data-engine && PYTHONPATH=src python -m unittest discover -s tests_integration -p 'test_*.py' -v 2>&1)"; then
+              status=0
+            else
+              status=$?
+            fi
+            echo "$out"
+            echo "::endgroup::"
+            if [ "$status" -ne 0 ]; then
+              echo "::error::attempt ${attempt}: SG-8 E2E FAILED (unittest exit ${status})."; exit 1
+            fi
+            if ! grep -qE '^Ran 6 tests in ' <<<"$out"; then
+              ran="$(grep -oE '^Ran [0-9]+ tests' <<<"$out" || true)"
+              echo "::error::attempt ${attempt}: expected exactly 6 E2E tests, got '${ran:-<none>}'."; exit 1
+            fi
+            test -s "$manifest" || { echo "::error::attempt ${attempt}: happy-path manifest not emitted."; exit 1; }
+            echo "attempt ${attempt}: 6/6 OK — manifest sha256 $(sha256sum "$manifest" | cut -d' ' -f1)"
+          done
+          m1="${RUNNER_TEMP}/sg8-e2e-manifest-1.json"; m2="${RUNNER_TEMP}/sg8-e2e-manifest-2.json"
+          if ! cmp -s "$m1" "$m2"; then
+            echo "::error::E2E happy-path manifests differ across the 2 independent runs (non-determinism)."
+            echo "--- attempt 1 ---"; cat "$m1"; echo; echo "--- attempt 2 ---"; cat "$m2"; exit 1
           fi
-          echo "$out"
-          if [ "$status" -ne 0 ]; then
-            echo "::error::SG-8 E2E FAILED (unittest exit ${status})."; exit 1
-          fi
-          if ! grep -qE '^Ran 6 tests in ' <<<"$out"; then
-            ran="$(grep -oE '^Ran [0-9]+ tests' <<<"$out" || true)"
-            echo "::error::expected exactly 6 E2E tests, got '${ran:-<none>}' (discovery regression)."
-            exit 1
-          fi
-          echo "SG-8 E2E: 6/6 OK against the disposable local stack."
+          echo "Determinism proven: SG-8 E2E 6/6 across 2 independent runs"
 
       - name: '[4] Destroy disposable stack (always; no backup)'
         if: always()
