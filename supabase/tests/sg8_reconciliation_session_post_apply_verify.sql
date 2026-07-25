@@ -576,17 +576,28 @@ begin;
     insert into public.sg8_resolution_snapshots (sg8_session_id, source_collection_run_id, resolver_version, resolver_hash, fact_count, content_hash)
       values (v_sess2, v_src2, 'entity-resolver-v1', 'rhash', 500, 'chash') returning id into v_snap2;
 
-    -- rodada com dataset ≠ da sessão → rejeitada (composite FK session_source)
+    -- rodada com dataset ≠ da sessão → rejeitada (composite FK session_source).
+    -- Proveniência Round 1 COMPLETA e válida (fixture): o CHECK de proveniência passa, então
+    -- a composite FK é a 1ª a decidir → foreign_key_violation (ordem CHECK→UNIQUE→FK).
     begin
-      insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id)
-        values (v_sess, 1, v_src2, v_snap);
+      insert into public.sg8_round_executions
+        (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
+         llm_provider, llm_model, llm_model_version, llm_prompt_hash, llm_adapter_version)
+        values (v_sess, 1, v_src2, v_snap,
+                'anthropic', 'claude-opus-4-8', '2026-01',
+                'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'adapter-v1');
       raise exception 'ROUND: round with a different dataset ACCEPTED';
     exception when foreign_key_violation then null; end;
 
-    -- rodada com snapshot de OUTRA sessão → rejeitada (composite FK snapshot_session)
+    -- rodada com snapshot de OUTRA sessão → rejeitada (composite FK snapshot_session).
+    -- Proveniência Round 1 completa/válida (fixture) → a composite FK do snapshot decide.
     begin
-      insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id)
-        values (v_sess, 1, v_src, v_snap2);
+      insert into public.sg8_round_executions
+        (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
+         llm_provider, llm_model, llm_model_version, llm_prompt_hash, llm_adapter_version)
+        values (v_sess, 1, v_src, v_snap2,
+                'anthropic', 'claude-opus-4-8', '2026-01',
+                'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'adapter-v1');
       raise exception 'ROUND: round reusing another session snapshot ACCEPTED';
     exception when foreign_key_violation then null; end;
 
@@ -628,10 +639,16 @@ begin;
               'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
               '{"temperature":0}'::jsonb, 'adapter-v1') returning id into v_r1;
 
-    -- SEGUNDA Round 1 → rejeitada
+    -- SEGUNDA Round 1 → rejeitada (UNIQUE (sg8_session_id, round_number)).
+    -- Proveniência Round 1 completa/válida (fixture) → o CHECK passa e a UNIQUE decide
+    -- → unique_violation (não check_violation).
     begin
-      insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id)
-        values (v_sess, 1, v_src, v_snap);
+      insert into public.sg8_round_executions
+        (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
+         llm_provider, llm_model, llm_model_version, llm_prompt_hash, llm_adapter_version)
+        values (v_sess, 1, v_src, v_snap,
+                'anthropic', 'claude-opus-4-8', '2026-01',
+                'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'adapter-v1');
       raise exception 'ROUND: second Round 1 for a session ACCEPTED';
     exception when unique_violation then null; end;
 
@@ -685,8 +702,14 @@ begin;
     update public.sg8_sessions set status = 'r1_snapshot_frozen'  where id = v_sess;
     insert into public.sg8_resolution_snapshots (sg8_session_id, source_collection_run_id, resolver_version, resolver_hash, fact_count, content_hash)
       values (v_sess, v_src, 'entity-resolver-v1', 'rhash', 500, 'chash') returning id into v_snap;
-    insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id)
-      values (v_sess, 1, v_src, v_snap) returning id into v_round1;
+    -- setup VÁLIDO da Round 1 (deve ter sucesso): proveniência Round 1 completa/válida (fixture).
+    insert into public.sg8_round_executions
+      (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
+       llm_provider, llm_model, llm_model_version, llm_prompt_hash, llm_adapter_version)
+      values (v_sess, 1, v_src, v_snap,
+              'anthropic', 'claude-opus-4-8', '2026-01',
+              'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'adapter-v1')
+      returning id into v_round1;
 
     -- evidência ANTES do binding → rejeitada (trigger: binding ausente)
     begin
