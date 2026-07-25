@@ -9,6 +9,8 @@ hold — that is U2, against a local disposable Supabase.
 
 from __future__ import annotations
 
+import ast
+import hashlib
 import inspect
 import json
 import unittest
@@ -25,6 +27,7 @@ from noxund_data_engine.postgres_sg8 import (
     Sg8SessionState,
     Sg8SnapshotState,
     Sg8UniqueViolation,
+    canonical_prompt_sha256,
 )
 
 
@@ -400,6 +403,29 @@ def _all_sql_constants() -> list[str]:
     ]
 
 
+# Drivers the contract forbids the driver-agnostic adapter from importing (Gate 4).
+_FORBIDDEN_DRIVERS = frozenset(
+    {"psycopg", "psycopg2", "asyncpg", "sqlalchemy", "pg8000", "aiopg", "pymysql", "oracledb"}
+)
+
+
+def _imported_root_modules(source: str) -> set[str]:
+    """Root module of every real import, parsed via AST (not substrings/strings/comments).
+
+    ``import a.b`` / ``import a.b as c`` → ``a``; ``from a.b import c`` → ``a``. Relative
+    imports (``from . import x``) are internal and yield nothing.
+    """
+    roots: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                roots.add(alias.name.split(".", 1)[0])
+        elif isinstance(node, ast.ImportFrom):
+            if not node.level and node.module:  # level 0 = absolute
+                roots.add(node.module.split(".", 1)[0])
+    return roots
+
+
 class SqlDisciplineTests(unittest.TestCase):
     _IMMUTABLE = (
         "sg8_resolution_snapshots",
@@ -423,10 +449,45 @@ class SqlDisciplineTests(unittest.TestCase):
             # every '%' belongs to a '%s' placeholder (no other formatting).
             self.assertEqual(sql.count("%"), sql.count("%s"), f"non-%s formatting in: {sql!r}")
 
-    def test_adapter_imports_no_database_driver(self) -> None:
-        source = inspect.getsource(pg)
-        for driver in ("psycopg", "asyncpg", "sqlalchemy", "pg8000"):
-            self.assertNotIn(f"import {driver}", source)
+    def test_adapter_imports_no_database_driver_via_ast(self) -> None:
+        # Positive: the real adapter imports no forbidden driver (AST, not substring).
+        roots = _imported_root_modules(inspect.getsource(pg))
+        self.assertTrue(
+            _FORBIDDEN_DRIVERS.isdisjoint(roots),
+            f"adapter imports a forbidden driver: {sorted(_FORBIDDEN_DRIVERS & roots)}",
+        )
+
+    def test_ast_guard_detects_every_driver_import_form(self) -> None:
+        # Negative: each import form for a forbidden driver is detected by the AST guard.
+        for sample in (
+            "import psycopg",
+            "import psycopg as db",
+            "from psycopg import connect",
+            "import psycopg.extras",
+            "from psycopg.rows import dict_row",
+            "import psycopg2",
+            "from psycopg2 import connect",
+            "import asyncpg",
+            "from sqlalchemy import create_engine",
+            "import pg8000.native",
+        ):
+            roots = _imported_root_modules(sample)
+            self.assertFalse(
+                _FORBIDDEN_DRIVERS.isdisjoint(roots), f"AST guard missed: {sample!r}"
+            )
+
+    def test_ast_guard_ignores_driver_names_in_strings_and_comments(self) -> None:
+        # Proves the guard parses REAL imports, not substrings: a driver named only in a
+        # comment or a string literal is NOT flagged.
+        benign = (
+            "# import psycopg (mentioned in a comment only)\n"
+            "DOC = 'we deliberately do not import psycopg here'\n"
+            "import json\n"
+            "from . import sibling\n"
+        )
+        roots = _imported_root_modules(benign)
+        self.assertTrue(_FORBIDDEN_DRIVERS.isdisjoint(roots))
+        self.assertEqual(roots, {"json"})
 
 
 # ---------------------------------------------------------------------------
@@ -478,6 +539,206 @@ class ReadTests(unittest.TestCase):
         conn = _RecConn(rows_by_call={1: [("rep-1", "digest-1"), ("rep-2", "digest-2")]})
         evidence = PostgresSg8Store(conn).read_round_evidence("re-1")
         self.assertEqual(dict(evidence), {"rep-1": "digest-1", "rep-2": "digest-2"})
+
+
+# ---------------------------------------------------------------------------
+# Gate 1 — cryptographic prompt hash: structural format (adapter) + canonical derivation.
+# ---------------------------------------------------------------------------
+class PromptHashContractTests(unittest.TestCase):
+    def _round1(self, conn, prompt_hash):
+        PostgresSg8Store(conn).append_round(
+            round_execution_id="re-1",
+            sg8_session_id="sess-1",
+            round_number=1,
+            source_collection_run_id="src-1",
+            resolution_snapshot_id="snap-1",
+            provenance=Sg8RoundProvenance(
+                provider="anthropic",
+                model="claude-opus-4-8",
+                model_version="2026-01",
+                prompt_hash=prompt_hash,
+                adapter_version="adapter-v1",
+            ),
+        )
+
+    def test_round1_rejects_invalid_prompt_hash_formats_before_sql(self) -> None:
+        bad_values = (
+            "sg8-prompt-v1",                    # a version token (the exact bug class)
+            "e3b0c442",                          # too short
+            _PROMPT_HASH[:-1],                   # 63 chars
+            _PROMPT_HASH + "a",                  # 65 chars
+            _PROMPT_HASH.upper(),                # uppercase (must be lowercase)
+            "g" * 64,                            # non-hex chars, right length
+            "",                                  # blank
+        )
+        for bad in bad_values:
+            conn = _RecConn()
+            with self.assertRaises(Sg8ContractViolation, msg=f"accepted: {bad!r}"):
+                self._round1(conn, bad)
+            self.assertEqual(conn.executed, [], f"SQL issued for bad hash {bad!r}")
+
+    def test_round1_accepts_canonical_sha256_and_persists_at_hash_column(self) -> None:
+        conn = _RecConn()
+        self._round1(conn, _PROMPT_HASH)
+        self.assertEqual(conn.executed[0][1][8], _PROMPT_HASH)  # index 8 = llm_prompt_hash
+        self.assertEqual(conn.commits, 1)
+
+    def test_canonical_prompt_sha256_matches_hashlib_over_exact_bytes(self) -> None:
+        prompt = b"chicago drill type beat :: exact prompt bytes"
+        digest = canonical_prompt_sha256(prompt)
+        self.assertEqual(digest, hashlib.sha256(prompt).hexdigest())
+        self.assertRegex(digest, r"^[0-9a-f]{64}$")
+
+    def test_canonical_prompt_sha256_is_deterministic_and_drift_sensitive(self) -> None:
+        prompt = b"the exact bytes sent to the provider"
+        self.assertEqual(canonical_prompt_sha256(prompt), canonical_prompt_sha256(prompt))
+        # a single-byte change flips the digest
+        self.assertNotEqual(
+            canonical_prompt_sha256(prompt), canonical_prompt_sha256(prompt + b"!")
+        )
+        self.assertNotEqual(
+            canonical_prompt_sha256(b"prompt A"), canonical_prompt_sha256(b"prompt B")
+        )
+
+    def test_canonical_prompt_sha256_requires_bytes(self) -> None:
+        # Refuses str/None so the encoding decision is explicit upstream (never implicit).
+        for bad in ("a str prompt", None, 123, {"prompt": "x"}):
+            with self.assertRaises(Sg8ContractViolation):
+                canonical_prompt_sha256(bad)  # type: ignore[arg-type]
+
+    def test_store_validates_but_never_derives_the_prompt_hash(self) -> None:
+        # The store owns FORMAT validation, never derivation: its source must not hash.
+        store_src = inspect.getsource(pg.PostgresSg8Store)
+        self.assertNotIn("hashlib", store_src)
+        self.assertNotIn("canonical_prompt_sha256", store_src)
+
+
+# ---------------------------------------------------------------------------
+# Gate 2 — symmetric per-round provenance, enforced fail-closed before any SQL.
+# ---------------------------------------------------------------------------
+class ProvenanceByRoundTests(unittest.TestCase):
+    def _append(self, conn, *, round_number, provenance):
+        PostgresSg8Store(conn).append_round(
+            round_execution_id="re-1",
+            sg8_session_id="sess-1",
+            round_number=round_number,
+            source_collection_run_id="src-1",
+            resolution_snapshot_id="snap-1",
+            provenance=provenance,
+        )
+
+    def test_round1_without_provenance_is_rejected_before_sql(self) -> None:
+        conn = _RecConn()
+        with self.assertRaises(Sg8ContractViolation):
+            self._append(conn, round_number=1, provenance=None)
+        self.assertEqual(conn.executed, [])
+
+    def test_round2_with_provenance_is_rejected_before_sql(self) -> None:
+        conn = _RecConn()
+        with self.assertRaises(Sg8ContractViolation):
+            self._append(conn, round_number=2, provenance=_PROVENANCE)
+        self.assertEqual(conn.executed, [])
+
+    def test_round1_rejects_each_blank_core_field_before_sql(self) -> None:
+        base = dict(
+            provider="anthropic",
+            model="claude-opus-4-8",
+            model_version="2026-01",
+            prompt_hash=_PROMPT_HASH,
+            adapter_version="adapter-v1",
+        )
+        for field_name in ("provider", "model", "model_version", "adapter_version"):
+            conn = _RecConn()
+            bad = dict(base, **{field_name: "   "})
+            with self.assertRaises(Sg8ContractViolation, msg=field_name):
+                self._append(conn, round_number=1, provenance=Sg8RoundProvenance(**bad))
+            self.assertEqual(conn.executed, [], field_name)
+
+    def test_round1_rejects_non_mapping_params_before_sql(self) -> None:
+        conn = _RecConn()
+        prov = Sg8RoundProvenance(
+            provider="anthropic",
+            model="claude-opus-4-8",
+            model_version="2026-01",
+            prompt_hash=_PROMPT_HASH,
+            adapter_version="adapter-v1",
+            params=[("temperature", 0)],  # not a mapping
+        )
+        with self.assertRaises(Sg8ContractViolation):
+            self._append(conn, round_number=1, provenance=prov)
+        self.assertEqual(conn.executed, [])
+
+    def test_round1_complete_and_round2_zero_llm_are_accepted(self) -> None:
+        # Positive both sides of the symmetric contract.
+        c1 = _RecConn()
+        self._append(c1, round_number=1, provenance=_PROVENANCE)
+        self.assertEqual(c1.commits, 1)
+        c2 = _RecConn()
+        self._append(c2, round_number=2, provenance=None)
+        self.assertEqual(c2.executed[0][1][5:], (None, None, None, None, None, None))
+        self.assertEqual(c2.commits, 1)
+
+
+# ---------------------------------------------------------------------------
+# Gate 3 — read transaction ownership (exclusive-owner model; reusable connection).
+# ---------------------------------------------------------------------------
+class ReadTransactionOwnershipTests(unittest.TestCase):
+    def test_successful_read_terminates_txn_and_leaves_connection_reusable(self) -> None:
+        rows = {
+            1: [("r1_computed", "src-1", "rep-1", "rep-2", None)],
+            2: [("r1_computed", "src-1", "rep-1", "rep-2", None)],
+        }
+        conn = _RecConn(rows_by_call=rows)
+        store = PostgresSg8Store(conn)
+        self.assertIsNotNone(store.read_session_state("sess-1"))
+        # read-only txn terminated (rollback), nothing committed
+        self.assertEqual((conn.commits, conn.rollbacks), (0, 1))
+        # connection reusable: a second read succeeds
+        self.assertIsNotNone(store.read_session_state("sess-1"))
+        self.assertEqual((conn.commits, conn.rollbacks), (0, 2))
+
+    def test_failed_read_leaves_connection_reusable_and_preserves_cause(self) -> None:
+        original = _FakeDbError("08006", "connection reset")
+        # error only on call 1; call 2 returns a row → proves reusability after an error
+        conn = _RecConn(
+            error=original,
+            error_on_call=1,
+            rows_by_call={2: [("snap-1", "src-1", "entity-resolver-v1", "rhash", 7, "chash")]},
+        )
+        store = PostgresSg8Store(conn)
+        with self.assertRaises(Sg8PersistenceError) as ctx:
+            store.read_snapshot_state("sess-1")
+        self.assertIs(ctx.exception.__cause__, original)  # original cause preserved
+        self.assertEqual(conn.rollbacks, 1)  # errored read terminated the txn
+        # connection reusable after the error
+        self.assertIsNotNone(store.read_snapshot_state("sess-1"))
+
+    def test_reads_never_commit_and_do_not_revert_committed_work(self) -> None:
+        # A committed write must not be undone by a later read (reads only ever rollback
+        # their own read-only txn and never commit).
+        conn = _RecConn(rows_by_call={2: [("r1_resolved", "src-1", None, None, None)]})
+        store = PostgresSg8Store(conn)
+        store.mark_resolved("sess-1")            # write → commit (call 1)
+        self.assertEqual(conn.commits, 1)
+        store.read_session_state("sess-1")       # read → rollback (call 2)
+        self.assertEqual(conn.commits, 1)        # prior commit stands; read did not commit
+        heads = [sql.split(None, 1)[0].lower() for sql, _ in conn.executed]
+        self.assertEqual(heads, ["update", "select"])  # read issued no data mutation
+
+    def test_read_session_state_rejects_invalid_shape(self) -> None:
+        conn = _RecConn(rows_by_call={1: [("only", "four", "cols", "here")]})  # want 5
+        with self.assertRaises(Sg8PersistenceError):
+            PostgresSg8Store(conn).read_session_state("sess-1")
+
+    def test_read_snapshot_state_rejects_invalid_shape(self) -> None:
+        conn = _RecConn(rows_by_call={1: [("snap-1", "src-1", "v", "h", 1)]})  # want 6
+        with self.assertRaises(Sg8PersistenceError):
+            PostgresSg8Store(conn).read_snapshot_state("sess-1")
+
+    def test_read_round_evidence_rejects_invalid_shape(self) -> None:
+        conn = _RecConn(rows_by_call={1: [("rep-1", "digest-1", "extra")]})  # want 2
+        with self.assertRaises(Sg8PersistenceError):
+            PostgresSg8Store(conn).read_round_evidence("re-1")
 
 
 if __name__ == "__main__":
