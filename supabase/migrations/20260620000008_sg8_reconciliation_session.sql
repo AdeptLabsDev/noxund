@@ -229,24 +229,41 @@ create table public.sg8_round_executions (
   constraint sg8_round_executions_snapshot_session_fk
     foreign key (resolution_snapshot_id, sg8_session_id)
     references public.sg8_resolution_snapshots (id, sg8_session_id) on delete restrict,
-  -- Round 2 é ZERO-LLM: nenhum campo de proveniência LLM presente (null-safe via num_nonnulls).
-  constraint sg8_round_executions_round2_zero_llm_chk
+  -- §5.3 PROVENIÊNCIA POR RODADA — contrato EXPLÍCITO e SIMÉTRICO, campo a campo (U2A Gate 2).
+  --   Substitui os antigos round2_zero_llm_chk + llm_provenance_complete_chk, que dependiam de
+  --   num_nonnulls(...) in (0,5): uma CONTAGEM que ocultava a semântica (não dizia QUAIS campos).
+  --   As 6 colunas de proveniência são: llm_provider, llm_model, llm_model_version,
+  --   llm_prompt_hash, llm_params_json, llm_adapter_version. Os 5 campos-núcleo de IDENTIDADE
+  --   (todos exceto llm_params_json) são obrigatórios na Round 1; llm_params_json é contexto
+  --   OPCIONAL (§5.3). round_number já ∈ {1,2} (round_chk); o ramo else é defensivo (fail-closed).
+  --     Round 1 → os 5 campos-núcleo NÃO-NULOS e NÃO-BRANCOS (params livre: NULL ou objeto);
+  --     Round 2 → TODOS os 6 campos llm_* NULOS (zero-LLM), sem exceção.
+  constraint sg8_round_executions_provenance_by_round_chk
     check (
-      round_number = 1
-      or num_nonnulls(llm_provider, llm_model, llm_model_version,
-                      llm_prompt_hash, llm_params_json, llm_adapter_version) = 0
+      case
+        when round_number = 1 then
+              llm_provider        is not null and btrim(llm_provider)        <> ''
+          and llm_model           is not null and btrim(llm_model)           <> ''
+          and llm_model_version   is not null and btrim(llm_model_version)   <> ''
+          and llm_prompt_hash     is not null and btrim(llm_prompt_hash)     <> ''
+          and llm_adapter_version is not null and btrim(llm_adapter_version) <> ''
+        when round_number = 2 then
+              llm_provider        is null
+          and llm_model           is null
+          and llm_model_version   is null
+          and llm_prompt_hash     is null
+          and llm_params_json     is null
+          and llm_adapter_version is null
+        else false
+      end
     ),
-  -- §5.3: proveniência LLM é ALL-OR-NOTHING e não-branca — ou 0 campos-núcleo, ou os 5
-  -- completos (params é opcional). NOT NULL não bastaria; num_nonnulls torna o CHECK definido.
-  constraint sg8_round_executions_llm_provenance_complete_chk
-    check (
-      num_nonnulls(llm_provider, llm_model, llm_model_version, llm_prompt_hash, llm_adapter_version) in (0, 5)
-      and (llm_provider      is null or btrim(llm_provider)        <> '')
-      and (llm_model         is null or btrim(llm_model)           <> '')
-      and (llm_model_version is null or btrim(llm_model_version)   <> '')
-      and (llm_prompt_hash   is null or btrim(llm_prompt_hash)     <> '')
-      and (llm_adapter_version is null or btrim(llm_adapter_version) <> '')
-    )
+  -- §5.3 FORMATO DO HASH DO PROMPT (U2A Gate 1 · backstop de defesa-em-profundidade): quando
+  --   presente (Round 1), llm_prompt_hash DEVE ser um SHA-256 em hex minúsculo de 64 chars —
+  --   NUNCA um token de versão, nome de template, id, metadado ou substituto. A DERIVAÇÃO (hash
+  --   dos bytes exatos do prompt) é do upstream que possui os bytes; o adapter valida o formato
+  --   antes do 1º SQL; o banco é a ÚLTIMA linha de defesa. Round 2: llm_prompt_hash NULO (ok).
+  constraint sg8_round_executions_prompt_hash_format_chk
+    check (llm_prompt_hash is null or llm_prompt_hash ~ '^[0-9a-f]{64}$')
 );
 
 create index sg8_round_executions_session_idx  on public.sg8_round_executions (sg8_session_id);

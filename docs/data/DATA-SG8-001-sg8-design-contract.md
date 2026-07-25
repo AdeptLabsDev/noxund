@@ -140,12 +140,19 @@ Fiel a `entity_resolution.resolve` (`entity-resolver-v1`, `DATA-AUDIT-001` §2 N
 - **Zero chamadas à LLM.** O adaptador da Round 2 é um adaptador **proibido**: qualquer tentativa de chamada **levanta e falha a sessão** (FAIL), em vez de silenciosamente resolver. Defesa em profundidade: mesmo um bug lógico que alcançasse o ramo da LLM falha fechado, nunca produz número.
 
 ### §5.3 Proveniência obrigatória da LLM (Round 1)
-Para **cada** invocação de LLM em Round 1, persistir com o snapshot (auditável; **excluído** do digest, §3.2):
-- **provider** e **modelo** (ex.: família + id exato do modelo);
-- **versão / identidade do modelo** (snapshot/version pin);
-- **`prompt_version` / hash do prompt** (o `prompt_version` já carregado pelo resolver);
-- **parâmetros relevantes** (ex.: temperature, top_p, max_tokens, seed/determinismo se aplicável, stop);
-- **identidade do adaptador** (qual adaptador/rota executou a chamada).
+Para **cada** invocação de LLM em Round 1, persistir com o snapshot (auditável; **excluído** do digest, §3.2) as **6 colunas** de proveniência (`sg8_round_executions.llm_*`):
+- **`llm_provider`** e **`llm_model`** (família + id exato do modelo, nunca alias "latest");
+- **`llm_model_version`** (snapshot/version pin);
+- **`llm_prompt_hash`** — o **SHA-256 dos bytes exatos do prompt enviado ao provider**, em **hex minúsculo de 64 chars**. **NÃO** é o `prompt_version` (token de versão do resolver), nem nome de template, id, metadado ou substituto: **um token de versão jamais ocupa uma coluna de hash**. Distinção obrigatória (U2A Gate 1):
+  - **validação estrutural** — o valor É um SHA-256 bem-formado (formato); o *adapter* rejeita formato inválido **antes do 1º SQL** e o *schema* (`sg8_round_executions_prompt_hash_format_chk`) é o backstop;
+  - **derivação criptográfica** — o hash é calculado sobre os bytes exatos do prompt (serialização canônica: bytes enviados; `str` ⇒ UTF-8, sem BOM, sem normalização) pelo **componente que possui os bytes** (o runner upstream, `canonical_prompt_sha256`); mesma entrada ⇒ mesmo digest, qualquer byte alterado ⇒ digest diferente. Os testes de integração da U2 **recomputam** e comparam byte a byte com o persistido — "com cara de hash" **não** é prova.
+- **`llm_params_json`** — parâmetros relevantes (temperature, top_p, max_tokens, seed, stop). **Contexto opcional**: pode ser `NULL` ou objeto canônico em Round 1.
+- **`llm_adapter_version`** — identidade/versão do adaptador que executou a chamada.
+
+**Contrato por rodada EXPLÍCITO e SIMÉTRICO** (U2A Gate 2 · `sg8_round_executions_provenance_by_round_chk`, campo a campo — não `num_nonnulls`):
+- **Round 1** exige os **5 campos-núcleo de identidade** (`llm_provider`, `llm_model`, `llm_model_version`, `llm_prompt_hash`, `llm_adapter_version`) **não-nulos e não-brancos** (`llm_params_json` opcional);
+- **Round 2** exige **todas as 6 colunas `llm_*` NULAS** (zero-LLM); combinações parciais são proibidas em ambas.
+Enforcement em duas camadas fail-closed: o *adapter* recusa antes do 1º SQL (Round 1 sem proveniência; Round 2 com qualquer proveniência) e o *schema* é a autoridade final.
 
 Esta proveniência é **pré-condição de PASS**: um snapshot com invocação de LLM sem proveniência completa é inválido.
 

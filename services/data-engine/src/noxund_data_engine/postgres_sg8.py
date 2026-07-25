@@ -31,7 +31,9 @@ from the runner's provenance plus the real prompt hash.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol, Sequence
 
@@ -43,10 +45,18 @@ from .sg8_runner import Sg8State
 # Injected transaction-owning connection (no driver import; caller provides it).
 # ---------------------------------------------------------------------------
 class Sg8Connection(Protocol):
-    """A PEP-249-like connection that owns a transaction boundary.
+    """A PEP-249-like connection whose transaction boundary is owned EXCLUSIVELY by the
+    store for the store's lifetime.
 
     The adapter never constructs this; U2 injects a real driver connection (or, in
-    tests, a recording fake). The adapter drives ``commit`` / ``rollback`` explicitly.
+    tests, a recording fake) and hands over EXCLUSIVE ownership: while a
+    ``PostgresSg8Store`` holds it, the injector must not run its own statements or
+    transactions on it. Because ownership is exclusive, the store terminates every
+    transaction it opens — writes ``commit``/``rollback`` as a unit, and reads
+    ``rollback`` their read-only transaction — leaving the connection reusable without
+    ever discarding a caller's transactional work (there is none to discard). This is
+    the deliberate counterpart to ``postgres_entity_resolution``'s caller-owned model:
+    the SG-8 store needs atomic freeze/binding, so it owns the boundary.
     """
 
     def cursor(self) -> CursorLike: ...
@@ -188,10 +198,19 @@ class Sg8SnapshotState:
 @dataclass(frozen=True, slots=True)
 class Sg8RoundProvenance:
     """§5.3 LLM provenance of a Round-1 execution, with fields named EXACTLY as the
-    schema columns (no repurposing). ``prompt_hash`` MUST be a cryptographic hash of the
-    prompt — never a version token — and ``adapter_version`` the adapter's version. The
-    caller (U2) constructs this from the runner's ``LlmProvenance`` plus the real prompt
-    hash. None of these is persisted for Round 2 (zero-LLM)."""
+    schema columns (no repurposing).
+
+    ``prompt_hash`` MUST be the **cryptographic SHA-256** of the exact prompt bytes sent
+    to the provider — 64 lowercase hex chars — never a version token, template name, id,
+    metadata or any surrogate. The **derivation** (hashing the real prompt bytes) belongs
+    to the component that OWNS those bytes (the upstream runner, wired in U2 E2E); it may
+    use :func:`canonical_prompt_sha256` for the canonical serialization. The store only
+    **validates the format** (:func:`_require_sha256_hex`) before the first SQL and
+    persists the value. ``adapter_version`` is the adapter's own version.
+
+    The five identity fields (provider, model, model_version, prompt_hash,
+    adapter_version) are mandatory for Round 1; ``params`` is optional context. None of
+    these is persisted for Round 2 (zero-LLM)."""
 
     provider: str
     model: str
@@ -356,10 +375,15 @@ class PostgresSg8Store:
         _nonblank(resolution_snapshot_id, "resolution_snapshot_id")
         if round_number not in (1, 2):
             raise Sg8ContractViolation("round_number must be 1 or 2")
+        # SYMMETRIC per-round provenance contract, enforced fail-closed BEFORE any SQL
+        # (U2A Gates 1+2): Round 1 requires complete, non-blank identity provenance with a
+        # real SHA-256 prompt_hash; Round 2 must be zero-LLM (no provenance). The schema
+        # (0008) is the authoritative backstop for the SAME contract — this is not a second
+        # FSM, only the earliest fail-closed boundary.
+        _validate_round_provenance(round_number, provenance)
         # Round 2 reuses the SAME source_collection_run_id + resolution_snapshot_id (and,
         # via evidence, the same reports) as Round 1 — the caller passes them; the schema's
-        # composite FKs prove it. Zero-LLM for Round 2 and all-or-nothing provenance for
-        # Round 1 are enforced by the schema's CHECKs, not duplicated here.
+        # composite FKs prove it.
         prov = _provenance_columns(provenance)
         self._write(
             [
@@ -458,7 +482,9 @@ class PostgresSg8Store:
         try:
             cursor.execute(_READ_ROUND_EVIDENCE, (round_execution_id,))
             rows = cursor.fetchall()
+            self._end_read()  # terminate the read-only txn; connection left reusable
         except Exception as exc:  # noqa: BLE001 — mapped to a domain error below
+            self._safe_rollback()
             raise self._map_error(exc) from exc
         finally:
             cursor.close()
@@ -486,11 +512,20 @@ class PostgresSg8Store:
         cursor = self._connection.cursor()
         try:
             cursor.execute(sql, params)
-            return cursor.fetchone()
+            row = cursor.fetchone()
+            self._end_read()  # terminate the read-only txn; connection left reusable
+            return row
         except Exception as exc:  # noqa: BLE001
+            self._safe_rollback()
             raise self._map_error(exc) from exc
         finally:
             cursor.close()
+
+    def _end_read(self) -> None:
+        # A read mutates nothing; rolling back its (exclusively-owned) transaction ends it
+        # cleanly and leaves the connection reusable, discarding no data work. A failure to
+        # terminate means the connection is broken — surfaced (mapped) rather than hidden.
+        self._connection.rollback()
 
     def _safe_rollback(self) -> None:
         try:
@@ -521,9 +556,74 @@ class PostgresSg8Store:
 # ---------------------------------------------------------------------------
 # Helpers.
 # ---------------------------------------------------------------------------
+# A SHA-256 rendered as 64 lowercase hex chars — the ONLY accepted shape for a prompt hash.
+_SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
 def _nonblank(value: str, field: str) -> None:
     if not isinstance(value, str) or not value.strip():
         raise Sg8ContractViolation(f"{field} must be non-blank")
+
+
+def _require_sha256_hex(value: str, field: str) -> None:
+    # STRUCTURAL validation only: proves the value IS a well-formed SHA-256 digest, never
+    # that it is the RIGHT one. The derivation (hashing the real prompt bytes) is upstream's
+    # (see ``canonical_prompt_sha256``); U2 integration recomputes and compares.
+    if not isinstance(value, str) or _SHA256_HEX_RE.match(value) is None:
+        raise Sg8ContractViolation(
+            f"{field} must be a SHA-256 as 64 lowercase hex chars (never a version token)"
+        )
+
+
+def _validate_round_provenance(
+    round_number: int, provenance: Sg8RoundProvenance | None
+) -> None:
+    """Symmetric, fail-closed provenance contract enforced BEFORE any SQL (U2A Gates 1+2).
+
+    * Round 2 → ``provenance`` MUST be ``None`` (zero-LLM).
+    * Round 1 → ``provenance`` MUST be present with the five identity fields non-blank and
+      ``prompt_hash`` a real SHA-256 (64 lowercase hex). ``params`` is optional context but,
+      when given, must be a mapping.
+
+    This mirrors — never replaces — the schema's authoritative CHECKs
+    (``sg8_round_executions_provenance_by_round_chk`` / ``…_prompt_hash_format_chk``).
+    """
+    if round_number == 2:
+        if provenance is not None:
+            raise Sg8ContractViolation("Round 2 must be zero-LLM: no provenance permitted")
+        return
+    # round_number == 1
+    if provenance is None:
+        raise Sg8ContractViolation("Round 1 requires complete LLM provenance")
+    _nonblank(provenance.provider, "provenance.provider")
+    _nonblank(provenance.model, "provenance.model")
+    _nonblank(provenance.model_version, "provenance.model_version")
+    _nonblank(provenance.adapter_version, "provenance.adapter_version")
+    _require_sha256_hex(provenance.prompt_hash, "provenance.prompt_hash")
+    if not isinstance(provenance.params, Mapping):
+        raise Sg8ContractViolation("provenance.params must be a mapping")
+
+
+def canonical_prompt_sha256(prompt: bytes) -> str:
+    """Canonical §5.3 derivation of ``llm_prompt_hash`` for the OWNER of the prompt bytes.
+
+    The upstream component that holds the prompt (the runner, wired in U2 E2E) calls this
+    to populate ``Sg8RoundProvenance.prompt_hash``; ``PostgresSg8Store`` NEVER calls it —
+    the store only validates the resulting FORMAT and persists the value. U2 integration
+    tests recompute via this same function over the captured prompt and compare the digest
+    byte-for-byte with the persisted one.
+
+    Canonical serialization: the input is the EXACT bytes sent to the provider. A caller
+    holding a ``str`` MUST encode it as UTF-8 (no BOM, no normalization) itself — this
+    function refuses anything but ``bytes`` so the encoding decision is explicit at the call
+    site and never implicit here. The digest is ``sha256(prompt)`` as 64 lowercase hex chars;
+    identical bytes ⇒ identical digest, any byte change ⇒ a different digest.
+    """
+    if not isinstance(prompt, (bytes, bytearray)):
+        raise Sg8ContractViolation(
+            "prompt must be the exact raw bytes sent to the provider (encode str as UTF-8 upstream)"
+        )
+    return hashlib.sha256(bytes(prompt)).hexdigest()
 
 
 def _sqlstate(exc: BaseException) -> str | None:
