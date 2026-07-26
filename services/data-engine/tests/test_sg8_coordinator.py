@@ -32,6 +32,7 @@ from noxund_data_engine.scoring import DEFAULT_RUBRIC
 from noxund_data_engine.sg8_coordinator import (
     COMPUTE_ENGINE_NAME,
     COMPUTE_MANIFEST_FORMAT_VERSION,
+    SG8_COMPARISON_CONTRACT_VERSION,
     SequentialIdFactory,
     Sg8Coordinator,
     UuidIdFactory,
@@ -286,6 +287,42 @@ class ComputeManifestTests(unittest.TestCase):
         self.assertEqual(prov.manifest_hash, mh)
 
 
+class ComparisonContractSeparationTests(unittest.TestCase):
+    """The comparison contract (rules that JUDGE R1 vs R2) is SEPARATE from the compute
+    manifest (conditions that PRODUCE the result). It must never leak into the manifest."""
+
+    def test_comparison_contract_constant_is_versioned_and_provider_neutral(self) -> None:
+        self.assertEqual(SG8_COMPARISON_CONTRACT_VERSION, "sg8-pass-v1")
+        low = SG8_COMPARISON_CONTRACT_VERSION.lower()
+        for forbidden in ("llm", "gpt", "openai", "anthropic", "model", "provider", "prompt"):
+            self.assertNotIn(forbidden, low)
+
+    def test_comparison_contract_is_not_a_compute_manifest_determinant(self) -> None:
+        # The manifest builder takes NO comparison/contract parameter — the manifest dict keys ARE
+        # exactly its parameters, so the contract can never be one of the hashed determinants …
+        params = inspect.signature(canonical_compute_manifest).parameters
+        self.assertFalse(any(("comparison" in p or "contract" in p) for p in params), params)
+        # … and the pinned golden default manifest is unchanged by the contract's existence.
+        self.assertEqual(default_compute_manifest(), _DEFAULT_MANIFEST_GOLDEN)
+
+    def test_comparison_contract_value_does_not_appear_in_the_default_manifest_inputs(self) -> None:
+        # Feeding the contract string as any determinant would change the hash; prove the real
+        # default derivation does not include it (the value is not among the manifest inputs).
+        self.assertNotEqual(
+            default_compute_manifest(),
+            canonical_compute_manifest(
+                manifest_format_version=SG8_COMPARISON_CONTRACT_VERSION,  # wrong: contract as fmt
+                engine_name=COMPUTE_ENGINE_NAME, engine_version=PIPELINE_VERSION,
+                pipeline_version=PIPELINE_VERSION, resolver_version=RESOLVER_VERSION,
+                rule_version=CHANNEL_FILTER_DEFAULT_CONFIG.rule_version,
+                rule_hash=CHANNEL_FILTER_DEFAULT_CONFIG.rule_hash,
+                rubric_version=DEFAULT_RUBRIC.rubric_version, rubric_hash=DEFAULT_RUBRIC.rubric_hash,
+                opportunity_version=OPPORTUNITY_DEFAULT_CONFIG.opportunity_version,
+                opportunity_hash=OPPORTUNITY_DEFAULT_CONFIG.opportunity_hash,
+            ),
+        )
+
+
 class SnapshotMetadataTests(unittest.TestCase):
     def test_snapshot_metadata_is_deterministic(self) -> None:
         s = _session(with_ambiguous=True)
@@ -336,6 +373,14 @@ class CoordinatorMirrorTests(unittest.TestCase):
         # both rounds carry the SAME deterministic manifest (PASS gate equality by construction)
         self.assertEqual(rounds[0][2].manifest_hash, rounds[1][2].manifest_hash)
         self.assertIs(rounds[0][2], rounds[1][2])                 # the identical provenance object
+
+    def test_coordinator_exposes_the_canonical_comparison_contract(self) -> None:
+        store = _RecStore()
+        session = _session(with_ambiguous=False)
+        coord = Sg8Coordinator(session, store, SequentialIdFactory(namespace=9), source_collection_run_id="src-run-1")
+        # The coordinator's canonical open path is judged under the single versioned contract.
+        self.assertEqual(coord.comparison_contract_version, SG8_COMPARISON_CONTRACT_VERSION)
+        self.assertEqual(coord.comparison_contract_version, "sg8-pass-v1")
 
     def test_exactly_two_evidence_per_round(self) -> None:
         store = _RecStore()

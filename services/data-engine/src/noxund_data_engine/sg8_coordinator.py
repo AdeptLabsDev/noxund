@@ -44,7 +44,11 @@ from .channel_filter import DEFAULT_CONFIG as CHANNEL_FILTER_DEFAULT_CONFIG
 from .entity_resolution import RESOLVER_VERSION
 from .opportunity import DEFAULT_CONFIG as OPPORTUNITY_DEFAULT_CONFIG
 from .pipeline import PIPELINE_VERSION
-from .postgres_sg8 import Sg8ComputeProvenance, Sg8Store
+from .postgres_sg8 import (
+    SG8_COMPARISON_CONTRACT_VERSION,
+    Sg8ComputeProvenance,
+    Sg8Store,
+)
 from .scoring import DEFAULT_RUBRIC
 from .sg8_runner import (
     ReviewDecision,
@@ -62,6 +66,12 @@ COMPUTE_ENGINE_NAME = "noxund-pipeline"
 # Version of the manifest SCHEMA itself: the set/serialization of determinants below. Bump
 # it whenever a determinant is added/removed so the manifest hash necessarily changes.
 COMPUTE_MANIFEST_FORMAT_VERSION = "sg8-compute-manifest-v1"
+
+# SG8_COMPARISON_CONTRACT_VERSION is imported (and thus re-exported) from the adapter so the
+# coordinator's canonical open path and its callers share ONE source of truth for the
+# comparison-contract identity. It is DELIBERATELY absent from the compute manifest below:
+# compute_manifest_hash identifies the CONDITIONS that PRODUCE the result;
+# SG8_COMPARISON_CONTRACT_VERSION identifies the RULES that JUDGE Round 1 vs Round 2.
 
 
 # ---------------------------------------------------------------------------
@@ -286,8 +296,21 @@ class Sg8Coordinator:
         """The REAL evidence Round 2 produced (what was persisted for round_number = 2)."""
         return self._round2_evidence
 
+    @property
+    def comparison_contract_version(self) -> str:
+        """The comparison contract every session opened by this coordinator is judged under.
+
+        Provider-neutral, versioned identity of the R1-vs-R2 gate semantics — the single
+        canonical constant the store persists at :meth:`open_session`. It is NOT a compute
+        determinant: it never enters :func:`canonical_compute_manifest` / the manifest hash.
+        """
+        return SG8_COMPARISON_CONTRACT_VERSION
+
     # -- lifecycle mirror ------------------------------------------------------
     def open_session(self) -> None:
+        # The canonical open path: the store persists SG8_COMPARISON_CONTRACT_VERSION explicitly
+        # (no PG default, no caller-supplied value) — every session is born under the implemented
+        # gate contract, separate from the compute manifest.
         self._store.open_session(self._runner.sg8_session_id, self._src)
 
     def resolve_round1(self) -> Sg8State:

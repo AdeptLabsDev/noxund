@@ -107,9 +107,22 @@ class OpenSessionTests(unittest.TestCase):
     def test_open_session_inserts_minimal_and_commits(self) -> None:
         conn = _RecConn()
         PostgresSg8Store(conn).open_session("sess-1", "src-1")
-        self.assertEqual(conn.executed, [(pg._INSERT_SESSION, ("sess-1", "src-1"))])
+        # The comparison contract is supplied EXPLICITLY from the canonical constant (never a PG
+        # default, never caller-supplied) — one of exactly 3 INSERT params.
+        self.assertEqual(
+            conn.executed,
+            [(pg._INSERT_SESSION, ("sess-1", "src-1", pg.SG8_COMPARISON_CONTRACT_VERSION))],
+        )
+        self.assertEqual(pg.SG8_COMPARISON_CONTRACT_VERSION, "sg8-pass-v1")
         self.assertEqual((conn.commits, conn.rollbacks), (1, 0))
         self.assertEqual(conn.closed_cursors, 1)
+
+    def test_open_session_uses_canonical_constant_not_caller_value(self) -> None:
+        # open_session takes NO comparison-contract argument — callers cannot silently substitute
+        # an arbitrary value; the store always binds the single canonical constant.
+        import inspect
+        params = inspect.signature(PostgresSg8Store.open_session).parameters
+        self.assertEqual(list(params), ["self", "sg8_session_id", "source_collection_run_id"])
 
     def test_open_session_cannot_express_binding_or_terminal(self) -> None:
         sql = pg._INSERT_SESSION.lower()
@@ -521,7 +534,7 @@ class SqlDisciplineTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class ReadTests(unittest.TestCase):
     def test_read_session_state(self) -> None:
-        conn = _RecConn(rows_by_call={1: [("r1_computed", "src-1", "rep-1", "rep-2", None)]})
+        conn = _RecConn(rows_by_call={1: [("r1_computed", "src-1", "rep-1", "rep-2", None, "sg8-pass-v1")]})
         state = PostgresSg8Store(conn).read_session_state("sess-1")
         self.assertEqual(
             state,
@@ -531,8 +544,11 @@ class ReadTests(unittest.TestCase):
                 report_id_1="rep-1",
                 report_id_2="rep-2",
                 verdict_reason=None,
+                comparison_contract_version="sg8-pass-v1",
             ),
         )
+        # The persisted comparison contract is read back verbatim (independent of compute).
+        self.assertEqual(state.comparison_contract_version, "sg8-pass-v1")
         self.assertEqual(conn.executed[0], (pg._READ_SESSION, ("sess-1",)))
 
     def test_read_session_state_missing_returns_none(self) -> None:
@@ -675,8 +691,8 @@ class ComputeProvenanceTests(unittest.TestCase):
 class ReadTransactionOwnershipTests(unittest.TestCase):
     def test_successful_read_terminates_txn_and_leaves_connection_reusable(self) -> None:
         rows = {
-            1: [("r1_computed", "src-1", "rep-1", "rep-2", None)],
-            2: [("r1_computed", "src-1", "rep-1", "rep-2", None)],
+            1: [("r1_computed", "src-1", "rep-1", "rep-2", None, "sg8-pass-v1")],
+            2: [("r1_computed", "src-1", "rep-1", "rep-2", None, "sg8-pass-v1")],
         }
         conn = _RecConn(rows_by_call=rows)
         store = PostgresSg8Store(conn)
@@ -706,7 +722,7 @@ class ReadTransactionOwnershipTests(unittest.TestCase):
     def test_reads_never_commit_and_do_not_revert_committed_work(self) -> None:
         # A committed write must not be undone by a later read (reads only ever rollback
         # their own read-only txn and never commit).
-        conn = _RecConn(rows_by_call={2: [("r1_resolved", "src-1", None, None, None)]})
+        conn = _RecConn(rows_by_call={2: [("r1_resolved", "src-1", None, None, None, "sg8-pass-v1")]})
         store = PostgresSg8Store(conn)
         store.mark_resolved("sess-1")            # write → commit (call 1)
         self.assertEqual(conn.commits, 1)
@@ -716,7 +732,7 @@ class ReadTransactionOwnershipTests(unittest.TestCase):
         self.assertEqual(heads, ["update", "select"])  # read issued no data mutation
 
     def test_read_session_state_rejects_invalid_shape(self) -> None:
-        conn = _RecConn(rows_by_call={1: [("only", "four", "cols", "here")]})  # want 5
+        conn = _RecConn(rows_by_call={1: [("only", "four", "cols", "here", "five")]})  # want 6
         with self.assertRaises(Sg8PersistenceError):
             PostgresSg8Store(conn).read_session_state("sess-1")
 

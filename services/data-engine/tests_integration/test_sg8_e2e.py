@@ -158,7 +158,12 @@ class HappyPathTests(_E2EBase):
             self.assertEqual(session.external_resolver_call_count, 0)  # zero external calls, both rounds
 
             # terminal state
-            self.assertEqual(store.read_session_state(session_id).status, "passed")
+            final_state = store.read_session_state(session_id)
+            self.assertEqual(final_state.status, "passed")
+            # The session was opened under — and judged by — the canonical comparison contract,
+            # supplied explicitly by the adapter (no PG default) and read back verbatim. This is
+            # SEPARATE from the compute manifest: the passed verdict required BOTH.
+            self.assertEqual(final_state.comparison_contract_version, "sg8-pass-v1")
             r1, r2 = coord.round_execution_id(1), coord.round_execution_id(2)
             self.assertEqual(store.read_round_execution_id(session_id, 1), r1)
             self.assertEqual(store.read_round_execution_id(session_id, 2), r2)
@@ -372,6 +377,42 @@ class RealConstraintTests(_E2EBase):
                 (ids.new_id(), session_id, src, snap, "noxund-pipeline", "pipeline-wiring-2026_06_v1", "sg8-manifest-v1"),
                 _SQLSTATE_CHECK)
             self.assertEqual(store.read_session_state(session_id).status, "r1_computed")  # reusable
+        finally:
+            conn.close()
+
+    def test_db_enforces_comparison_contract_version(self) -> None:
+        # Direct SQL proves the SCHEMA enforces the COMPARISON contract independently of the
+        # adapter: unknown version rejected at insert; immutable after creation. Separate from
+        # compute — this is the identity of the gate that judges R1 vs R2.
+        conn = connect_local()
+        try:
+            ids = SequentialIdFactory(namespace=0x1A)
+            src, rep1, rep2, session_id = (ids.new_id() for _ in range(4))
+            _insert_fixtures(conn, src=src, rep1=rep1, rep2=rep2, rubric="sg8-vr-1a")
+            store = PostgresSg8Store(conn)
+            store.open_session(session_id, src)  # born under the canonical contract via the adapter
+
+            # unknown comparison_contract_version -> check_violation (only sg8-pass-v1 is accepted)
+            self._expect_sqlstate(
+                conn,
+                "insert into public.sg8_sessions (id, source_collection_run_id, comparison_contract_version) "
+                "values (%s, %s, %s)",
+                (ids.new_id(), src, "sg8-pass-v2"), _SQLSTATE_CHECK)
+            # blank comparison_contract_version -> check_violation
+            self._expect_sqlstate(
+                conn,
+                "insert into public.sg8_sessions (id, source_collection_run_id, comparison_contract_version) "
+                "values (%s, %s, %s)",
+                (ids.new_id(), src, "   "), _SQLSTATE_CHECK)
+            # mutating the contract after creation -> restrict_violation (immutable)
+            self._expect_sqlstate(
+                conn,
+                "update public.sg8_sessions set comparison_contract_version = %s where id = %s",
+                ("sg8-pass-v2", session_id), _SQLSTATE_RESTRICT)
+            # the persisted value is exactly the canonical contract; connection reusable
+            state = store.read_session_state(session_id)
+            self.assertEqual(state.comparison_contract_version, "sg8-pass-v1")
+            self.assertEqual(state.status, "session_open")
         finally:
             conn.close()
 

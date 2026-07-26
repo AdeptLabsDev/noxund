@@ -113,13 +113,24 @@ _SQLSTATE_CHECK = "23514"
 _SQLSTATE_RESTRICT = "23001"
 
 
+# The versioned identity of the COMPARISON contract — the semantics of the gate that judges
+# Round 1 vs Round 2 and authorises the terminal transition. It is NOT a compute determinant:
+# it never enters ``compute_manifest_hash``, produces no score/digest, and is not duplicated
+# across the rounds (it lives on the SESSION). The application supplies it EXPLICITLY on
+# ``open_session`` (never a Postgres default), and no caller can silently substitute an
+# arbitrary value: this constant is the single canonical source, and the schema pins the
+# column to exactly this string. A new gate semantics requires a NEW migration + a NEW
+# identifier (evolution policy); ``sg8-pass-v1`` is never reused for different logic.
+SG8_COMPARISON_CONTRACT_VERSION = "sg8-pass-v1"
+
+
 # ---------------------------------------------------------------------------
 # Parameterized SQL (static text; every id/state/hash/content is a %s parameter).
 # ---------------------------------------------------------------------------
 # WRITES ---------------------------------------------------------------------
 _INSERT_SESSION = """
-insert into public.sg8_sessions (id, source_collection_run_id)
-values (%s, %s)
+insert into public.sg8_sessions (id, source_collection_run_id, comparison_contract_version)
+values (%s, %s, %s)
 """.strip()
 
 _SET_STATUS = """
@@ -163,7 +174,8 @@ update public.sg8_sessions
 
 # READS (state needed for replay + comparison) -------------------------------
 _READ_SESSION = """
-select status, source_collection_run_id, report_id_1, report_id_2, verdict_reason
+select status, source_collection_run_id, report_id_1, report_id_2, verdict_reason,
+       comparison_contract_version
 from public.sg8_sessions where id = %s
 """.strip()
 
@@ -193,6 +205,9 @@ class Sg8SessionState:
     report_id_1: str | None
     report_id_2: str | None
     verdict_reason: str | None
+    # The COMPARISON contract the session is judged under (see SG8_COMPARISON_CONTRACT_VERSION):
+    # persisted at open_session, immutable, and independent of the compute manifest.
+    comparison_contract_version: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,10 +317,16 @@ class PostgresSg8Store:
     def open_session(self, sg8_session_id: str, source_collection_run_id: str) -> None:
         _nonblank(sg8_session_id, "sg8_session_id")
         _nonblank(source_collection_run_id, "source_collection_run_id")
-        # NOTE: the INSERT sets ONLY id + source_collection_run_id — status defaults to
-        # session_open and every other column to NULL. The adapter cannot express a
-        # session born bound or terminal; the INSERT-guard trigger is the authority.
-        self._write([(_INSERT_SESSION, (sg8_session_id, source_collection_run_id))])
+        # NOTE: the INSERT sets id + source_collection_run_id + comparison_contract_version —
+        # status defaults to session_open and every other column to NULL. The comparison
+        # contract is supplied EXPLICITLY from the canonical constant (never a PG default, and
+        # not caller-overridable), so every session is born under the implemented gate contract.
+        # The adapter cannot express a session born bound or terminal; the INSERT-guard trigger
+        # (and the column CHECK pinning 'sg8-pass-v1') are the authority.
+        self._write([(
+            _INSERT_SESSION,
+            (sg8_session_id, source_collection_run_id, SG8_COMPARISON_CONTRACT_VERSION),
+        )])
 
     def mark_awaiting_review(self, sg8_session_id: str) -> None:
         _nonblank(sg8_session_id, "sg8_session_id")
@@ -461,7 +482,7 @@ class PostgresSg8Store:
         row = self._read_one(_READ_SESSION, (sg8_session_id,))
         if row is None:
             return None
-        if len(row) != 5:
+        if len(row) != 6:
             raise Sg8PersistenceError("session query returned an invalid shape")
         return Sg8SessionState(
             status=str(row[0]),
@@ -469,6 +490,7 @@ class PostgresSg8Store:
             report_id_1=None if row[2] is None else str(row[2]),
             report_id_2=None if row[3] is None else str(row[3]),
             verdict_reason=None if row[4] is None else str(row[4]),
+            comparison_contract_version=str(row[5]),
         )
 
     def read_snapshot_state(self, sg8_session_id: str) -> Sg8SnapshotState | None:

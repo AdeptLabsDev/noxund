@@ -21,6 +21,23 @@ A decoupagem de LLM (itens 1–7) está mantida. A revisão read-only apontou qu
 
 O restante do documento (itens 3–6 abaixo) permanece como registro histórico do primeiro recorte; esta emenda é a forma vigente.
 
+### EMENDA — CONTRATO DE COMPARAÇÃO VERSIONADO (corretivo posterior · Product Lead, design-only, pré-apply)
+
+A revisão read-only aprovou a proveniência de compute, mas apontou que a **versão do contrato que avalia o PASS** não era registrada de forma persistente e inequívoca por sessão (só o histórico da migration). Decisão: **criar uma identidade explícita do contrato de comparação, SEPARADA do compute manifest**. Distinção canônica:
+
+- **`compute_manifest_hash`** = identidade das **CONDIÇÕES que PRODUZEM** o resultado (dados via snapshot + código/config versionados).
+- **`comparison_contract_version`** = identidade das **REGRAS que JULGAM** Round 1 vs Round 2 e autorizam a transição terminal.
+
+**Contrato:** `SG8_COMPARISON_CONTRACT_VERSION = "sg8-pass-v1"` (nome provider-neutral). **NÃO** é determinante de compute: **nunca** entra no `compute_manifest_hash`, não produz score/digest e **não é duplicado nas rodadas** (vive na SESSÃO).
+
+**Schema (`sg8_sessions`, emenda in-place da `0008`, pré-apply):** `comparison_contract_version text NOT NULL` — **sem default** (fornecido explicitamente no INSERT), **não-branco**, nesta migration **EXCLUSIVAMENTE `sg8-pass-v1`** (CHECK), **imutável** após a criação (trigger). O **gate de PASS** recusa avaliação quando o valor for ausente/desconhecido/diferente do contrato implementado (defesa-em-profundidade). **Sem** enum, **sem** tabela de versões, **sem** `comparison_contract_hash`: a associação canônica é o identificador imutável + a migration versionada + o histórico do repositório.
+
+**Adapter/coordinator:** constante versionada única (`postgres_sg8.SG8_COMPARISON_CONTRACT_VERSION`, re-exportada pelo coordinator); `PostgresSg8Store.open_session` a fornece explicitamente (nunca default do PG; callers não injetam valores arbitrários); `Sg8SessionState` carrega o valor persistido; o coordinator expõe `comparison_contract_version`.
+
+**Política de evolução (vinculante):** qualquer mudança semântica no gate de PASS exige **nova migration + novo identificador**; `sg8-pass-v1` **nunca** é reutilizado para lógica diferente; antes de uma futura troca para `sg8-pass-v2`, o apply deverá provar que **não existem sessões SG-8 não terminais**; sessões terminais históricas **preservam** a versão sob a qual foram avaliadas (nenhuma alteração retroativa); **sem** suporte simultâneo a múltiplas versões nesta unidade.
+
+**Contagens (recalculadas no head atual):** unit `271 → 276` (`sg8-postgres-adapter` 49→50; `sg8-coordinator` 23→27). E2E `6 → 7` (novo teste de enforcement do contrato). repro 21/21 ×2 e o golden digest do pipeline (`c8e33fe8…`) e o golden do manifesto (`57cb27f4…`) **inalterados** — o contrato de comparação é FORA do compute.
+
 ### Contexto
 A direção anterior modelava uma **proveniência de LLM obrigatória** na Round 1 do SG-8 (`sg8_round_executions.llm_provider/llm_model/llm_model_version/llm_prompt_hash/llm_params_json/llm_adapter_version` + CHECKs `provenance_by_round_chk`/`prompt_hash_format_chk`) e assumia um provider/modelo pinado (Q-3/Q-5). O Product Lead **revogou** essa direção: a NOXUND **não será dependente de LLM, modelo remoto ou qualquer provider externo**. O SG-8 **estágio 3** (schema `0008`) ainda **não foi aplicado remotamente** — há janela limpa para corrigir a semântica **na origem**, sem carregar dívida para produção.
 

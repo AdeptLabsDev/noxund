@@ -83,7 +83,7 @@ begin
   select string_agg(t.tbl || '.' || t.col, ', ') into missing from (values
     ('sg8_sessions','id'),('sg8_sessions','source_collection_run_id'),('sg8_sessions','report_id_1'),
     ('sg8_sessions','report_id_2'),('sg8_sessions','status'),('sg8_sessions','verdict_reason'),
-    ('sg8_sessions','created_at'),('sg8_sessions','terminal_at'),
+    ('sg8_sessions','created_at'),('sg8_sessions','terminal_at'),('sg8_sessions','comparison_contract_version'),
     ('sg8_resolution_snapshots','id'),('sg8_resolution_snapshots','sg8_session_id'),
     ('sg8_resolution_snapshots','source_collection_run_id'),('sg8_resolution_snapshots','resolver_version'),
     ('sg8_resolution_snapshots','resolver_hash'),('sg8_resolution_snapshots','fact_count'),
@@ -103,7 +103,9 @@ begin
 end $$;
 
 -- DEC-0025: AUSÊNCIA das 6 colunas LLM (sem ext_llm_*) + do adapter de persistência e params
--- livres (não são determinantes de computação; fora do contrato) -----------------
+-- livres (não são determinantes de computação; fora do contrato). E o CONTRATO DE COMPARAÇÃO
+-- vive SÓ na sessão: comparison_contract_version NÃO pode aparecer na tabela de rodadas/compute
+-- (não é determinante do resultado nem é duplicado por rodada) --------------------
 do $$
 declare leftover text;
 begin
@@ -111,7 +113,8 @@ begin
    where table_schema = 'public' and table_name = 'sg8_round_executions'
      and (column_name in ('llm_provider','llm_model','llm_model_version','llm_prompt_hash',
                           'llm_params_json','llm_adapter_version',
-                          'compute_adapter_version','compute_params_json')
+                          'compute_adapter_version','compute_params_json',
+                          'comparison_contract_version')
           or column_name like 'llm\_%' or column_name like 'ext\_llm\_%');
   if leftover is not null then
     raise exception 'DEC-0025/no-llm: residual LLM/non-computational column(s) on sg8_round_executions: %', leftover;
@@ -124,7 +127,7 @@ declare bad text;
 begin
   select string_agg(table_name || '.' || column_name, ', ') into bad from information_schema.columns
    where table_schema = 'public'
-     and ( (table_name = 'sg8_sessions' and column_name in ('id','source_collection_run_id','status','created_at'))
+     and ( (table_name = 'sg8_sessions' and column_name in ('id','source_collection_run_id','status','created_at','comparison_contract_version'))
         or (table_name = 'sg8_resolution_snapshots' and column_name in ('id','sg8_session_id','source_collection_run_id','resolver_version','resolver_hash','fact_count','content_hash','frozen_at'))
         or (table_name = 'sg8_round_executions' and column_name in ('id','sg8_session_id','round_number','source_collection_run_id','resolution_snapshot_id','compute_engine_name','compute_engine_version','compute_manifest_hash','created_at'))
         or (table_name = 'sg8_round_report_evidence' and column_name in ('id','round_execution_id','sg8_session_id','report_id','canonical_digest','created_at')) )
@@ -321,35 +324,126 @@ begin;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R1', 'sg8-vr', 'h') returning id into v_rep1;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R2', 'sg8-vr', 'h') returning id into v_rep2;
 
-    -- (1a) nascer em estado != session_open → rejeitado (INSERT guard)
+    -- (1a) nascer em estado != session_open → rejeitado (INSERT guard). Contrato válido: o motivo
+    --       da rejeição é SÓ o status (o INSERT-guard dispara antes do NOT NULL do contrato).
     begin
-      insert into public.sg8_sessions (source_collection_run_id, status) values (v_src, 'r1_resolved');
+      insert into public.sg8_sessions (source_collection_run_id, status, comparison_contract_version)
+        values (v_src, 'r1_resolved', 'sg8-pass-v1');
       raise exception 'ITEM1: born in non-session_open ACCEPTED';
     exception when restrict_violation then null; end;
 
     -- (1b) nascer terminal → rejeitado (INSERT guard; antes mesmo do terminal_state_chk)
     begin
-      insert into public.sg8_sessions (source_collection_run_id, status, terminal_at, verdict_reason)
-        values (v_src, 'failed', now(), 'x');
+      insert into public.sg8_sessions (source_collection_run_id, status, terminal_at, verdict_reason, comparison_contract_version)
+        values (v_src, 'failed', now(), 'x', 'sg8-pass-v1');
       raise exception 'ITEM1: born terminal ACCEPTED';
     exception when restrict_violation then null; end;
 
     -- (1c) nascer vinculada → rejeitado (INSERT guard)
     begin
-      insert into public.sg8_sessions (source_collection_run_id, report_id_1, report_id_2)
-        values (v_src, v_rep1, v_rep2);
+      insert into public.sg8_sessions (source_collection_run_id, report_id_1, report_id_2, comparison_contract_version)
+        values (v_src, v_rep1, v_rep2, 'sg8-pass-v1');
       raise exception 'ITEM1: born bound ACCEPTED';
     exception when restrict_violation then null; end;
 
     -- (1d) nascer com verdict_reason → rejeitado (INSERT guard)
     begin
-      insert into public.sg8_sessions (source_collection_run_id, verdict_reason) values (v_src, 'premature');
+      insert into public.sg8_sessions (source_collection_run_id, verdict_reason, comparison_contract_version)
+        values (v_src, 'premature', 'sg8-pass-v1');
       raise exception 'ITEM1: born with verdict_reason ACCEPTED';
     exception when restrict_violation then null; end;
 
-    -- (1e) nascimento limpo → aceito, status session_open
-    insert into public.sg8_sessions (source_collection_run_id) values (v_src) returning id, status into v_sess, v_st;
+    -- (1e) nascimento limpo (contrato explícito) → aceito, status session_open
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version)
+      values (v_src, 'sg8-pass-v1') returning id, status into v_sess, v_st;
     if v_st <> 'session_open' then raise exception 'ITEM1: default status must be session_open, got %', v_st; end if;
+  end $$;
+rollback;
+
+-- ----------------------------------------------------------------------------
+-- ITEM 1B — CONTRATO DE COMPARAÇÃO (sg8_sessions.comparison_contract_version): identidade da
+-- SEMÂNTICA do gate que julga R1 vs R2. Fornecido EXPLICITAMENTE (sem default do PG), não-branco,
+-- EXCLUSIVAMENTE 'sg8-pass-v1' nesta migration, IMUTÁVEL após a criação; o gate de PASS recusa
+-- avaliação sob versão ausente/desconhecida/diferente (defesa-em-profundidade). SEPARADO da
+-- computação — NUNCA entra no compute_manifest_hash (ver ITEM 3/§compute).
+-- ----------------------------------------------------------------------------
+begin;
+  do $$
+  declare v_src uuid; v_sess uuid; v_ver text;
+  begin
+    insert into public.report_runs (window_start, window_end) values (now() - interval '30 days', now()) returning id into v_src;
+
+    -- (1B-a) nascimento válido grava EXATAMENTE 'sg8-pass-v1'
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version)
+      values (v_src, 'sg8-pass-v1') returning id into v_sess;
+    select comparison_contract_version into v_ver from public.sg8_sessions where id = v_sess;
+    if v_ver <> 'sg8-pass-v1' then raise exception 'ITEM1B-a: nascimento não gravou sg8-pass-v1 (got %)', v_ver; end if;
+
+    -- (1B-b) SEM contrato (coluna omitida) → not_null_violation (nenhum default do PG)
+    begin
+      insert into public.sg8_sessions (source_collection_run_id) values (v_src);
+      raise exception 'ITEM1B-b: session sem comparison_contract_version ACCEPTED';
+    exception when not_null_violation then null; end;
+
+    -- (1B-c) contrato VAZIO/branco → check_violation
+    begin
+      insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version) values (v_src, '   ');
+      raise exception 'ITEM1B-c: comparison_contract_version em branco ACCEPTED';
+    exception when check_violation then null; end;
+
+    -- (1B-d) contrato DESCONHECIDO → check_violation (nesta migration só sg8-pass-v1)
+    begin
+      insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version) values (v_src, 'sg8-pass-v2');
+      raise exception 'ITEM1B-d: comparison_contract_version desconhecido ACCEPTED';
+    exception when check_violation then null; end;
+
+    -- (1B-e) ALTERAR o contrato após a criação → restrict_violation (imutável). O trigger BEFORE
+    --        UPDATE dispara ANTES do CHECK de coluna ⇒ o motivo é a imutabilidade, não o valor.
+    begin
+      update public.sg8_sessions set comparison_contract_version = 'sg8-pass-v2' where id = v_sess;
+      raise exception 'ITEM1B-e: mutação de comparison_contract_version ACCEPTED';
+    exception when restrict_violation then null; end;
+  end $$;
+rollback;
+
+-- (1B-f) GATE recusa contrato incompatível MESMO com reports+digests equivalentes. Para alcançar
+-- o gate com uma versão incompatível, o CHECK de coluna é derrubado SÓ dentro desta transação
+-- (revertido no rollback); prova a defesa-em-profundidade do trigger (independente do CHECK).
+begin;
+  alter table public.sg8_sessions drop constraint sg8_sessions_comparison_contract_v1_chk;
+  do $$
+  declare v_src uuid; v_rep1 uuid; v_rep2 uuid; v_sess uuid; v_snap uuid; v_round1 uuid; v_round2 uuid;
+          c_mh constant text := 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+  begin
+    insert into public.rubric_versions (version, config_json, hash) values ('sg8-vr', '{}'::jsonb, 'h');
+    insert into public.report_runs (window_start, window_end) values (now() - interval '30 days', now()) returning id into v_src;
+    insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R1', 'sg8-vr', 'h') returning id into v_rep1;
+    insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R2', 'sg8-vr', 'h') returning id into v_rep2;
+    -- sessão nasce sob um contrato que o gate NÃO implementa (só possível com o CHECK derrubado).
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version)
+      values (v_src, 'sg8-pass-v2') returning id into v_sess;
+    update public.sg8_sessions set status = 'r1_awaiting_review'  where id = v_sess;
+    update public.sg8_sessions set status = 'r1_resolved'         where id = v_sess;
+    update public.sg8_sessions set status = 'r1_snapshot_frozen'  where id = v_sess;
+    insert into public.sg8_resolution_snapshots (sg8_session_id, source_collection_run_id, resolver_version, resolver_hash, fact_count, content_hash)
+      values (v_sess, v_src, 'entity-resolver-v1', 'rhash', 500, 'chash') returning id into v_snap;
+    update public.sg8_sessions set report_id_1 = v_rep1, report_id_2 = v_rep2, status = 'r1_computed' where id = v_sess;
+    -- R1/R2 COMPLETAMENTE equivalentes: mesmo dataset/snapshot, mesma identidade de compute, mesmos digests.
+    insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
+        compute_engine_name, compute_engine_version, compute_manifest_hash)
+      values (v_sess, 1, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh) returning id into v_round1;
+    insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
+        compute_engine_name, compute_engine_version, compute_manifest_hash)
+      values (v_sess, 2, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh) returning id into v_round2;
+    insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round1, v_sess, v_rep1, 'DIG-A');
+    insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round1, v_sess, v_rep2, 'DIG-B');
+    insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round2, v_sess, v_rep1, 'DIG-A');
+    insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round2, v_sess, v_rep2, 'DIG-B');
+    -- Tudo idêntico R1==R2, MAS o contrato é incompatível ⇒ o gate RECUSA a avaliação.
+    begin
+      update public.sg8_sessions set status = 'passed', terminal_at = now(), verdict_reason = 'contract drift' where id = v_sess;
+      raise exception 'ITEM1B-f: passed sob comparison_contract_version incompatível ACCEPTED';
+    exception when restrict_violation then null; end;
   end $$;
 rollback;
 
@@ -362,7 +456,7 @@ begin;
   declare v_src uuid; v_sess uuid;
   begin
     insert into public.report_runs (window_start, window_end) values (now() - interval '30 days', now()) returning id into v_src;
-    insert into public.sg8_sessions (source_collection_run_id) values (v_src) returning id into v_sess;
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version) values (v_src, 'sg8-pass-v1') returning id into v_sess;
 
     -- (2a) salto session_open → r1_resolved (pula r1_awaiting_review) → rejeitado
     begin
@@ -407,7 +501,7 @@ begin;
   declare v_src uuid; v_sess uuid;
   begin
     insert into public.report_runs (window_start, window_end) values (now() - interval '30 days', now()) returning id into v_src;
-    insert into public.sg8_sessions (source_collection_run_id) values (v_src) returning id into v_sess;
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version) values (v_src, 'sg8-pass-v1') returning id into v_sess;
 
     -- (3a) failed sem terminal_at nem razão → rejeitado (terminal_state_chk)
     begin
@@ -447,7 +541,7 @@ begin;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R2', 'sg8-vr', 'h') returning id into v_rep2;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R3', 'sg8-vr', 'h') returning id into v_rep3;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src2, 'ROTHER', 'sg8-vr', 'h') returning id into v_rep_other;
-    insert into public.sg8_sessions (source_collection_run_id) values (v_src) returning id into v_sess;
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version) values (v_src, 'sg8-pass-v1') returning id into v_sess;
     -- walk to r1_snapshot_frozen (transições válidas)
     update public.sg8_sessions set status = 'r1_awaiting_review'  where id = v_sess;
     update public.sg8_sessions set status = 'r1_resolved'         where id = v_sess;
@@ -502,7 +596,7 @@ begin;
   declare v_src uuid; v_sess uuid;
   begin
     insert into public.report_runs (window_start, window_end) values (now() - interval '30 days', now()) returning id into v_src;
-    insert into public.sg8_sessions (source_collection_run_id) values (v_src) returning id into v_sess;
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version) values (v_src, 'sg8-pass-v1') returning id into v_sess;
     -- early-fail direto de session_open → aceito
     update public.sg8_sessions set status = 'failed', terminal_at = now(), verdict_reason = 'early drift' where id = v_sess;
 
@@ -529,7 +623,7 @@ begin;
   begin
     insert into public.report_runs (window_start, window_end) values (now() - interval '30 days', now()) returning id into v_src;
     insert into public.report_runs (window_start, window_end) values (now() - interval '60 days', now() - interval '31 days') returning id into v_src2;
-    insert into public.sg8_sessions (source_collection_run_id) values (v_src) returning id into v_sess;
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version) values (v_src, 'sg8-pass-v1') returning id into v_sess;
 
     -- snapshot de OUTRA coleção-fonte → rejeitado (composite FK)
     begin
@@ -587,8 +681,8 @@ begin;
   begin
     insert into public.report_runs (window_start, window_end) values (now() - interval '30 days', now()) returning id into v_src;
     insert into public.report_runs (window_start, window_end) values (now() - interval '60 days', now() - interval '31 days') returning id into v_src2;
-    insert into public.sg8_sessions (source_collection_run_id) values (v_src) returning id into v_sess;
-    insert into public.sg8_sessions (source_collection_run_id) values (v_src2) returning id into v_sess2;
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version) values (v_src, 'sg8-pass-v1') returning id into v_sess;
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version) values (v_src2, 'sg8-pass-v1') returning id into v_sess2;
     insert into public.sg8_resolution_snapshots (sg8_session_id, source_collection_run_id, resolver_version, resolver_hash, fact_count, content_hash)
       values (v_sess, v_src, 'entity-resolver-v1', 'rhash', 500, 'chash') returning id into v_snap;
     insert into public.sg8_resolution_snapshots (sg8_session_id, source_collection_run_id, resolver_version, resolver_hash, fact_count, content_hash)
@@ -720,7 +814,7 @@ begin;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R1', 'sg8-vr', 'h') returning id into v_rep1;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R2', 'sg8-vr', 'h') returning id into v_rep2;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'RX', 'sg8-vr', 'h') returning id into v_rep_x;
-    insert into public.sg8_sessions (source_collection_run_id) values (v_src) returning id into v_sess;
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version) values (v_src, 'sg8-pass-v1') returning id into v_sess;
     update public.sg8_sessions set status = 'r1_awaiting_review'  where id = v_sess;
     update public.sg8_sessions set status = 'r1_resolved'         where id = v_sess;
     update public.sg8_sessions set status = 'r1_snapshot_frozen'  where id = v_sess;
@@ -805,7 +899,7 @@ begin;
     insert into public.report_runs (window_start, window_end) values (now() - interval '30 days', now()) returning id into v_src;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R1', 'sg8-vr', 'h') returning id into v_rep1;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R2', 'sg8-vr', 'h') returning id into v_rep2;
-    insert into public.sg8_sessions (source_collection_run_id) values (v_src) returning id into v_sess;
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version) values (v_src, 'sg8-pass-v1') returning id into v_sess;
     update public.sg8_sessions set status = 'r1_awaiting_review'  where id = v_sess;
     update public.sg8_sessions set status = 'r1_resolved'         where id = v_sess;
     update public.sg8_sessions set status = 'r1_snapshot_frozen'  where id = v_sess;
@@ -827,7 +921,7 @@ begin;
     insert into public.report_runs (window_start, window_end) values (now() - interval '30 days', now()) returning id into v_src;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R1', 'sg8-vr', 'h') returning id into v_rep1;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R2', 'sg8-vr', 'h') returning id into v_rep2;
-    insert into public.sg8_sessions (source_collection_run_id) values (v_src) returning id into v_sess;
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version) values (v_src, 'sg8-pass-v1') returning id into v_sess;
     update public.sg8_sessions set status = 'r1_awaiting_review'  where id = v_sess;
     update public.sg8_sessions set status = 'r1_resolved'         where id = v_sess;
     update public.sg8_sessions set status = 'r1_snapshot_frozen'  where id = v_sess;
@@ -861,7 +955,7 @@ begin;
     insert into public.report_runs (window_start, window_end) values (now() - interval '30 days', now()) returning id into v_src;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R1', 'sg8-vr', 'h') returning id into v_rep1;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R2', 'sg8-vr', 'h') returning id into v_rep2;
-    insert into public.sg8_sessions (source_collection_run_id) values (v_src) returning id into v_sess;
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version) values (v_src, 'sg8-pass-v1') returning id into v_sess;
     update public.sg8_sessions set status = 'r1_awaiting_review'  where id = v_sess;
     update public.sg8_sessions set status = 'r1_resolved'         where id = v_sess;
     update public.sg8_sessions set status = 'r1_snapshot_frozen'  where id = v_sess;
@@ -905,7 +999,7 @@ begin;
     insert into public.report_runs (window_start, window_end) values (now() - interval '30 days', now()) returning id into v_src;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R1', 'sg8-vr', 'h') returning id into v_rep1;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R2', 'sg8-vr', 'h') returning id into v_rep2;
-    insert into public.sg8_sessions (source_collection_run_id) values (v_src) returning id into v_sess;
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version) values (v_src, 'sg8-pass-v1') returning id into v_sess;
     update public.sg8_sessions set status = 'r1_awaiting_review'  where id = v_sess;
     update public.sg8_sessions set status = 'r1_resolved'         where id = v_sess;
     update public.sg8_sessions set status = 'r1_snapshot_frozen'  where id = v_sess;
@@ -945,7 +1039,7 @@ begin;
     insert into public.report_runs (window_start, window_end) values (now() - interval '30 days', now()) returning id into v_src;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R1', 'sg8-vr', 'h') returning id into v_rep1;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R2', 'sg8-vr', 'h') returning id into v_rep2;
-    insert into public.sg8_sessions (source_collection_run_id) values (v_src) returning id into v_sess;
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version) values (v_src, 'sg8-pass-v1') returning id into v_sess;
     update public.sg8_sessions set status = 'r1_awaiting_review'  where id = v_sess;
     update public.sg8_sessions set status = 'r1_resolved'         where id = v_sess;
     update public.sg8_sessions set status = 'r1_snapshot_frozen'  where id = v_sess;
@@ -981,7 +1075,7 @@ begin;
     insert into public.report_runs (window_start, window_end) values (now() - interval '30 days', now()) returning id into v_src;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R1', 'sg8-vr', 'h') returning id into v_rep1;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R2', 'sg8-vr', 'h') returning id into v_rep2;
-    insert into public.sg8_sessions (source_collection_run_id) values (v_src) returning id into v_sess;
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version) values (v_src, 'sg8-pass-v1') returning id into v_sess;
     update public.sg8_sessions set status = 'r1_awaiting_review'  where id = v_sess;
     update public.sg8_sessions set status = 'r1_resolved'         where id = v_sess;
     update public.sg8_sessions set status = 'r1_snapshot_frozen'  where id = v_sess;
@@ -1015,7 +1109,7 @@ begin;
     insert into public.report_runs (window_start, window_end) values (now() - interval '30 days', now()) returning id into v_src;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R1', 'sg8-vr', 'h') returning id into v_rep1;
     insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R2', 'sg8-vr', 'h') returning id into v_rep2;
-    insert into public.sg8_sessions (source_collection_run_id) values (v_src) returning id into v_sess;
+    insert into public.sg8_sessions (source_collection_run_id, comparison_contract_version) values (v_src, 'sg8-pass-v1') returning id into v_sess;
     update public.sg8_sessions set status = 'r1_awaiting_review'  where id = v_sess;
     update public.sg8_sessions set status = 'r1_resolved'         where id = v_sess;
     update public.sg8_sessions set status = 'r1_snapshot_frozen'  where id = v_sess;

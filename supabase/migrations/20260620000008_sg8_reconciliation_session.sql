@@ -21,6 +21,13 @@
 --   o PASS gate exige R1==R2 em engine_name, engine_version e manifest_hash (equivalência computacional).
 --   DEC-0025 supera §5.3 e §R (Q-3/Q-5) nas partes LLM-specific e DEC-0024 item 4.
 --
+-- CONTRATO DE COMPARAÇÃO (DEC-0025 emenda · Product Lead): sg8_sessions.comparison_contract_version
+--   (text NOT NULL, sem default, imutável, EXCLUSIVAMENTE 'sg8-pass-v1' nesta migration) identifica a
+--   SEMÂNTICA do gate que julga Round 1 vs Round 2. É SEPARADO da computação: compute_manifest_hash =
+--   identidade das CONDIÇÕES que PRODUZEM o resultado; comparison_contract_version = identidade das
+--   REGRAS que JULGAM R1 vs R2. NUNCA entra no compute_manifest_hash, não produz score/digest e não é
+--   duplicado nas rodadas. O gate de PASS recusa avaliação sob versão ausente/desconhecida/diferente.
+--
 -- Fontes vinculantes:
 --   docs/data/DATA-SG8-001-sg8-design-contract.md
 --     §1 (PASS/FAIL) · §2.1 taxonomia + D-1 (report run_id congelado) + D-10 (imutabilidade
@@ -123,6 +130,14 @@ create table public.sg8_sessions (
   report_id_1              uuid,   -- reports.id · Relatório 1 de 2 · NULL até materialização (Round 1)
   report_id_2              uuid,   -- reports.id · Relatório 2 de 2 · NULL até materialização (Round 1)
   status                   public.sg8_session_status not null default 'session_open',
+  -- CONTRATO DE COMPARAÇÃO (DEC-0025 emenda · Product Lead): identidade da SEMÂNTICA do gate que
+  -- julga Round 1 vs Round 2 e autoriza a transição terminal. NÃO é determinante de COMPUTAÇÃO —
+  -- NUNCA entra em compute_manifest_hash, não produz score/digest e NÃO é duplicado nas rodadas
+  -- (vive na SESSÃO). Fornecido EXPLICITAMENTE no INSERT (SEM default), não-branco, IMUTÁVEL após a
+  -- criação; nesta migration aceita EXCLUSIVAMENTE 'sg8-pass-v1'. Nova semântica de gate ⇒ nova
+  -- migration + novo identificador (política de evolução). Associação canônica = identificador
+  -- imutável + migration versionada + histórico do repositório (SEM comparison_contract_hash).
+  comparison_contract_version text not null,
   verdict_reason           text,   -- razão do veredicto (auditoria; operacional — FORA do digest)
   created_at               timestamptz not null default now(),
   terminal_at              timestamptz,  -- carimbo do estado terminal (passed/failed)
@@ -150,6 +165,14 @@ create table public.sg8_sessions (
         else terminal_at is null and verdict_reason is null
       end
     ),
+  -- CONTRATO DE COMPARAÇÃO: não-branco E, nesta versão da migration, EXCLUSIVAMENTE 'sg8-pass-v1'
+  --   (admitir outra string exige nova migration + novo identificador — política de evolução).
+  --   Ausente ⇒ NOT NULL barra; vazio/desconhecido ⇒ estes CHECKs barram. A imutabilidade e a
+  --   RECUSA do gate de PASS (defesa-em-profundidade) ficam no trigger sg8_sessions_guard.
+  constraint sg8_sessions_comparison_contract_nonblank_chk
+    check (btrim(comparison_contract_version) <> ''),
+  constraint sg8_sessions_comparison_contract_v1_chk
+    check (comparison_contract_version = 'sg8-pass-v1'),
   -- cada relatório vinculado pertence à MESMA coleção-fonte da sessão (binding correto por dataset).
   constraint sg8_sessions_report_1_source_fk
     foreign key (report_id_1, source_collection_run_id)
@@ -163,7 +186,7 @@ create index sg8_sessions_source_run_idx on public.sg8_sessions (source_collecti
 create index sg8_sessions_status_idx     on public.sg8_sessions (status);
 
 comment on table public.sg8_sessions is
-  'SESSÃO SG-8 (âncora da tentativa; Round 1 + Round 2 sobre um source_collection_run_id). status = 7 marcos duráveis do runner; passed/failed terminais/imutáveis. report_id_1/2 (reports.id) por binding DIFERIDO: NULL→valor uma única vez na Round 1, imutável após. Elegibilidade de publish = status=passed (DD-1); estado SG-8 nunca entra no payload (DD-2).';
+  'SESSÃO SG-8 (âncora da tentativa; Round 1 + Round 2 sobre um source_collection_run_id). status = 7 marcos duráveis do runner; passed/failed terminais/imutáveis. report_id_1/2 (reports.id) por binding DIFERIDO: NULL→valor uma única vez na Round 1, imutável após. comparison_contract_version (NOT NULL, sem default, imutável, EXCLUSIVAMENTE sg8-pass-v1) = identidade da SEMÂNTICA do gate que julga R1 vs R2 — SEPARADA da computação, FORA do compute_manifest_hash. Elegibilidade de publish = status=passed (DD-1); estado SG-8 nunca entra no payload (DD-2).';
 
 -- ----------------------------------------------------------------------------
 -- 2. sg8_resolution_snapshots  (Q-1 — registro LEVE e dedicado; NÃO duplica os fatos)
@@ -382,6 +405,13 @@ begin
     raise exception 'sg8_sessions: created_at é imutável'
       using errcode = 'restrict_violation';
   end if;
+  -- CONTRATO DE COMPARAÇÃO imutável: o contrato sob o qual a sessão é julgada é fixado no
+  --   nascimento e NUNCA muda (sessões terminais preservam a versão sob a qual foram avaliadas;
+  --   nenhuma alteração retroativa do contrato registrado).
+  if new.comparison_contract_version is distinct from old.comparison_contract_version then
+    raise exception 'sg8_sessions: comparison_contract_version é imutável após a criação'
+      using errcode = 'restrict_violation';
+  end if;
   -- BINDING imutável: só NULL→valor (uma única vez); nunca alterar/remover/substituir.
   if old.report_id_1 is not null and new.report_id_1 is distinct from old.report_id_1 then
     raise exception 'sg8_sessions: report_id_1 é imutável após o binding (NULL→valor uma única vez)'
@@ -421,6 +451,15 @@ begin
   --   evidências por rodada (uma por relatório congelado); emparelhamento por report_id; e
   --   canonical_digest R1 == R2 para cada relatório. Sem isso, transição negada.
   if new.status = 'passed' then
+    -- CONTRATO DE COMPARAÇÃO (defesa-em-profundidade): o gate SÓ avalia sob o contrato que
+    --   IMPLEMENTA. Recusa a avaliação quando o valor for ausente, desconhecido ou diferente de
+    --   'sg8-pass-v1' — mesmo que o CHECK de coluna já o garanta NESTA migration (o backstop
+    --   protege uma futura migration que venha a admitir mais de uma versão de contrato: a lógica
+    --   do gate aqui só julga sg8-pass-v1). NÃO é determinante de compute (fora do manifesto).
+    if new.comparison_contract_version is distinct from 'sg8-pass-v1' then
+      raise exception 'sg8_sessions PASS gate: comparison_contract_version "%" != contrato implementado (sg8-pass-v1) — avaliação recusada', coalesce(new.comparison_contract_version, '<null>')
+        using errcode = 'restrict_violation';
+    end if;
     if new.report_id_1 is null or new.report_id_2 is null then
       raise exception 'sg8_sessions PASS gate: binding dos 2 relatórios incompleto'
         using errcode = 'restrict_violation';
