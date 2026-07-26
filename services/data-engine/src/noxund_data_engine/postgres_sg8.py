@@ -1,13 +1,13 @@
 """Driver-agnostic PostgreSQL persistence adapter for the SG-8 durable session.
 
-U1 of DATA-SG8-001 stage 3 part 2. This module persists the SG-8 durable state
-(``sg8_sessions`` / ``sg8_resolution_snapshots`` / ``sg8_round_executions`` /
-``sg8_round_report_evidence``) behind a small port (``Sg8Store``) that the offline
-runner (``sg8_runner``) will drive in stage-3 part-2 U2. It:
+U1 of DATA-SG8-001 stage 3 part 2, revised by DEC-0025 (LLM decoupling). This module
+persists the SG-8 durable state (``sg8_sessions`` / ``sg8_resolution_snapshots`` /
+``sg8_round_executions`` / ``sg8_round_report_evidence``) behind a small port
+(``Sg8Store``) that the offline runner (``sg8_runner``) drives. It:
 
 * imports **no** database driver (accepts an injected PEP-249-like connection);
 * reads **no** environment variable and knows **no** URL / password / Environment / secret;
-* does **not** connect to any database (that is U2, against a local disposable Supabase);
+* does **not** connect to any database (that is the E2E, against a local disposable Supabase);
 * owns explicit, **fail-closed transactions** — every write commits on success and rolls
   back integrally on any error;
 * uses **exclusively parameterized** SQL (``%s`` / ``%s::jsonb``) — no id, state, hash or
@@ -20,21 +20,25 @@ runner (``sg8_runner``) will drive in stage-3 part-2 U2. It:
   converts the database's own violations into explicit domain exceptions, preserving
   the original cause.
 
+Provider-neutral by contract (DEC-0025): the SG-8 authoritative path is entirely
+deterministic and depends on **no** LLM, remote model or external provider. Each round
+persists a **deterministic compute provenance** (``Sg8ComputeProvenance``) whose fields
+name the versioned engine + artifacts/config that actually determine the result — never
+a provider, model or prompt. Both Round 1 and Round 2 carry the SAME provenance (same
+engine, same versioned artifacts, same ``compute_manifest_hash``); a manifest divergence
+is a FAIL, independently of the digests. This adapter only **validates the format** of
+the manifest hash (:func:`_require_manifest_hash`) and persists the value — the canonical
+**derivation** of the manifest belongs to the wiring layer that owns the artifact
+identities (``sg8_coordinator.canonical_compute_manifest``).
+
 It reuses the connection abstraction (``CursorLike``) of ``postgres_entity_resolution``
-and the ``Sg8State`` enum of ``sg8_runner``. The Round-1 LLM provenance is carried by a
-dedicated value object (``Sg8RoundProvenance``) whose fields are named EXACTLY like the
-schema columns — the runner's ``LlmProvenance`` is deliberately NOT reused here because
-its ``prompt_version`` is a version token, not the cryptographic ``llm_prompt_hash`` the
-schema stores (a version must never occupy a hash column). U2 builds ``Sg8RoundProvenance``
-from the runner's provenance plus the real prompt hash.
+and the ``Sg8State`` enum of ``sg8_runner``.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Mapping, Protocol, Sequence
 
 from .postgres_entity_resolution import CursorLike
@@ -48,7 +52,7 @@ class Sg8Connection(Protocol):
     """A PEP-249-like connection whose transaction boundary is owned EXCLUSIVELY by the
     store for the store's lifetime.
 
-    The adapter never constructs this; U2 injects a real driver connection (or, in
+    The adapter never constructs this; the E2E injects a real driver connection (or, in
     tests, a recording fake) and hands over EXCLUSIVE ownership: while a
     ``PostgresSg8Store`` holds it, the injector must not run its own statements or
     transactions on it. Because ownership is exclusive, the store terminates every
@@ -83,7 +87,12 @@ class Sg8UniqueViolation(Sg8PersistenceError):
 
 
 class Sg8CheckViolation(Sg8PersistenceError):
-    """A CHECK was violated (binding shape, terminal-state/verdict, round number, …)."""
+    """A CHECK was violated (binding shape, terminal-state/verdict, round number,
+    manifest-hash format, …)."""
+
+
+class Sg8NotNullViolation(Sg8PersistenceError):
+    """A NOT NULL column was omitted (e.g., a round missing its compute provenance)."""
 
 
 class Sg8IntegrityGuardViolation(Sg8PersistenceError):
@@ -97,10 +106,22 @@ class Sg8ContractViolation(Sg8PersistenceError):
 
 
 # SQLSTATE → domain-exception mapping (driver-agnostic).
+_SQLSTATE_NOT_NULL = "23502"
 _SQLSTATE_FK = "23503"
 _SQLSTATE_UNIQUE = "23505"
 _SQLSTATE_CHECK = "23514"
 _SQLSTATE_RESTRICT = "23001"
+
+
+# The versioned identity of the COMPARISON contract — the semantics of the gate that judges
+# Round 1 vs Round 2 and authorises the terminal transition. It is NOT a compute determinant:
+# it never enters ``compute_manifest_hash``, produces no score/digest, and is not duplicated
+# across the rounds (it lives on the SESSION). The application supplies it EXPLICITLY on
+# ``open_session`` (never a Postgres default), and no caller can silently substitute an
+# arbitrary value: this constant is the single canonical source, and the schema pins the
+# column to exactly this string. A new gate semantics requires a NEW migration + a NEW
+# identifier (evolution policy); ``sg8-pass-v1`` is never reused for different logic.
+SG8_COMPARISON_CONTRACT_VERSION = "sg8-pass-v1"
 
 
 # ---------------------------------------------------------------------------
@@ -108,8 +129,8 @@ _SQLSTATE_RESTRICT = "23001"
 # ---------------------------------------------------------------------------
 # WRITES ---------------------------------------------------------------------
 _INSERT_SESSION = """
-insert into public.sg8_sessions (id, source_collection_run_id)
-values (%s, %s)
+insert into public.sg8_sessions (id, source_collection_run_id, comparison_contract_version)
+values (%s, %s, %s)
 """.strip()
 
 _SET_STATUS = """
@@ -133,9 +154,9 @@ update public.sg8_sessions
 _INSERT_ROUND = """
 insert into public.sg8_round_executions (
   id, sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-  llm_provider, llm_model, llm_model_version, llm_prompt_hash, llm_params_json, llm_adapter_version
+  compute_engine_name, compute_engine_version, compute_manifest_hash
 )
-values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+values (%s, %s, %s, %s, %s, %s, %s, %s)
 """.strip()
 
 _INSERT_EVIDENCE = """
@@ -153,7 +174,8 @@ update public.sg8_sessions
 
 # READS (state needed for replay + comparison) -------------------------------
 _READ_SESSION = """
-select status, source_collection_run_id, report_id_1, report_id_2, verdict_reason
+select status, source_collection_run_id, report_id_1, report_id_2, verdict_reason,
+       comparison_contract_version
 from public.sg8_sessions where id = %s
 """.strip()
 
@@ -183,6 +205,9 @@ class Sg8SessionState:
     report_id_1: str | None
     report_id_2: str | None
     verdict_reason: str | None
+    # The COMPARISON contract the session is judged under (see SG8_COMPARISON_CONTRACT_VERSION):
+    # persisted at open_session, immutable, and independent of the compute manifest.
+    comparison_contract_version: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,32 +221,36 @@ class Sg8SnapshotState:
 
 
 @dataclass(frozen=True, slots=True)
-class Sg8RoundProvenance:
-    """§5.3 LLM provenance of a Round-1 execution, with fields named EXACTLY as the
-    schema columns (no repurposing).
+class Sg8ComputeProvenance:
+    """Deterministic compute provenance of ONE round (DEC-0025), with fields named
+    exactly as the schema columns (no provider/model/prompt, no persistence adapter, no
+    free-form params).
 
-    ``prompt_hash`` MUST be the **cryptographic SHA-256** of the exact prompt bytes sent
-    to the provider — 64 lowercase hex chars — never a version token, template name, id,
-    metadata or any surrogate. The **derivation** (hashing the real prompt bytes) belongs
-    to the component that OWNS those bytes (the upstream runner, wired in U2 E2E); it may
-    use :func:`canonical_prompt_sha256` for the canonical serialization. The store only
-    **validates the format** (:func:`_require_sha256_hex`) before the first SQL and
-    persists the value. ``adapter_version`` is the adapter's own version.
+    * ``engine_name`` / ``engine_version`` — the versioned deterministic engine that
+      produced the round (the pipeline composition), never a model id. Persisted as
+      columns AND folded into the manifest, so the PASS gate can compare them explicitly
+      (defense-in-depth) on top of the manifest equality;
+    * ``manifest_hash`` — the ``compute_manifest_hash``: the **cryptographic SHA-256**
+      (64 lowercase hex) of the canonical set of ALL computational determinants (manifest
+      format version + engine identity + pipeline/resolver/rule/rubric/opportunity
+      versions + hashes). Its **derivation** belongs to the component that owns those
+      identities (``sg8_coordinator.canonical_compute_manifest``); this store only
+      **validates the format** (:func:`_require_manifest_hash`) and persists the value.
+      It contains NO credential, timestamp, execution UUID, local path or unstable datum,
+      and NO persistence-adapter identity (persistence does not participate in the compute).
 
-    The five identity fields (provider, model, model_version, prompt_hash,
-    adapter_version) are mandatory for Round 1; ``params`` is optional context. None of
-    these is persisted for Round 2 (zero-LLM)."""
+    Round 1 and Round 2 carry the SAME provenance (same engine, same manifest); the schema
+    PASS gate refuses ``passed`` when the two rounds' ``compute_engine_name`` /
+    ``compute_engine_version`` / ``compute_manifest_hash`` differ, even if the digests
+    coincidentally match."""
 
-    provider: str
-    model: str
-    model_version: str
-    prompt_hash: str
-    adapter_version: str
-    params: Mapping[str, Any] = field(default_factory=dict)
+    engine_name: str
+    engine_version: str
+    manifest_hash: str
 
 
 # ---------------------------------------------------------------------------
-# The port (implemented by PostgresSg8Store; U2 may inject a fake).
+# The port (implemented by PostgresSg8Store; the E2E may inject a fake).
 # ---------------------------------------------------------------------------
 class Sg8Store(Protocol):
     def open_session(self, sg8_session_id: str, source_collection_run_id: str) -> None: ...
@@ -249,7 +278,7 @@ class Sg8Store(Protocol):
         round_number: int,
         source_collection_run_id: str,
         resolution_snapshot_id: str,
-        provenance: Sg8RoundProvenance | None = None,
+        provenance: Sg8ComputeProvenance,
     ) -> None: ...
     def append_evidence(
         self,
@@ -288,10 +317,16 @@ class PostgresSg8Store:
     def open_session(self, sg8_session_id: str, source_collection_run_id: str) -> None:
         _nonblank(sg8_session_id, "sg8_session_id")
         _nonblank(source_collection_run_id, "source_collection_run_id")
-        # NOTE: the INSERT sets ONLY id + source_collection_run_id — status defaults to
-        # session_open and every other column to NULL. The adapter cannot express a
-        # session born bound or terminal; the INSERT-guard trigger is the authority.
-        self._write([(_INSERT_SESSION, (sg8_session_id, source_collection_run_id))])
+        # NOTE: the INSERT sets id + source_collection_run_id + comparison_contract_version —
+        # status defaults to session_open and every other column to NULL. The comparison
+        # contract is supplied EXPLICITLY from the canonical constant (never a PG default, and
+        # not caller-overridable), so every session is born under the implemented gate contract.
+        # The adapter cannot express a session born bound or terminal; the INSERT-guard trigger
+        # (and the column CHECK pinning 'sg8-pass-v1') are the authority.
+        self._write([(
+            _INSERT_SESSION,
+            (sg8_session_id, source_collection_run_id, SG8_COMPARISON_CONTRACT_VERSION),
+        )])
 
     def mark_awaiting_review(self, sg8_session_id: str) -> None:
         _nonblank(sg8_session_id, "sg8_session_id")
@@ -367,7 +402,7 @@ class PostgresSg8Store:
         round_number: int,
         source_collection_run_id: str,
         resolution_snapshot_id: str,
-        provenance: Sg8RoundProvenance | None = None,
+        provenance: Sg8ComputeProvenance,
     ) -> None:
         _nonblank(round_execution_id, "round_execution_id")
         _nonblank(sg8_session_id, "sg8_session_id")
@@ -375,16 +410,17 @@ class PostgresSg8Store:
         _nonblank(resolution_snapshot_id, "resolution_snapshot_id")
         if round_number not in (1, 2):
             raise Sg8ContractViolation("round_number must be 1 or 2")
-        # SYMMETRIC per-round provenance contract, enforced fail-closed BEFORE any SQL
-        # (U2A Gates 1+2): Round 1 requires complete, non-blank identity provenance with a
-        # real SHA-256 prompt_hash; Round 2 must be zero-LLM (no provenance). The schema
-        # (0008) is the authoritative backstop for the SAME contract — this is not a second
-        # FSM, only the earliest fail-closed boundary.
-        _validate_round_provenance(round_number, provenance)
+        # DETERMINISTIC compute provenance is MANDATORY and SYMMETRIC across rounds
+        # (DEC-0025), enforced fail-closed BEFORE any SQL: complete, non-blank engine
+        # identity with a real SHA-256 compute_manifest_hash. The schema (0008) is the
+        # authoritative backstop for the SAME contract (NOT NULL + format CHECK) — this is
+        # not a second FSM, only the earliest fail-closed boundary. There is NO provider,
+        # model or prompt: the SG-8 authoritative path depends on no external engine.
+        _validate_compute_provenance(provenance)
         # Round 2 reuses the SAME source_collection_run_id + resolution_snapshot_id (and,
-        # via evidence, the same reports) as Round 1 — the caller passes them; the schema's
-        # composite FKs prove it.
-        prov = _provenance_columns(provenance)
+        # via evidence, the same reports) AND the SAME compute provenance as Round 1 — the
+        # caller passes them; the schema's composite FKs + PASS gate manifest-equality prove it.
+        prov = _compute_provenance_columns(provenance)
         self._write(
             [
                 (
@@ -427,7 +463,8 @@ class PostgresSg8Store:
     def mark_passed(self, sg8_session_id: str, *, verdict_reason: str) -> None:
         # PASS is issued only after every round + evidence is persisted (the runner's
         # sequence). The schema's PASS gate independently refuses 'passed' without the
-        # complete, digest-consistent proof — this adapter does not (and must not) re-check it.
+        # complete, digest-consistent AND manifest-consistent proof — this adapter does
+        # not (and must not) re-check it.
         self._mark_terminal(sg8_session_id, Sg8State.PASSED, verdict_reason)
 
     def mark_failed(self, sg8_session_id: str, *, verdict_reason: str) -> None:
@@ -445,7 +482,7 @@ class PostgresSg8Store:
         row = self._read_one(_READ_SESSION, (sg8_session_id,))
         if row is None:
             return None
-        if len(row) != 5:
+        if len(row) != 6:
             raise Sg8PersistenceError("session query returned an invalid shape")
         return Sg8SessionState(
             status=str(row[0]),
@@ -453,6 +490,7 @@ class PostgresSg8Store:
             report_id_1=None if row[2] is None else str(row[2]),
             report_id_2=None if row[3] is None else str(row[3]),
             verdict_reason=None if row[4] is None else str(row[4]),
+            comparison_contract_version=str(row[5]),
         )
 
     def read_snapshot_state(self, sg8_session_id: str) -> Sg8SnapshotState | None:
@@ -539,6 +577,8 @@ class PostgresSg8Store:
         if isinstance(exc, Sg8PersistenceError):
             return exc
         code = _sqlstate(exc)
+        if code == _SQLSTATE_NOT_NULL:
+            return Sg8NotNullViolation("SG-8 NOT NULL invariant violated")
         if code == _SQLSTATE_FK:
             return Sg8ForeignKeyViolation("SG-8 foreign-key invariant violated")
         if code == _SQLSTATE_UNIQUE:
@@ -556,8 +596,9 @@ class PostgresSg8Store:
 # ---------------------------------------------------------------------------
 # Helpers.
 # ---------------------------------------------------------------------------
-# A SHA-256 rendered as 64 lowercase hex chars — the ONLY accepted shape for a prompt hash.
-_SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+# A SHA-256 rendered as 64 lowercase hex chars — the ONLY accepted shape for the
+# compute_manifest_hash.
+_MANIFEST_HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _nonblank(value: str, field: str) -> None:
@@ -565,65 +606,34 @@ def _nonblank(value: str, field: str) -> None:
         raise Sg8ContractViolation(f"{field} must be non-blank")
 
 
-def _require_sha256_hex(value: str, field: str) -> None:
+def _require_manifest_hash(value: str, field: str) -> None:
     # STRUCTURAL validation only: proves the value IS a well-formed SHA-256 digest, never
-    # that it is the RIGHT one. The derivation (hashing the real prompt bytes) is upstream's
-    # (see ``canonical_prompt_sha256``); U2 integration recomputes and compares.
-    if not isinstance(value, str) or _SHA256_HEX_RE.match(value) is None:
+    # that it is the RIGHT one. The derivation (canonical manifest of the versioned
+    # artifacts) is the wiring layer's (see ``sg8_coordinator.canonical_compute_manifest``);
+    # the E2E recomputes and compares.
+    if not isinstance(value, str) or _MANIFEST_HASH_RE.match(value) is None:
         raise Sg8ContractViolation(
             f"{field} must be a SHA-256 as 64 lowercase hex chars (never a version token)"
         )
 
 
-def _validate_round_provenance(
-    round_number: int, provenance: Sg8RoundProvenance | None
-) -> None:
-    """Symmetric, fail-closed provenance contract enforced BEFORE any SQL (U2A Gates 1+2).
+def _validate_compute_provenance(provenance: Sg8ComputeProvenance | None) -> None:
+    """Mandatory, symmetric deterministic-provenance contract enforced BEFORE any SQL
+    (DEC-0025).
 
-    * Round 2 → ``provenance`` MUST be ``None`` (zero-LLM).
-    * Round 1 → ``provenance`` MUST be present with the five identity fields non-blank and
-      ``prompt_hash`` a real SHA-256 (64 lowercase hex). ``params`` is optional context but,
-      when given, must be a mapping.
+    BOTH rounds require complete provenance: the engine identity fields non-blank and
+    ``manifest_hash`` a real SHA-256 (64 lowercase hex). There is no provider/model/prompt,
+    no persistence adapter, no free-form params, and no per-round asymmetry — Round 1 and
+    Round 2 carry the SAME provenance.
 
-    This mirrors — never replaces — the schema's authoritative CHECKs
-    (``sg8_round_executions_provenance_by_round_chk`` / ``…_prompt_hash_format_chk``).
+    This mirrors — never replaces — the schema's authoritative NOT NULL columns +
+    ``sg8_round_executions_manifest_hash_format_chk`` + the PASS-gate engine/manifest equality.
     """
-    if round_number == 2:
-        if provenance is not None:
-            raise Sg8ContractViolation("Round 2 must be zero-LLM: no provenance permitted")
-        return
-    # round_number == 1
     if provenance is None:
-        raise Sg8ContractViolation("Round 1 requires complete LLM provenance")
-    _nonblank(provenance.provider, "provenance.provider")
-    _nonblank(provenance.model, "provenance.model")
-    _nonblank(provenance.model_version, "provenance.model_version")
-    _nonblank(provenance.adapter_version, "provenance.adapter_version")
-    _require_sha256_hex(provenance.prompt_hash, "provenance.prompt_hash")
-    if not isinstance(provenance.params, Mapping):
-        raise Sg8ContractViolation("provenance.params must be a mapping")
-
-
-def canonical_prompt_sha256(prompt: bytes) -> str:
-    """Canonical §5.3 derivation of ``llm_prompt_hash`` for the OWNER of the prompt bytes.
-
-    The upstream component that holds the prompt (the runner, wired in U2 E2E) calls this
-    to populate ``Sg8RoundProvenance.prompt_hash``; ``PostgresSg8Store`` NEVER calls it —
-    the store only validates the resulting FORMAT and persists the value. U2 integration
-    tests recompute via this same function over the captured prompt and compare the digest
-    byte-for-byte with the persisted one.
-
-    Canonical serialization: the input is the EXACT bytes sent to the provider. A caller
-    holding a ``str`` MUST encode it as UTF-8 (no BOM, no normalization) itself — this
-    function refuses anything but ``bytes`` so the encoding decision is explicit at the call
-    site and never implicit here. The digest is ``sha256(prompt)`` as 64 lowercase hex chars;
-    identical bytes ⇒ identical digest, any byte change ⇒ a different digest.
-    """
-    if not isinstance(prompt, (bytes, bytearray)):
-        raise Sg8ContractViolation(
-            "prompt must be the exact raw bytes sent to the provider (encode str as UTF-8 upstream)"
-        )
-    return hashlib.sha256(bytes(prompt)).hexdigest()
+        raise Sg8ContractViolation("compute provenance is required for every round")
+    _nonblank(provenance.engine_name, "provenance.engine_name")
+    _nonblank(provenance.engine_version, "provenance.engine_version")
+    _require_manifest_hash(provenance.manifest_hash, "provenance.manifest_hash")
 
 
 def _sqlstate(exc: BaseException) -> str | None:
@@ -634,26 +644,19 @@ def _sqlstate(exc: BaseException) -> str | None:
     return None if code is None else str(code)
 
 
-def _provenance_columns(
-    provenance: Sg8RoundProvenance | None,
-) -> tuple[Any, Any, Any, Any, Any, Any]:
-    """Map §5.3 provenance to the 6 llm_* columns; ``None`` → all NULL (Round-2 zero-LLM).
+def _compute_provenance_columns(
+    provenance: Sg8ComputeProvenance,
+) -> tuple[Any, Any, Any]:
+    """Map the deterministic provenance to the 3 compute_* columns (DEC-0025).
 
-    Column order matches the INSERT: llm_provider, llm_model, llm_model_version,
-    llm_prompt_hash, llm_params_json, llm_adapter_version. Field names map 1:1 to the
-    columns (``prompt_hash`` → ``llm_prompt_hash``, ``adapter_version`` → ``llm_adapter_version``),
-    with NO repurposing of a version into a hash column. All-or-nothing / non-blank is
-    enforced by the schema CHECK — not duplicated here.
+    Column order matches the INSERT: compute_engine_name, compute_engine_version,
+    compute_manifest_hash. Field names map 1:1 to the columns. The non-blank / format
+    invariants are enforced by :func:`_validate_compute_provenance` (adapter) and by the
+    schema CHECKs (authoritative) — not duplicated here.
     """
 
-    if provenance is None:
-        return (None, None, None, None, None, None)
-    params: Mapping[str, Any] = provenance.params if isinstance(provenance.params, Mapping) else {}
     return (
-        provenance.provider,
-        provenance.model,
-        provenance.model_version,
-        provenance.prompt_hash,
-        json.dumps(params, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
-        provenance.adapter_version,
+        provenance.engine_name,
+        provenance.engine_version,
+        provenance.manifest_hash,
     )

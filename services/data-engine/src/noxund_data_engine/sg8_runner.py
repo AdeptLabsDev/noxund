@@ -1,11 +1,16 @@
-"""SG-8 offline runner (DATA-SG8-001, stage 2 — PURE, OFFLINE).
+"""SG-8 offline runner (DATA-SG8-001, stage 2 — PURE, OFFLINE, DETERMINISTIC).
 
 This is the stage-2 unit of the SG-8 design contract: a **pure, offline** driver of
-the two-round P5-REPRO-01 protocol (Round 1 compute + Round 2 zero-LLM replay) over
+the two-round P5-REPRO-01 protocol (Round 1 compute + Round 2 deterministic replay) over
 an in-memory synthetic dataset. It orchestrates the mandatory state machine and the
-fail-closed verdict; it touches NO database, NO network, NO real LLM, NO schema, NO
-workflow, NO Environment and NO secret. Every dependency is a port with an in-memory
-adapter (``entity_resolution`` protocols + an append-only evidence store).
+fail-closed verdict; it touches NO database, NO network, NO external resolver/model, NO
+schema, NO workflow, NO Environment and NO secret. Every dependency is a port with an
+in-memory adapter (``entity_resolution`` protocols + an append-only evidence store).
+
+Provider-neutral by decision (DEC-0025). The SG-8 authoritative path is entirely
+DETERMINISTIC and depends on NO LLM, remote model or external provider: entity resolution
+runs rule-first with the generative boundary OFF (``llm=None``); an ambiguous title is
+routed to HUMAN REVIEW, never to a model. The absence of any model never blocks ``passed``.
 
 It reuses the frozen deterministic surface verbatim: ``pipeline.run_pipeline`` (via its
 optional ``resolver`` injection seam) and ``pipeline.pipeline_digest`` — so no produced
@@ -14,8 +19,8 @@ number, order, label, version or the golden digest changes.
 State machine (contract §4, mandatory):
 
     SESSION_OPEN
-      -> resolve_round1()            deterministic first; stub LLM only for the
-                                     items regex cannot cleanly resolve
+      -> resolve_round1()            rule-based resolution with the generative boundary
+                                     OFF (llm=None); an ambiguous title -> needs_review
       -> R1_AWAITING_REVIEW          any needs_review -> downstream is BLOCKED
       -> submit_review()             human decisions; legitimate resume in the SAME
                                      sg8_session_id; clears the review queue
@@ -26,30 +31,28 @@ State machine (contract §4, mandatory):
       -> compute_round1()            run_pipeline per report; append-only evidence,
                                      partitioned by round_execution_id
       -> R1_COMPUTED
-      -> run_round2()                validate snapshot completeness BEFORE any LLM;
-                                     replay with a ForbiddenLLMCandidateExtractor;
+      -> run_round2()                validate snapshot completeness BEFORE any resolver
+                                     call; replay with a ForbiddenExternalResolver guard;
                                      compare per report_run_id (same
                                      source_collection_run_id); drift / evidence
                                      collision / dataset divergence => FAIL
       -> PASSED | FAILED (terminal)  a FAILED session cannot be resumed; a new attempt
                                      requires a new sg8_session_id.
 
-Non-goals (stage 2): no live adapters (Postgres / real LLM), no Q-1/Q-2 schema, no real
-compute, no SG-8 execution. The live wiring is stage 3, behind these SAME ports.
+Non-goals (stage 2): no live adapters (Postgres), no Q-1/Q-2 schema, no real compute, no
+SG-8 execution. The live wiring is stage 3, behind these SAME ports.
 """
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import Any, Mapping, Sequence
+from typing import Mapping, Sequence
 
 from .entity_resolution import (
     RESOLVER_VERSION,
     ArtistCatalog,
     EntityResolver,
-    LLMCandidateExtractor,
     PendingCandidate,
     RawVideo,
     ResolutionDecision,
@@ -72,8 +75,9 @@ class Sg8ContractViolation(Sg8Error):
     """An input or a caller sequence violated the SG-8 runner contract."""
 
 
-class Sg8ReplayLlmForbidden(Sg8Error):
-    """The LLM was invoked during a zero-LLM replay (Round 2 defense-in-depth)."""
+class Sg8ReplayExternalCallForbidden(Sg8Error):
+    """An external resolver was invoked during a deterministic replay (Round 2
+    defense-in-depth). The SG-8 authoritative path calls no external resolver at all."""
 
 
 class Sg8EvidenceCollision(Sg8Error):
@@ -102,37 +106,6 @@ class Sg8State(StrEnum):
 
 
 _TERMINAL = frozenset({Sg8State.PASSED, Sg8State.FAILED})
-
-
-# ---------------------------------------------------------------------------
-# LLM provenance (mandatory in Round 1; audited, NEVER part of the digest).
-# ---------------------------------------------------------------------------
-@dataclass(frozen=True, slots=True)
-class LlmProvenance:
-    """Mandatory provenance of ONE Round-1 LLM invocation (contract §5.3).
-
-    Persisted with the resolution snapshot for audit; it is deliberately EXCLUDED
-    from the comparable payload (it is operational metadata, never a product number).
-    """
-
-    provider: str
-    model: str
-    model_version: str
-    prompt_version: str
-    adapter_identity: str
-    params: Mapping[str, Any] = field(default_factory=dict)
-
-    def is_complete(self) -> bool:
-        fields = (
-            self.provider,
-            self.model,
-            self.model_version,
-            self.prompt_version,
-            self.adapter_identity,
-        )
-        if not all(isinstance(v, str) and v.strip() for v in fields):
-            return False
-        return isinstance(self.params, Mapping)
 
 
 # ---------------------------------------------------------------------------
@@ -254,12 +227,17 @@ class InMemoryEvidenceStore:
         )
 
 
-class ForbiddenLLMCandidateExtractor:
-    """A ``LLMCandidateExtractor`` that FAILS CLOSED on any call (Round 2 defense).
+class ForbiddenExternalResolver:
+    """A resolver-candidate guard that FAILS CLOSED on any call (deterministic-replay
+    defense-in-depth).
 
-    Round 2 replays a frozen snapshot, so every video hits the replay-fact branch and
-    this adapter is never reached; if a logic bug ever reached it, it raises rather
-    than silently resolving. ``call_count`` lets tests assert it stayed at 0.
+    Both compute rounds replay a FROZEN snapshot, so every video hits the replay-fact
+    branch and this guard is never reached; if a logic bug ever reached it, it raises
+    rather than silently resolving. It is a local structural stand-in (it satisfies the
+    resolver's optional candidate-extractor shape) — it is NOT the optional LLM port, and
+    the SG-8 authoritative path imports no such port. ``call_count`` lets tests assert it
+    stayed at 0: the replay uses only the snapshot and frozen artifacts, with no external
+    resolver call and no network.
     """
 
     def __init__(self) -> None:
@@ -267,27 +245,9 @@ class ForbiddenLLMCandidateExtractor:
 
     def extract_candidate(self, *, title: str, prompt_version: str) -> str:
         self.call_count += 1
-        raise Sg8ReplayLlmForbidden("LLM invoked during a zero-LLM replay round")
-
-
-class StubLLMCandidateExtractor:
-    """A deterministic offline ``LLMCandidateExtractor`` (never a real provider).
-
-    Returns the one-field JSON contract the resolver expects, driven by a fixed
-    ``title -> candidate`` map. ``provenance`` is the mandatory §5.3 provenance the
-    runner attaches to every video this stub resolves.
-    """
-
-    def __init__(
-        self, by_title: Mapping[str, str | None], *, provenance: LlmProvenance
-    ) -> None:
-        self._by_title = dict(by_title)
-        self.provenance = provenance
-        self.call_count = 0
-
-    def extract_candidate(self, *, title: str, prompt_version: str) -> str:
-        self.call_count += 1
-        return json.dumps({"candidate": self._by_title.get(title)})
+        raise Sg8ReplayExternalCallForbidden(
+            "external resolver invoked during a deterministic replay round"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -402,7 +362,6 @@ class Sg8Session:
         session_input: Sg8SessionInput,
         *,
         sg8_session_id: str,
-        llm: StubLLMCandidateExtractor,
         resolver_version: str = RESOLVER_VERSION,
     ) -> None:
         _require_nonblank(sg8_session_id, "sg8_session_id")
@@ -420,18 +379,18 @@ class Sg8Session:
 
         self._input = session_input
         self._session_id = sg8_session_id
-        self._llm = llm
         self._resolver_version = resolver_version
         self._state = Sg8State.SESSION_OPEN
         self._evidence_store = InMemoryEvidenceStore()
-        self._compute_llm = ForbiddenLLMCandidateExtractor()
+        # Deterministic-replay defense: both compute rounds replay the frozen snapshot and
+        # must never reach an external resolver. This guard raises if they ever do.
+        self._forbidden_resolver = ForbiddenExternalResolver()
 
         # Per report_run_id working state.
         self._catalogs: dict[str, InMemoryCatalog] = {}
         self._facts: dict[str, InMemoryReplayFactStore] = {}
         self._pending: dict[tuple[str, str], ResolutionOutcome] = {}
         self._resolved: dict[tuple[str, str], ResolutionOutcome] = {}
-        self._llm_assisted: set[tuple[str, str]] = set()
         self._resolution_snapshot_id: str | None = None
         self._round1_evidence: RoundEvidence | None = None
         self._verdict: Sg8Verdict | None = None
@@ -450,8 +409,10 @@ class Sg8Session:
         return self._resolution_snapshot_id
 
     @property
-    def compute_llm_call_count(self) -> int:
-        return self._compute_llm.call_count
+    def external_resolver_call_count(self) -> int:
+        """0 on the authoritative path: neither compute round ever calls an external
+        resolver (the forbidden-resolver guard proves it stayed unreached)."""
+        return self._forbidden_resolver.call_count
 
     @property
     def verdict(self) -> Sg8Verdict | None:
@@ -470,11 +431,14 @@ class Sg8Session:
             self._catalogs[report.report_run_id] = catalog
             facts = InMemoryReplayFactStore()
             self._facts[report.report_run_id] = facts
+            # Generative boundary OFF (llm=None): rule-based resolution only. An ambiguous
+            # title the rules cannot cleanly resolve is routed to HUMAN REVIEW (needs_review),
+            # never to any model — the SG-8 authoritative path depends on no external engine.
             resolver = EntityResolver(
                 catalog=catalog,
                 queue=InMemoryCandidateQueue(),
                 replay_facts=facts,
-                llm=self._llm,
+                llm=None,
                 resolver_version=self._resolver_version,
             )
             for video in report.snapshot.videos:
@@ -486,8 +450,6 @@ class Sg8Session:
                         source_title=video.source_title,
                     )
                 )
-                if outcome.source_method is ResolutionMethod.LLM_ASSISTED:
-                    self._llm_assisted.add(key)
                 if outcome.needs_review:
                     self._pending[key] = outcome
                 else:
@@ -545,15 +507,6 @@ class Sg8Session:
         self._require_state(Sg8State.R1_RESOLVED, "freeze_snapshot")
         _require_nonblank(resolution_snapshot_id, "resolution_snapshot_id")
 
-        # §5.3 — every LLM-assisted accepted item must carry complete provenance.
-        for key in self._llm_assisted:
-            outcome = self._resolved.get(key)
-            if outcome is None or outcome.decision is not ResolutionDecision.ACCEPTED:
-                continue
-            if not self._llm.provenance.is_complete():
-                self._fail("incomplete LLM provenance on a Round 1 accepted item")
-                raise Sg8ContractViolation("incomplete LLM provenance (session FAILED)")
-
         for report in self._input.reports:
             facts = self._facts[report.report_run_id]
             for video in report.snapshot.videos:
@@ -591,7 +544,7 @@ class Sg8Session:
             self._fail("Round 2 must use a round_execution_id distinct from Round 1")
             return Sg8Round2Result(self._verdict, None)  # type: ignore[arg-type]
 
-        # Completeness is checked BEFORE any compute/resolver call (=> before any LLM).
+        # Completeness is checked BEFORE any compute/resolver call (fail-closed).
         try:
             for report in self._input.reports:
                 assert_snapshot_complete(
@@ -610,8 +563,8 @@ class Sg8Session:
             self._fail(f"Round 2 evidence collision: {exc}")
             return Sg8Round2Result(self._verdict, None)  # type: ignore[arg-type]
 
-        if self._compute_llm.call_count != 0:
-            self._fail("LLM was reached during a zero-LLM replay round")
+        if self._forbidden_resolver.call_count != 0:
+            self._fail("an external resolver was reached during a deterministic replay round")
             return Sg8Round2Result(self._verdict, round2_evidence)  # type: ignore[arg-type]
 
         verdict = compare_round_evidence(self._round1_evidence, round2_evidence)
@@ -631,7 +584,7 @@ class Sg8Session:
                 catalog=self._catalogs[report.report_run_id],
                 queue=InMemoryCandidateQueue(),
                 replay_facts=facts,
-                llm=self._compute_llm,          # forbidden — must never be reached
+                llm=self._forbidden_resolver,   # forbidden guard — must never be reached
                 resolver_version=self._resolver_version,
             )
             result = run_pipeline(report.snapshot, resolver=replay_resolver)

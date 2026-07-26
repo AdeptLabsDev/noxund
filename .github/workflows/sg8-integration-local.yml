@@ -17,7 +17,7 @@ name: SG-8 Integration · Local E2E (disposable Supabase, no remote, no secrets)
 #   • The local stack is destroyed in `if: always()` with `--no-backup`. Finite timeout.
 #
 # The E2E test count is asserted fail-closed HERE (its own count, independent of the
-# unit guard's 258).
+# unit guard's 276).
 # =============================================================================
 
 on:
@@ -129,11 +129,11 @@ jobs:
           set -euo pipefail
           supabase start   # local Docker stack only — no `supabase link`, no token, no remote
 
-      - name: '[2..3] SG-8 E2E ×2 (supabase db reset each) — 6/6 + byte-identical happy-path manifest'
+      - name: '[2..3] SG-8 E2E ×2 (supabase db reset each) — 7/7 + byte-identical happy-path manifest'
         run: |
           set -euo pipefail
           # TWO independent attempts; each RESETS the database to a clean state first, runs
-          # exactly the 6 E2E tests, requires 6/6, and emits a deterministic happy-path
+          # exactly the 7 E2E tests, requires 7/7, and emits a deterministic happy-path
           # manifest. Deterministic ids may repeat because the DB is reset before each run.
           for attempt in 1 2; do
             echo "::group::SG-8 E2E — attempt ${attempt}/2 (fresh supabase db reset)"
@@ -150,19 +150,19 @@ jobs:
             if [ "$status" -ne 0 ]; then
               echo "::error::attempt ${attempt}: SG-8 E2E FAILED (unittest exit ${status})."; exit 1
             fi
-            if ! grep -qE '^Ran 6 tests in ' <<<"$out"; then
+            if ! grep -qE '^Ran 7 tests in ' <<<"$out"; then
               ran="$(grep -oE '^Ran [0-9]+ tests' <<<"$out" || true)"
-              echo "::error::attempt ${attempt}: expected exactly 6 E2E tests, got '${ran:-<none>}'."; exit 1
+              echo "::error::attempt ${attempt}: expected exactly 7 E2E tests, got '${ran:-<none>}'."; exit 1
             fi
             test -s "$manifest" || { echo "::error::attempt ${attempt}: happy-path manifest not emitted."; exit 1; }
-            echo "attempt ${attempt}: 6/6 OK — manifest sha256 $(sha256sum "$manifest" | cut -d' ' -f1)"
+            echo "attempt ${attempt}: 7/7 OK — manifest sha256 $(sha256sum "$manifest" | cut -d' ' -f1)"
           done
           m1="${RUNNER_TEMP}/sg8-e2e-manifest-1.json"; m2="${RUNNER_TEMP}/sg8-e2e-manifest-2.json"
           if ! cmp -s "$m1" "$m2"; then
             echo "::error::E2E happy-path manifests differ across the 2 independent runs (non-determinism)."
             echo "--- attempt 1 ---"; cat "$m1"; echo; echo "--- attempt 2 ---"; cat "$m2"; exit 1
           fi
-          echo "Determinism proven: SG-8 E2E 6/6 across 2 independent runs"
+          echo "Determinism proven: SG-8 E2E 7/7 across 2 independent runs"
 
       - name: '[4] Destroy disposable stack (always; no backup)'
         if: always()

@@ -5,6 +5,10 @@ psycopg driver; run ONLY by ``.github/workflows/sg8-integration-local.yml`` (nev
 driver-free unit suite). Each test owns its own dedicated connection and unique id
 namespace, and closes the connection explicitly. No network beyond the loopback stack.
 
+Provider-neutral (DEC-0025): the SG-8 path uses NO LLM/model/provider. Entity resolution
+runs with the generative boundary OFF; an ambiguous title goes to human review. Both rounds
+persist the SAME deterministic compute provenance (identical ``compute_manifest_hash``).
+
 The driver is imported ONLY by ``bootstrap`` — this module catches DB errors by SQLSTATE
 without importing psycopg.
 """
@@ -24,90 +28,58 @@ from noxund_data_engine.postgres_sg8 import (
     PostgresSg8Store,
     Sg8ForeignKeyViolation,
     Sg8IntegrityGuardViolation,
-    Sg8RoundProvenance,
     Sg8UniqueViolation,
-    canonical_prompt_sha256,
 )
 from noxund_data_engine.sg8_coordinator import (
     SequentialIdFactory,
     Sg8Coordinator,
-    build_round1_provenance,
+    build_compute_provenance,
+    default_compute_manifest,
     derive_snapshot_metadata,
 )
 from noxund_data_engine.sg8_runner import (
-    LlmProvenance,
     ReviewDecision,
     Sg8Report,
     Sg8Session,
     Sg8SessionInput,
     Sg8State,
-    StubLLMCandidateExtractor,
 )
 
 WINDOW_END = datetime(2026, 6, 30, tzinfo=timezone.utc)
 PUBLISHED = datetime(2026, 6, 29, tzinfo=timezone.utc)
-LLM_TITLE = "Free Zephyr Prime Type Beat"  # "Free" -> regex residual -> LLM -> review
-HEX64 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+# "Free ...": a metadata residual the rules cannot resolve -> human review (no model).
+AMBIGUOUS_TITLE = "Free Zephyr Prime Type Beat"
 
+_SQLSTATE_NOT_NULL = "23502"
 _SQLSTATE_CHECK = "23514"
 _SQLSTATE_RESTRICT = "23001"
 
 
-# ---------------------------------------------------------------------------
-# Fake provider that CAPTURES the exact bytes it "sends" (no network).
-# ---------------------------------------------------------------------------
-def _build_prompt_bytes(title: str, prompt_version: str) -> bytes:
-    # The provider owns this serialization; UTF-8, no BOM, no normalization.
-    return f"NOXUND-SG8-PROMPT\nversion={prompt_version}\ntitle={title}\n".encode("utf-8")
-
-
-class CapturingStubLLM(StubLLMCandidateExtractor):
-    """Deterministic offline provider that records the exact prompt bytes it received."""
-
-    def __init__(self, by_title, *, provenance: LlmProvenance) -> None:
-        super().__init__(by_title, provenance=provenance)
-        self.captured_prompts: list[bytes] = []
-
-    def extract_candidate(self, *, title: str, prompt_version: str) -> str:
-        self.captured_prompts.append(_build_prompt_bytes(title, prompt_version))
-        return super().extract_candidate(title=title, prompt_version=prompt_version)
-
-
-def _provenance() -> LlmProvenance:
-    return LlmProvenance(
-        provider="anthropic", model="claude-opus-4-8", model_version="claude-opus-4-8",
-        prompt_version="llm-fallback-v1", adapter_identity="offline-stub-adapter",
-        params={"temperature": "0"},
-    )
-
-
-def _snapshot(run_id: str, *, with_llm: bool) -> PipelineSnapshot:
+def _snapshot(run_id: str, *, with_ambiguous: bool) -> PipelineSnapshot:
     videos = [
         RawVideoRow(f"{run_id}-k{i:02d}", f"ch-{i % 3}", "Kairo Vee Type Beat",
                     40000 + i, 5000, 900, PUBLISHED)
         for i in range(4)
     ]
-    if with_llm:
-        videos.append(RawVideoRow(f"{run_id}-z01", "ch-9", LLM_TITLE, 30000, 4200, 760, PUBLISHED))
+    if with_ambiguous:
+        videos.append(RawVideoRow(f"{run_id}-z01", "ch-9", AMBIGUOUS_TITLE, 30000, 4200, 760, PUBLISHED))
     videos_t = tuple(videos)
     artists = (ArtistRow("artist-kairo", "Kairo Vee"), ArtistRow("artist-zephyr", "Zephyr Prime"))
     channels = tuple(ChannelRow(cid) for cid in sorted({v.channel_id for v in videos_t}))
     return PipelineSnapshot(run_id, "Report", WINDOW_END, videos_t, channels, artists)
 
 
-def _build_session(src, rep1, rep2, session_id, llm) -> Sg8Session:
+def _build_session(src, rep1, rep2, session_id) -> Sg8Session:
     reports = (
-        Sg8Report(rep1, _snapshot(rep1, with_llm=True)),
-        Sg8Report(rep2, _snapshot(rep2, with_llm=False)),
+        Sg8Report(rep1, _snapshot(rep1, with_ambiguous=True)),
+        Sg8Report(rep2, _snapshot(rep2, with_ambiguous=False)),
     )
-    return Sg8Session(Sg8SessionInput(src, reports), sg8_session_id=session_id, llm=llm)
+    return Sg8Session(Sg8SessionInput(src, reports), sg8_session_id=session_id)
 
 
-def _prov_row() -> Sg8RoundProvenance:
-    return Sg8RoundProvenance(
-        provider="anthropic", model="claude-opus-4-8", model_version="2026-01",
-        prompt_hash=HEX64, adapter_version="adapter-v1",
-    )
+def _prov():
+    """The deterministic compute provenance persisted for both rounds (identical manifest)."""
+    return build_compute_provenance()
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +130,7 @@ class _E2EBase(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Happy path — full lifecycle to passed + byte-for-byte provenance proof.
+# Happy path — full lifecycle to passed + deterministic compute-manifest proof.
 # ---------------------------------------------------------------------------
 class HappyPathTests(_E2EBase):
     def test_lifecycle_reaches_passed_with_provenance_and_digest_proof(self) -> None:
@@ -167,28 +139,31 @@ class HappyPathTests(_E2EBase):
             ids = SequentialIdFactory(namespace=0x0A)
             src, rep1, rep2, session_id = (ids.new_id() for _ in range(4))
             _insert_fixtures(conn, src=src, rep1=rep1, rep2=rep2, rubric="sg8-vr-0a")
-            llm = CapturingStubLLM({LLM_TITLE: "Zephyr Prime"}, provenance=_provenance())
-            session = _build_session(src, rep1, rep2, session_id, llm)
+            session = _build_session(src, rep1, rep2, session_id)
             store = PostgresSg8Store(conn)
             coord = Sg8Coordinator(session, store, ids, source_collection_run_id=src)
 
             coord.open_session()
             state = coord.resolve_round1()
-            captured = set(llm.captured_prompts)
-            self.assertEqual(len(captured), 1, "exactly one prompt captured")
-            prompt_bytes = llm.captured_prompts[0]
+            # No model was consulted; the ambiguous item was routed to human review.
             self.assertIs(state, Sg8State.R1_AWAITING_REVIEW)
+            self.assertEqual(session.external_resolver_call_count, 0)
             coord.submit_review([ReviewDecision(rid, vid, approved=True, artist_id="artist-zephyr")
                                  for (rid, vid) in session.pending_review_keys])
             coord.freeze(snapshot_metadata=derive_snapshot_metadata(
                 session._input, resolver_version=RESOLVER_VERSION))  # type: ignore[attr-defined]
-            prov = build_round1_provenance(prompt_bytes, llm.provenance)
-            evidence = coord.compute_round1(provenance=prov, report_run_id_1=rep1, report_run_id_2=rep2)
+            evidence = coord.compute_round1(provenance=_prov(), report_run_id_1=rep1, report_run_id_2=rep2)
             verdict = coord.run_round2()
             self.assertTrue(verdict.passed)
+            self.assertEqual(session.external_resolver_call_count, 0)  # zero external calls, both rounds
 
             # terminal state
-            self.assertEqual(store.read_session_state(session_id).status, "passed")
+            final_state = store.read_session_state(session_id)
+            self.assertEqual(final_state.status, "passed")
+            # The session was opened under — and judged by — the canonical comparison contract,
+            # supplied explicitly by the adapter (no PG default) and read back verbatim. This is
+            # SEPARATE from the compute manifest: the passed verdict required BOTH.
+            self.assertEqual(final_state.comparison_contract_version, "sg8-pass-v1")
             r1, r2 = coord.round_execution_id(1), coord.round_execution_id(2)
             self.assertEqual(store.read_round_execution_id(session_id, 1), r1)
             self.assertEqual(store.read_round_execution_id(session_id, 2), r2)
@@ -202,21 +177,25 @@ class HappyPathTests(_E2EBase):
             self.assertEqual(ev1, ev2)
             self.assertEqual(ev1, dict(evidence.report_digests))
 
-            # provenance: persisted prompt_hash == sha256 of the captured bytes; R2 all-null
+            # DEC-0025 compute provenance: R1 manifest == canonical default; R2 identical to R1
+            # across the FULL computational identity; deterministic engine identity present; NO
+            # provider/model/prompt and NO persistence-adapter/free-form-params column exists.
+            expected_manifest = default_compute_manifest()
             with conn.cursor() as cur:
-                cur.execute("select llm_prompt_hash, llm_provider, llm_model, llm_model_version, "
-                            "llm_adapter_version, llm_params_json from public.sg8_round_executions "
-                            "where id = %s", (r1,))
+                cur.execute("select compute_engine_name, compute_engine_version, compute_manifest_hash "
+                            "from public.sg8_round_executions where id = %s", (r1,))
                 row1 = cur.fetchone()
-                cur.execute("select llm_provider, llm_model, llm_model_version, llm_prompt_hash, "
-                            "llm_params_json, llm_adapter_version from public.sg8_round_executions "
-                            "where id = %s", (r2,))
+                cur.execute("select compute_engine_name, compute_engine_version, compute_manifest_hash "
+                            "from public.sg8_round_executions where id = %s", (r2,))
                 row2 = cur.fetchone()
             conn.rollback()
-            self.assertEqual(row1[0], canonical_prompt_sha256(prompt_bytes))
-            self.assertEqual(row1[0], build_round1_provenance(prompt_bytes, llm.provenance).prompt_hash)
-            self.assertTrue(all(v is not None for v in row1[:5]))  # R1 five core present
-            self.assertEqual(tuple(row2), (None, None, None, None, None, None))  # R2 zero-LLM
+            self.assertEqual(row1[2], expected_manifest)          # R1 manifest = canonical default
+            self.assertEqual(row2[2], expected_manifest)          # R2 manifest = SAME (DEC-0025)
+            self.assertEqual(row1[0], "noxund-pipeline")
+            self.assertTrue(all(v is not None for v in row1[:3]))  # full deterministic provenance present
+            # Computational EQUIVALENCE R1==R2 across the WHOLE identity (engine name + version +
+            # manifest) — the same defense-in-depth the DB PASS gate enforces, not just the manifest.
+            self.assertEqual(row1, row2)
 
             # Round 2 evidence has its OWN origin — persisted verbatim, never an R1 copy.
             r2_ev = coord.round2_evidence
@@ -238,7 +217,7 @@ class HappyPathTests(_E2EBase):
                         "round1_id": r1, "round2_id": r2,
                         "round1_digests": dict(sorted(ev1.items())),
                         "round2_digests": dict(sorted(ev2.items())),
-                        "prompt_hash": row1[0],
+                        "compute_manifest_hash": row1[2],
                     }, fh, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         finally:
             conn.close()
@@ -251,8 +230,7 @@ class ResumeTests(_E2EBase):
     def test_resume_across_connections_without_duplication(self) -> None:
         ids = SequentialIdFactory(namespace=0x0B)
         src, rep1, rep2, session_id = (ids.new_id() for _ in range(4))
-        llm = CapturingStubLLM({LLM_TITLE: "Zephyr Prime"}, provenance=_provenance())
-        session = _build_session(src, rep1, rep2, session_id, llm)
+        session = _build_session(src, rep1, rep2, session_id)
 
         conn1 = connect_local()
         try:
@@ -260,7 +238,6 @@ class ResumeTests(_E2EBase):
             coord1 = Sg8Coordinator(session, PostgresSg8Store(conn1), ids, source_collection_run_id=src)
             coord1.open_session()
             self.assertIs(coord1.resolve_round1(), Sg8State.R1_AWAITING_REVIEW)
-            prompt_bytes = llm.captured_prompts[0]
         finally:
             conn1.close()  # end the first connection/store at the waiting state
 
@@ -276,8 +253,7 @@ class ResumeTests(_E2EBase):
                                   for (rid, vid) in session.pending_review_keys])
             coord2.freeze(snapshot_metadata=derive_snapshot_metadata(
                 session._input, resolver_version=RESOLVER_VERSION))  # type: ignore[attr-defined]
-            prov = build_round1_provenance(prompt_bytes, llm.provenance)
-            coord2.compute_round1(provenance=prov, report_run_id_1=rep1, report_run_id_2=rep2)
+            coord2.compute_round1(provenance=_prov(), report_run_id_1=rep1, report_run_id_2=rep2)
             self.assertTrue(coord2.run_round2().passed)
             self.assertEqual(store2.read_session_state(session_id).status, "passed")
 
@@ -306,10 +282,12 @@ class DriftTests(_E2EBase):
             store = PostgresSg8Store(conn)
             snap = _walk_store_to_computed(store, ids, session_id=session_id, src=src, rep1=rep1, rep2=rep2)
             r1, r2 = ids.new_id(), ids.new_id()
+            # Both rounds carry the SAME compute provenance (identical manifest) so the manifest
+            # gate passes and the DIGEST drift is what the PASS gate rejects.
             store.append_round(round_execution_id=r1, sg8_session_id=session_id, round_number=1,
-                               source_collection_run_id=src, resolution_snapshot_id=snap, provenance=_prov_row())
+                               source_collection_run_id=src, resolution_snapshot_id=snap, provenance=_prov())
             store.append_round(round_execution_id=r2, sg8_session_id=session_id, round_number=2,
-                               source_collection_run_id=src, resolution_snapshot_id=snap, provenance=None)
+                               source_collection_run_id=src, resolution_snapshot_id=snap, provenance=_prov())
             store.append_evidence(round_execution_id=r1, sg8_session_id=session_id, report_run_id=rep1, canonical_digest="DIG-A")
             store.append_evidence(round_execution_id=r1, sg8_session_id=session_id, report_run_id=rep2, canonical_digest="DIG-B")
             store.append_evidence(round_execution_id=r2, sg8_session_id=session_id, report_run_id=rep1, canonical_digest="DIG-A")
@@ -344,7 +322,7 @@ class RealConstraintTests(_E2EBase):
             snap = _walk_store_to_computed(store, ids, session_id=session_id, src=src, rep1=rep1, rep2=rep2)
             r1 = ids.new_id()
             store.append_round(round_execution_id=r1, sg8_session_id=session_id, round_number=1,
-                               source_collection_run_id=src, resolution_snapshot_id=snap, provenance=_prov_row())
+                               source_collection_run_id=src, resolution_snapshot_id=snap, provenance=_prov())
             store.append_evidence(round_execution_id=r1, sg8_session_id=session_id, report_run_id=rep1, canonical_digest="d1")
             store.append_evidence(round_execution_id=r1, sg8_session_id=session_id, report_run_id=rep2, canonical_digest="d2")
 
@@ -354,11 +332,11 @@ class RealConstraintTests(_E2EBase):
             # second Round 1 -> unique
             with self.assertRaises(Sg8UniqueViolation):
                 store.append_round(round_execution_id=ids.new_id(), sg8_session_id=session_id, round_number=1,
-                                   source_collection_run_id=src, resolution_snapshot_id=snap, provenance=_prov_row())
+                                   source_collection_run_id=src, resolution_snapshot_id=snap, provenance=_prov())
             # divergent dataset (source_collection_run_id != the session's) -> foreign key
             with self.assertRaises(Sg8ForeignKeyViolation):
                 store.append_round(round_execution_id=ids.new_id(), sg8_session_id=session_id, round_number=2,
-                                   source_collection_run_id=src2, resolution_snapshot_id=snap, provenance=None)
+                                   source_collection_run_id=src2, resolution_snapshot_id=snap, provenance=_prov())
 
             # connection reusable after every handled error
             self.assertEqual(store.read_session_state(session_id).status, "r1_computed")
@@ -366,7 +344,7 @@ class RealConstraintTests(_E2EBase):
         finally:
             conn.close()
 
-    def test_db_enforces_provenance_by_round_and_prompt_hash_format(self) -> None:
+    def test_db_enforces_compute_provenance_and_manifest_hash_format(self) -> None:
         # Direct SQL proves the SCHEMA rejects these independently of the adapter pre-check.
         conn = connect_local()
         try:
@@ -377,22 +355,64 @@ class RealConstraintTests(_E2EBase):
             snap = _walk_store_to_computed(store, ids, session_id=session_id, src=src, rep1=rep1, rep2=rep2)
             base = ("insert into public.sg8_round_executions "
                     "(id, sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id")
+            cols = (", compute_engine_name, compute_engine_version, compute_manifest_hash)")
+            good_mh = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
-            # Round 1 with NO provenance -> check_violation
+            # DEC-0025: Round 1 with NO compute provenance -> not_null_violation
             self._expect_sqlstate(
                 conn, base + ") values (%s, %s, 1, %s, %s)",
-                (ids.new_id(), session_id, src, snap), _SQLSTATE_CHECK)
-            # Round 2 with provenance -> check_violation
+                (ids.new_id(), session_id, src, snap), _SQLSTATE_NOT_NULL)
+            # DEC-0025: Round 2 with NO compute provenance -> not_null_violation (symmetric)
             self._expect_sqlstate(
-                conn, base + ", llm_provider, llm_model, llm_model_version, llm_prompt_hash, llm_adapter_version) "
-                "values (%s, %s, 2, %s, %s, %s, %s, %s, %s, %s)",
-                (ids.new_id(), session_id, src, snap, "anthropic", "m", "mv", HEX64, "av"), _SQLSTATE_CHECK)
-            # Round 1 with a version-token (non-64-hex) prompt_hash -> check_violation
+                conn, base + ") values (%s, %s, 2, %s, %s)",
+                (ids.new_id(), session_id, src, snap), _SQLSTATE_NOT_NULL)
+            # blank compute_engine_name -> check_violation (nonblank)
             self._expect_sqlstate(
-                conn, base + ", llm_provider, llm_model, llm_model_version, llm_prompt_hash, llm_adapter_version) "
-                "values (%s, %s, 1, %s, %s, %s, %s, %s, %s, %s)",
-                (ids.new_id(), session_id, src, snap, "anthropic", "m", "mv", "sg8-prompt-v1", "av"), _SQLSTATE_CHECK)
+                conn, base + cols + " values (%s, %s, 1, %s, %s, %s, %s, %s)",
+                (ids.new_id(), session_id, src, snap, "   ", "pipeline-wiring-2026_06_v1", good_mh),
+                _SQLSTATE_CHECK)
+            # version-token (non-64-hex) compute_manifest_hash -> check_violation
+            self._expect_sqlstate(
+                conn, base + cols + " values (%s, %s, 1, %s, %s, %s, %s, %s)",
+                (ids.new_id(), session_id, src, snap, "noxund-pipeline", "pipeline-wiring-2026_06_v1", "sg8-manifest-v1"),
+                _SQLSTATE_CHECK)
             self.assertEqual(store.read_session_state(session_id).status, "r1_computed")  # reusable
+        finally:
+            conn.close()
+
+    def test_db_enforces_comparison_contract_version(self) -> None:
+        # Direct SQL proves the SCHEMA enforces the COMPARISON contract independently of the
+        # adapter: unknown version rejected at insert; immutable after creation. Separate from
+        # compute — this is the identity of the gate that judges R1 vs R2.
+        conn = connect_local()
+        try:
+            ids = SequentialIdFactory(namespace=0x1A)
+            src, rep1, rep2, session_id = (ids.new_id() for _ in range(4))
+            _insert_fixtures(conn, src=src, rep1=rep1, rep2=rep2, rubric="sg8-vr-1a")
+            store = PostgresSg8Store(conn)
+            store.open_session(session_id, src)  # born under the canonical contract via the adapter
+
+            # unknown comparison_contract_version -> check_violation (only sg8-pass-v1 is accepted)
+            self._expect_sqlstate(
+                conn,
+                "insert into public.sg8_sessions (id, source_collection_run_id, comparison_contract_version) "
+                "values (%s, %s, %s)",
+                (ids.new_id(), src, "sg8-pass-v2"), _SQLSTATE_CHECK)
+            # blank comparison_contract_version -> check_violation
+            self._expect_sqlstate(
+                conn,
+                "insert into public.sg8_sessions (id, source_collection_run_id, comparison_contract_version) "
+                "values (%s, %s, %s)",
+                (ids.new_id(), src, "   "), _SQLSTATE_CHECK)
+            # mutating the contract after creation -> restrict_violation (immutable)
+            self._expect_sqlstate(
+                conn,
+                "update public.sg8_sessions set comparison_contract_version = %s where id = %s",
+                ("sg8-pass-v2", session_id), _SQLSTATE_RESTRICT)
+            # the persisted value is exactly the canonical contract; connection reusable
+            state = store.read_session_state(session_id)
+            self.assertEqual(state.comparison_contract_version, "sg8-pass-v1")
+            self.assertEqual(state.status, "session_open")
         finally:
             conn.close()
 
@@ -406,12 +426,12 @@ class RealConstraintTests(_E2EBase):
             snap = _walk_store_to_computed(store, ids, session_id=session_id, src=src, rep1=rep1, rep2=rep2)
             r1 = ids.new_id()
             store.append_round(round_execution_id=r1, sg8_session_id=session_id, round_number=1,
-                               source_collection_run_id=src, resolution_snapshot_id=snap, provenance=_prov_row())
+                               source_collection_run_id=src, resolution_snapshot_id=snap, provenance=_prov())
             store.append_evidence(round_execution_id=r1, sg8_session_id=session_id, report_run_id=rep1, canonical_digest="d1")
 
             # snapshot / round / evidence are append-only -> UPDATE and DELETE raise restrict
             self._expect_sqlstate(conn, "update public.sg8_resolution_snapshots set content_hash='x' where id=%s", (snap,), _SQLSTATE_RESTRICT)
-            self._expect_sqlstate(conn, "update public.sg8_round_executions set llm_model='x' where id=%s", (r1,), _SQLSTATE_RESTRICT)
+            self._expect_sqlstate(conn, "update public.sg8_round_executions set compute_engine_name='x' where id=%s", (r1,), _SQLSTATE_RESTRICT)
             self._expect_sqlstate(conn, "delete from public.sg8_round_report_evidence where round_execution_id=%s", (r1,), _SQLSTATE_RESTRICT)
             self.assertEqual(store.read_session_state(session_id).status, "r1_computed")  # reusable
         finally:

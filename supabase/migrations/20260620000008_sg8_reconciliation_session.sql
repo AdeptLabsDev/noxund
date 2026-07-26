@@ -12,11 +12,27 @@
 -- MODELA o estado durável que o runner (estágio 2, sg8_runner.py) e a integração live
 -- (estágio 3) irão gravar atrás das MESMAS ports.
 --
+-- DEC-0025 (LLM decoupling): o SG-8 é INTEGRALMENTE DETERMINÍSTICO e NÃO depende de LLM,
+--   modelo remoto ou provider externo. A proveniência por rodada é de COMPUTAÇÃO DETERMINÍSTICA
+--   (compute_engine_name, compute_engine_version, compute_manifest_hash), obrigatória e SIMÉTRICA
+--   nas 2 rodadas — SEM provider/model/prompt, SEM colunas ext_llm_*, SEM adapter de persistência
+--   nem params livres. O compute_manifest_hash incorpora TODOS os determinantes computacionais
+--   (manifest_format_version + engine + pipeline/resolver/rule/rubric/opportunity versions+hashes);
+--   o PASS gate exige R1==R2 em engine_name, engine_version e manifest_hash (equivalência computacional).
+--   DEC-0025 supera §5.3 e §R (Q-3/Q-5) nas partes LLM-specific e DEC-0024 item 4.
+--
+-- CONTRATO DE COMPARAÇÃO (DEC-0025 emenda · Product Lead): sg8_sessions.comparison_contract_version
+--   (text NOT NULL, sem default, imutável, EXCLUSIVAMENTE 'sg8-pass-v1' nesta migration) identifica a
+--   SEMÂNTICA do gate que julga Round 1 vs Round 2. É SEPARADO da computação: compute_manifest_hash =
+--   identidade das CONDIÇÕES que PRODUZEM o resultado; comparison_contract_version = identidade das
+--   REGRAS que JULGAM R1 vs R2. NUNCA entra no compute_manifest_hash, não produz score/digest e não é
+--   duplicado nas rodadas. O gate de PASS recusa avaliação sob versão ausente/desconhecida/diferente.
+--
 -- Fontes vinculantes:
 --   docs/data/DATA-SG8-001-sg8-design-contract.md
 --     §1 (PASS/FAIL) · §2.1 taxonomia + D-1 (report run_id congelado) + D-10 (imutabilidade
---     entre rodadas) · §5.3 (proveniência LLM obrigatória, FORA do digest) · §6 (writes/
---     atomicidade/append-only) · §R.1 Q-1..Q-5 + §R.2 DD-1..DD-5
+--     entre rodadas) · §5.3-DEC0025 (proveniência de COMPUTAÇÃO determinística, FORA do digest) ·
+--     §6 (writes/atomicidade/append-only) · §R.1 Q-1..Q-5 + §R.2 DD-1..DD-5
 --   services/data-engine/src/noxund_data_engine/sg8_runner.py — Sg8State (os 7 marcos
 --     duráveis: session_open, r1_awaiting_review, r1_resolved, r1_snapshot_frozen,
 --     r1_computed, passed, failed) + InMemoryEvidenceStore (append-only por round_execution_id)
@@ -114,6 +130,14 @@ create table public.sg8_sessions (
   report_id_1              uuid,   -- reports.id · Relatório 1 de 2 · NULL até materialização (Round 1)
   report_id_2              uuid,   -- reports.id · Relatório 2 de 2 · NULL até materialização (Round 1)
   status                   public.sg8_session_status not null default 'session_open',
+  -- CONTRATO DE COMPARAÇÃO (DEC-0025 emenda · Product Lead): identidade da SEMÂNTICA do gate que
+  -- julga Round 1 vs Round 2 e autoriza a transição terminal. NÃO é determinante de COMPUTAÇÃO —
+  -- NUNCA entra em compute_manifest_hash, não produz score/digest e NÃO é duplicado nas rodadas
+  -- (vive na SESSÃO). Fornecido EXPLICITAMENTE no INSERT (SEM default), não-branco, IMUTÁVEL após a
+  -- criação; nesta migration aceita EXCLUSIVAMENTE 'sg8-pass-v1'. Nova semântica de gate ⇒ nova
+  -- migration + novo identificador (política de evolução). Associação canônica = identificador
+  -- imutável + migration versionada + histórico do repositório (SEM comparison_contract_hash).
+  comparison_contract_version text not null,
   verdict_reason           text,   -- razão do veredicto (auditoria; operacional — FORA do digest)
   created_at               timestamptz not null default now(),
   terminal_at              timestamptz,  -- carimbo do estado terminal (passed/failed)
@@ -141,6 +165,14 @@ create table public.sg8_sessions (
         else terminal_at is null and verdict_reason is null
       end
     ),
+  -- CONTRATO DE COMPARAÇÃO: não-branco E, nesta versão da migration, EXCLUSIVAMENTE 'sg8-pass-v1'
+  --   (admitir outra string exige nova migration + novo identificador — política de evolução).
+  --   Ausente ⇒ NOT NULL barra; vazio/desconhecido ⇒ estes CHECKs barram. A imutabilidade e a
+  --   RECUSA do gate de PASS (defesa-em-profundidade) ficam no trigger sg8_sessions_guard.
+  constraint sg8_sessions_comparison_contract_nonblank_chk
+    check (btrim(comparison_contract_version) <> ''),
+  constraint sg8_sessions_comparison_contract_v1_chk
+    check (comparison_contract_version = 'sg8-pass-v1'),
   -- cada relatório vinculado pertence à MESMA coleção-fonte da sessão (binding correto por dataset).
   constraint sg8_sessions_report_1_source_fk
     foreign key (report_id_1, source_collection_run_id)
@@ -154,7 +186,7 @@ create index sg8_sessions_source_run_idx on public.sg8_sessions (source_collecti
 create index sg8_sessions_status_idx     on public.sg8_sessions (status);
 
 comment on table public.sg8_sessions is
-  'SESSÃO SG-8 (âncora da tentativa; Round 1 + Round 2 sobre um source_collection_run_id). status = 7 marcos duráveis do runner; passed/failed terminais/imutáveis. report_id_1/2 (reports.id) por binding DIFERIDO: NULL→valor uma única vez na Round 1, imutável após. Elegibilidade de publish = status=passed (DD-1); estado SG-8 nunca entra no payload (DD-2).';
+  'SESSÃO SG-8 (âncora da tentativa; Round 1 + Round 2 sobre um source_collection_run_id). status = 7 marcos duráveis do runner; passed/failed terminais/imutáveis. report_id_1/2 (reports.id) por binding DIFERIDO: NULL→valor uma única vez na Round 1, imutável após. comparison_contract_version (NOT NULL, sem default, imutável, EXCLUSIVAMENTE sg8-pass-v1) = identidade da SEMÂNTICA do gate que julga R1 vs R2 — SEPARADA da computação, FORA do compute_manifest_hash. Elegibilidade de publish = status=passed (DD-1); estado SG-8 nunca entra no payload (DD-2).';
 
 -- ----------------------------------------------------------------------------
 -- 2. sg8_resolution_snapshots  (Q-1 — registro LEVE e dedicado; NÃO duplica os fatos)
@@ -197,22 +229,22 @@ comment on table public.sg8_resolution_snapshots is
 --    round_execution_id ≠ por rodada (identidade de EXECUÇÃO, nunca de dataset — §4.3). Uma
 --    única Round 1 e uma única Round 2 por sessão. Round 2 reusa o MESMO source_collection_run_id
 --    e o MESMO resolution_snapshot_id da Round 1 (garantido por FKs compostas: ambos amarrados
---    à sessão, e o snapshot é único por sessão). PROVENIÊNCIA OPERACIONAL da LLM (Round 1) vive
---    AQUI — FORA da superfície comparável (§3.2/§5.3); Round 2 é zero-LLM (CHECK).
+--    à sessão, e o snapshot é único por sessão). PROVENIÊNCIA DE COMPUTAÇÃO DETERMINÍSTICA
+--    (DEC-0025) vive AQUI — FORA da superfície comparável (§3.2); obrigatória e SIMÉTRICA nas 2
+--    rodadas; SEM provider/model/prompt (o caminho autoritativo não depende de LLM/provider externo).
 -- ----------------------------------------------------------------------------
 create table public.sg8_round_executions (
   id                       uuid primary key default gen_random_uuid(),          -- round_execution_id
   sg8_session_id           uuid not null references public.sg8_sessions (id) on delete restrict,
-  round_number             smallint not null,   -- 1 = Round 1 (compute) · 2 = Round 2 (replay zero-LLM)
+  round_number             smallint not null,   -- 1 = Round 1 (compute) · 2 = Round 2 (replay determinístico)
   source_collection_run_id uuid not null references public.report_runs (id) on delete restrict,
   resolution_snapshot_id   uuid not null references public.sg8_resolution_snapshots (id) on delete restrict,
-  -- Proveniência LLM (§5.3) — SÓ Round 1; auditável; NUNCA entra no digest. Params opacos (jsonb).
-  llm_provider             text,
-  llm_model                text,    -- modelo EXATO (pinado por id, nunca alias "latest" — Q-5)
-  llm_model_version        text,
-  llm_prompt_hash          text,
-  llm_params_json          jsonb,
-  llm_adapter_version      text,
+  -- PROVENIÊNCIA DE COMPUTAÇÃO DETERMINÍSTICA (DEC-0025) — obrigatória em AMBAS as rodadas;
+  -- auditável; NUNCA entra no digest. SEM provider/model/prompt, SEM adapter de persistência,
+  -- SEM parâmetros livres (as configs SÃO os parâmetros, versionadas+hasheadas no manifesto).
+  compute_engine_name      text not null,   -- motor determinístico (ex.: noxund-pipeline) — nunca um model id
+  compute_engine_version   text not null,   -- versão do motor (== pipeline version); coluna p/ comparação explícita no PASS gate + dentro do manifesto
+  compute_manifest_hash    text not null,   -- sha256 (64 hex minúsculo) de TODOS os determinantes: manifest_format_version + engine + pipeline/resolver/rule/rubric/opportunity versions+hashes
   created_at               timestamptz not null default now(),
 
   -- alvo da FK composta da evidência (a rodada pertence à sessão declarada).
@@ -229,48 +261,33 @@ create table public.sg8_round_executions (
   constraint sg8_round_executions_snapshot_session_fk
     foreign key (resolution_snapshot_id, sg8_session_id)
     references public.sg8_resolution_snapshots (id, sg8_session_id) on delete restrict,
-  -- §5.3 PROVENIÊNCIA POR RODADA — contrato EXPLÍCITO e SIMÉTRICO, campo a campo (U2A Gate 2).
-  --   Substitui os antigos round2_zero_llm_chk + llm_provenance_complete_chk, que dependiam de
-  --   num_nonnulls(...) in (0,5): uma CONTAGEM que ocultava a semântica (não dizia QUAIS campos).
-  --   As 6 colunas de proveniência são: llm_provider, llm_model, llm_model_version,
-  --   llm_prompt_hash, llm_params_json, llm_adapter_version. Os 5 campos-núcleo de IDENTIDADE
-  --   (todos exceto llm_params_json) são obrigatórios na Round 1; llm_params_json é contexto
-  --   OPCIONAL (§5.3). round_number já ∈ {1,2} (round_chk); o ramo else é defensivo (fail-closed).
-  --     Round 1 → os 5 campos-núcleo NÃO-NULOS e NÃO-BRANCOS (params livre: NULL ou objeto);
-  --     Round 2 → TODOS os 6 campos llm_* NULOS (zero-LLM), sem exceção.
-  constraint sg8_round_executions_provenance_by_round_chk
+  -- DEC-0025 PROVENIÊNCIA DE COMPUTAÇÃO — os 3 campos de identidade determinística são
+  --   obrigatórios (NOT NULL acima) e NÃO-BRANCOS em AMBAS as rodadas. Substitui integralmente a
+  --   antiga proveniência LLM (llm_provider/llm_model/llm_model_version/llm_prompt_hash/
+  --   llm_params_json/llm_adapter_version) + os antigos provenance_by_round_chk e
+  --   prompt_hash_format_chk. NÃO há campos ext_llm_*; NÃO há engine_kind='llm_assisted';
+  --   NÃO há provider/model/prompt antecipados; NÃO há adapter de persistência nem params livres
+  --   no contrato de computação (DEC-0025 supera §5.3/Q-3/Q-5 LLM-specific + DEC-0024 item 4).
+  constraint sg8_round_executions_compute_provenance_nonblank_chk
     check (
-      case
-        when round_number = 1 then
-              llm_provider        is not null and btrim(llm_provider)        <> ''
-          and llm_model           is not null and btrim(llm_model)           <> ''
-          and llm_model_version   is not null and btrim(llm_model_version)   <> ''
-          and llm_prompt_hash     is not null and btrim(llm_prompt_hash)     <> ''
-          and llm_adapter_version is not null and btrim(llm_adapter_version) <> ''
-        when round_number = 2 then
-              llm_provider        is null
-          and llm_model           is null
-          and llm_model_version   is null
-          and llm_prompt_hash     is null
-          and llm_params_json     is null
-          and llm_adapter_version is null
-        else false
-      end
+          btrim(compute_engine_name)     <> ''
+      and btrim(compute_engine_version)  <> ''
+      and btrim(compute_manifest_hash)   <> ''
     ),
-  -- §5.3 FORMATO DO HASH DO PROMPT (U2A Gate 1 · backstop de defesa-em-profundidade): quando
-  --   presente (Round 1), llm_prompt_hash DEVE ser um SHA-256 em hex minúsculo de 64 chars —
-  --   NUNCA um token de versão, nome de template, id, metadado ou substituto. A DERIVAÇÃO (hash
-  --   dos bytes exatos do prompt) é do upstream que possui os bytes; o adapter valida o formato
-  --   antes do 1º SQL; o banco é a ÚLTIMA linha de defesa. Round 2: llm_prompt_hash NULO (ok).
-  constraint sg8_round_executions_prompt_hash_format_chk
-    check (llm_prompt_hash is null or llm_prompt_hash ~ '^[0-9a-f]{64}$')
+  -- FORMATO DO MANIFESTO (backstop de defesa-em-profundidade): compute_manifest_hash DEVE ser um
+  --   SHA-256 em hex minúsculo de 64 chars — NUNCA um token de versão, nome, id ou metadado. A
+  --   DERIVAÇÃO (hash canônico dos artefatos+config versionados: resolver/rule/rubric/opportunity
+  --   versions+hashes + pipeline version) é do upstream (sg8_coordinator.canonical_compute_manifest);
+  --   o adapter valida o formato antes do 1º SQL; o banco é a ÚLTIMA linha de defesa.
+  constraint sg8_round_executions_manifest_hash_format_chk
+    check (compute_manifest_hash ~ '^[0-9a-f]{64}$')
 );
 
 create index sg8_round_executions_session_idx  on public.sg8_round_executions (sg8_session_id);
 create index sg8_round_executions_snapshot_idx on public.sg8_round_executions (resolution_snapshot_id);
 
 comment on table public.sg8_round_executions is
-  'RODADAS SG-8 (append-only/imutável). round_execution_id distinto por rodada (execução, nunca dataset — §4.3). UNIQUE (session, round) ⇒ 1 Round 1 + 1 Round 2. Round 2 reusa mesmo dataset+snapshot da Round 1 (FKs compostas). Proveniência LLM (§5.3) só Round 1, FORA do digest; Round 2 zero-LLM (CHECK).';
+  'RODADAS SG-8 (append-only/imutável). round_execution_id distinto por rodada (execução, nunca dataset — §4.3). UNIQUE (session, round) ⇒ 1 Round 1 + 1 Round 2. Round 2 reusa mesmo dataset+snapshot da Round 1 (FKs compostas). Proveniência de COMPUTAÇÃO DETERMINÍSTICA (DEC-0025) obrigatória e SIMÉTRICA nas 2 rodadas, FORA do digest; SEM provider/model/prompt. A igualdade de compute_manifest_hash R1==R2 é exigida pelo PASS gate.';
 
 -- ----------------------------------------------------------------------------
 -- 4. sg8_round_report_evidence  (a EVIDÊNCIA comparável — digest do payload canônico por
@@ -345,6 +362,9 @@ declare
   v_r1_exec uuid; v_r2_exec uuid;
   v_r1_src  uuid; v_r2_src  uuid;
   v_r1_snap uuid; v_r2_snap uuid;
+  v_r1_manifest text; v_r2_manifest text;
+  v_r1_engine   text; v_r2_engine   text;
+  v_r1_engver   text; v_r2_engver   text;
   v_ev1     int;  v_ev2     int;
   v_pairs   int;  v_mism    int;
 begin
@@ -383,6 +403,13 @@ begin
   end if;
   if new.created_at is distinct from old.created_at then
     raise exception 'sg8_sessions: created_at é imutável'
+      using errcode = 'restrict_violation';
+  end if;
+  -- CONTRATO DE COMPARAÇÃO imutável: o contrato sob o qual a sessão é julgada é fixado no
+  --   nascimento e NUNCA muda (sessões terminais preservam a versão sob a qual foram avaliadas;
+  --   nenhuma alteração retroativa do contrato registrado).
+  if new.comparison_contract_version is distinct from old.comparison_contract_version then
+    raise exception 'sg8_sessions: comparison_contract_version é imutável após a criação'
       using errcode = 'restrict_violation';
   end if;
   -- BINDING imutável: só NULL→valor (uma única vez); nunca alterar/remover/substituir.
@@ -424,6 +451,15 @@ begin
   --   evidências por rodada (uma por relatório congelado); emparelhamento por report_id; e
   --   canonical_digest R1 == R2 para cada relatório. Sem isso, transição negada.
   if new.status = 'passed' then
+    -- CONTRATO DE COMPARAÇÃO (defesa-em-profundidade): o gate SÓ avalia sob o contrato que
+    --   IMPLEMENTA. Recusa a avaliação quando o valor for ausente, desconhecido ou diferente de
+    --   'sg8-pass-v1' — mesmo que o CHECK de coluna já o garanta NESTA migration (o backstop
+    --   protege uma futura migration que venha a admitir mais de uma versão de contrato: a lógica
+    --   do gate aqui só julga sg8-pass-v1). NÃO é determinante de compute (fora do manifesto).
+    if new.comparison_contract_version is distinct from 'sg8-pass-v1' then
+      raise exception 'sg8_sessions PASS gate: comparison_contract_version "%" != contrato implementado (sg8-pass-v1) — avaliação recusada', coalesce(new.comparison_contract_version, '<null>')
+        using errcode = 'restrict_violation';
+    end if;
     if new.report_id_1 is null or new.report_id_2 is null then
       raise exception 'sg8_sessions PASS gate: binding dos 2 relatórios incompleto'
         using errcode = 'restrict_violation';
@@ -434,9 +470,13 @@ begin
       raise exception 'sg8_sessions PASS gate: exige exatamente 1 Round 1 e 1 Round 2 (r1=%, r2=%)', v_n1, v_n2
         using errcode = 'restrict_violation';
     end if;
-    select id, source_collection_run_id, resolution_snapshot_id into v_r1_exec, v_r1_src, v_r1_snap
+    select id, source_collection_run_id, resolution_snapshot_id,
+           compute_manifest_hash, compute_engine_name, compute_engine_version
+      into v_r1_exec, v_r1_src, v_r1_snap, v_r1_manifest, v_r1_engine, v_r1_engver
       from public.sg8_round_executions where sg8_session_id = new.id and round_number = 1;
-    select id, source_collection_run_id, resolution_snapshot_id into v_r2_exec, v_r2_src, v_r2_snap
+    select id, source_collection_run_id, resolution_snapshot_id,
+           compute_manifest_hash, compute_engine_name, compute_engine_version
+      into v_r2_exec, v_r2_src, v_r2_snap, v_r2_manifest, v_r2_engine, v_r2_engver
       from public.sg8_round_executions where sg8_session_id = new.id and round_number = 2;
     if v_r1_src is distinct from v_r2_src then
       raise exception 'sg8_sessions PASS gate: rodadas em source_collection_run_id distintos'
@@ -444,6 +484,23 @@ begin
     end if;
     if v_r1_snap is distinct from v_r2_snap then
       raise exception 'sg8_sessions PASS gate: rodadas em resolution_snapshot_id distintos'
+        using errcode = 'restrict_violation';
+    end if;
+    -- DEC-0025: EQUIVALÊNCIA COMPUTACIONAL entre as rodadas (defesa em profundidade, além do
+    --   manifesto). Divergência em QUALQUER componente da identidade computacional impede passed,
+    --   MESMO se os report digests coincidirem (motor/artefatos/config diferentes ⇒ resultado não
+    --   reproduzível de fato). engine_name/engine_version também integram o manifesto — a comparação
+    --   explícita é um backstop contra manifesto forjado com colunas de identidade divergentes.
+    if v_r1_engine is distinct from v_r2_engine then
+      raise exception 'sg8_sessions PASS gate: compute_engine_name da Round 1 != Round 2 — PASS negado'
+        using errcode = 'restrict_violation';
+    end if;
+    if v_r1_engver is distinct from v_r2_engver then
+      raise exception 'sg8_sessions PASS gate: compute_engine_version da Round 1 != Round 2 — PASS negado'
+        using errcode = 'restrict_violation';
+    end if;
+    if v_r1_manifest is distinct from v_r2_manifest then
+      raise exception 'sg8_sessions PASS gate: compute_manifest_hash da Round 1 != Round 2 (motor/artefatos divergentes) — PASS negado'
         using errcode = 'restrict_violation';
     end if;
     select count(*) into v_ev1 from public.sg8_round_report_evidence where round_execution_id = v_r1_exec;
