@@ -172,22 +172,25 @@ class HappyPathTests(_E2EBase):
             self.assertEqual(ev1, ev2)
             self.assertEqual(ev1, dict(evidence.report_digests))
 
-            # DEC-0025 compute provenance: R1 manifest == canonical default; R2 identical to R1;
-            # deterministic engine identity present; NO provider/model/prompt column exists.
+            # DEC-0025 compute provenance: R1 manifest == canonical default; R2 identical to R1
+            # across the FULL computational identity; deterministic engine identity present; NO
+            # provider/model/prompt and NO persistence-adapter/free-form-params column exists.
             expected_manifest = default_compute_manifest()
             with conn.cursor() as cur:
-                cur.execute("select compute_engine_name, compute_engine_version, compute_manifest_hash, "
-                            "compute_adapter_version, compute_params_json from public.sg8_round_executions "
-                            "where id = %s", (r1,))
+                cur.execute("select compute_engine_name, compute_engine_version, compute_manifest_hash "
+                            "from public.sg8_round_executions where id = %s", (r1,))
                 row1 = cur.fetchone()
-                cur.execute("select compute_engine_name, compute_engine_version, compute_manifest_hash, "
-                            "compute_adapter_version from public.sg8_round_executions where id = %s", (r2,))
+                cur.execute("select compute_engine_name, compute_engine_version, compute_manifest_hash "
+                            "from public.sg8_round_executions where id = %s", (r2,))
                 row2 = cur.fetchone()
             conn.rollback()
             self.assertEqual(row1[2], expected_manifest)          # R1 manifest = canonical default
             self.assertEqual(row2[2], expected_manifest)          # R2 manifest = SAME (DEC-0025)
             self.assertEqual(row1[0], "noxund-pipeline")
-            self.assertTrue(all(v is not None for v in row1[:4]))  # deterministic provenance present
+            self.assertTrue(all(v is not None for v in row1[:3]))  # full deterministic provenance present
+            # Computational EQUIVALENCE R1==R2 across the WHOLE identity (engine name + version +
+            # manifest) — the same defense-in-depth the DB PASS gate enforces, not just the manifest.
+            self.assertEqual(row1, row2)
 
             # Round 2 evidence has its OWN origin — persisted verbatim, never an R1 copy.
             r2_ev = coord.round2_evidence
@@ -347,7 +350,7 @@ class RealConstraintTests(_E2EBase):
             snap = _walk_store_to_computed(store, ids, session_id=session_id, src=src, rep1=rep1, rep2=rep2)
             base = ("insert into public.sg8_round_executions "
                     "(id, sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id")
-            cols = (", compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)")
+            cols = (", compute_engine_name, compute_engine_version, compute_manifest_hash)")
             good_mh = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
             # DEC-0025: Round 1 with NO compute provenance -> not_null_violation
@@ -360,13 +363,13 @@ class RealConstraintTests(_E2EBase):
                 (ids.new_id(), session_id, src, snap), _SQLSTATE_NOT_NULL)
             # blank compute_engine_name -> check_violation (nonblank)
             self._expect_sqlstate(
-                conn, base + cols + " values (%s, %s, 1, %s, %s, %s, %s, %s, %s)",
-                (ids.new_id(), session_id, src, snap, "   ", "pipeline-wiring-2026_06_v1", good_mh, "sg8-store-adapter-v1"),
+                conn, base + cols + " values (%s, %s, 1, %s, %s, %s, %s, %s)",
+                (ids.new_id(), session_id, src, snap, "   ", "pipeline-wiring-2026_06_v1", good_mh),
                 _SQLSTATE_CHECK)
             # version-token (non-64-hex) compute_manifest_hash -> check_violation
             self._expect_sqlstate(
-                conn, base + cols + " values (%s, %s, 1, %s, %s, %s, %s, %s, %s)",
-                (ids.new_id(), session_id, src, snap, "noxund-pipeline", "pipeline-wiring-2026_06_v1", "sg8-manifest-v1", "sg8-store-adapter-v1"),
+                conn, base + cols + " values (%s, %s, 1, %s, %s, %s, %s, %s)",
+                (ids.new_id(), session_id, src, snap, "noxund-pipeline", "pipeline-wiring-2026_06_v1", "sg8-manifest-v1"),
                 _SQLSTATE_CHECK)
             self.assertEqual(store.read_session_state(session_id).status, "r1_computed")  # reusable
         finally:

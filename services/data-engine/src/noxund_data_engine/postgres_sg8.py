@@ -37,9 +37,8 @@ and the ``Sg8State`` enum of ``sg8_runner``.
 
 from __future__ import annotations
 
-import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Mapping, Protocol, Sequence
 
 from .postgres_entity_resolution import CursorLike
@@ -144,10 +143,9 @@ update public.sg8_sessions
 _INSERT_ROUND = """
 insert into public.sg8_round_executions (
   id, sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-  compute_engine_name, compute_engine_version, compute_manifest_hash,
-  compute_adapter_version, compute_params_json
+  compute_engine_name, compute_engine_version, compute_manifest_hash
 )
-values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+values (%s, %s, %s, %s, %s, %s, %s, %s)
 """.strip()
 
 _INSERT_EVIDENCE = """
@@ -210,29 +208,30 @@ class Sg8SnapshotState:
 @dataclass(frozen=True, slots=True)
 class Sg8ComputeProvenance:
     """Deterministic compute provenance of ONE round (DEC-0025), with fields named
-    exactly as the schema columns (no provider/model/prompt).
+    exactly as the schema columns (no provider/model/prompt, no persistence adapter, no
+    free-form params).
 
     * ``engine_name`` / ``engine_version`` — the versioned deterministic engine that
-      produced the round (e.g., the pipeline wiring), never a model id;
+      produced the round (the pipeline composition), never a model id. Persisted as
+      columns AND folded into the manifest, so the PASS gate can compare them explicitly
+      (defense-in-depth) on top of the manifest equality;
     * ``manifest_hash`` — the ``compute_manifest_hash``: the **cryptographic SHA-256**
-      (64 lowercase hex) of the canonical set of versioned artifacts + configuration that
-      determine the result (resolver / rule / rubric / opportunity versions + hashes +
-      pipeline version). Its **derivation** belongs to the component that owns those
+      (64 lowercase hex) of the canonical set of ALL computational determinants (manifest
+      format version + engine identity + pipeline/resolver/rule/rubric/opportunity
+      versions + hashes). Its **derivation** belongs to the component that owns those
       identities (``sg8_coordinator.canonical_compute_manifest``); this store only
       **validates the format** (:func:`_require_manifest_hash`) and persists the value.
-      It contains NO credential, timestamp, execution UUID or unstable datum;
-    * ``adapter_version`` — the SG-8 adapter's own version;
-    * ``params`` — optional canonical deterministic parameters (context only).
+      It contains NO credential, timestamp, execution UUID, local path or unstable datum,
+      and NO persistence-adapter identity (persistence does not participate in the compute).
 
     Round 1 and Round 2 carry the SAME provenance (same engine, same manifest); the schema
-    PASS gate refuses ``passed`` when the two rounds' ``compute_manifest_hash`` differ,
-    even if the digests coincidentally match."""
+    PASS gate refuses ``passed`` when the two rounds' ``compute_engine_name`` /
+    ``compute_engine_version`` / ``compute_manifest_hash`` differ, even if the digests
+    coincidentally match."""
 
     engine_name: str
     engine_version: str
     manifest_hash: str
-    adapter_version: str
-    params: Mapping[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -601,21 +600,18 @@ def _validate_compute_provenance(provenance: Sg8ComputeProvenance | None) -> Non
     (DEC-0025).
 
     BOTH rounds require complete provenance: the engine identity fields non-blank and
-    ``manifest_hash`` a real SHA-256 (64 lowercase hex). ``params`` is optional context
-    but, when given, must be a mapping. There is no provider/model/prompt and no
-    per-round asymmetry — Round 1 and Round 2 carry the SAME provenance.
+    ``manifest_hash`` a real SHA-256 (64 lowercase hex). There is no provider/model/prompt,
+    no persistence adapter, no free-form params, and no per-round asymmetry — Round 1 and
+    Round 2 carry the SAME provenance.
 
     This mirrors — never replaces — the schema's authoritative NOT NULL columns +
-    ``sg8_round_executions_manifest_hash_format_chk`` + the PASS-gate manifest equality.
+    ``sg8_round_executions_manifest_hash_format_chk`` + the PASS-gate engine/manifest equality.
     """
     if provenance is None:
         raise Sg8ContractViolation("compute provenance is required for every round")
     _nonblank(provenance.engine_name, "provenance.engine_name")
     _nonblank(provenance.engine_version, "provenance.engine_version")
-    _nonblank(provenance.adapter_version, "provenance.adapter_version")
     _require_manifest_hash(provenance.manifest_hash, "provenance.manifest_hash")
-    if not isinstance(provenance.params, Mapping):
-        raise Sg8ContractViolation("provenance.params must be a mapping")
 
 
 def _sqlstate(exc: BaseException) -> str | None:
@@ -628,21 +624,17 @@ def _sqlstate(exc: BaseException) -> str | None:
 
 def _compute_provenance_columns(
     provenance: Sg8ComputeProvenance,
-) -> tuple[Any, Any, Any, Any, Any]:
-    """Map the deterministic provenance to the 5 compute_* columns (DEC-0025).
+) -> tuple[Any, Any, Any]:
+    """Map the deterministic provenance to the 3 compute_* columns (DEC-0025).
 
     Column order matches the INSERT: compute_engine_name, compute_engine_version,
-    compute_manifest_hash, compute_adapter_version, compute_params_json. Field names map
-    1:1 to the columns; ``params`` is serialized canonically (sorted keys, compact). The
-    non-blank / format invariants are enforced by :func:`_validate_compute_provenance`
-    (adapter) and by the schema CHECKs (authoritative) — not duplicated here.
+    compute_manifest_hash. Field names map 1:1 to the columns. The non-blank / format
+    invariants are enforced by :func:`_validate_compute_provenance` (adapter) and by the
+    schema CHECKs (authoritative) — not duplicated here.
     """
 
-    params: Mapping[str, Any] = provenance.params if isinstance(provenance.params, Mapping) else {}
     return (
         provenance.engine_name,
         provenance.engine_version,
         provenance.manifest_hash,
-        provenance.adapter_version,
-        json.dumps(params, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
     )

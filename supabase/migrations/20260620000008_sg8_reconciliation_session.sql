@@ -14,8 +14,11 @@
 --
 -- DEC-0025 (LLM decoupling): o SG-8 é INTEGRALMENTE DETERMINÍSTICO e NÃO depende de LLM,
 --   modelo remoto ou provider externo. A proveniência por rodada é de COMPUTAÇÃO DETERMINÍSTICA
---   (compute_engine_name/version, compute_manifest_hash, compute_adapter_version, compute_params_json),
---   obrigatória e SIMÉTRICA nas 2 rodadas — SEM provider/model/prompt e SEM colunas ext_llm_*.
+--   (compute_engine_name, compute_engine_version, compute_manifest_hash), obrigatória e SIMÉTRICA
+--   nas 2 rodadas — SEM provider/model/prompt, SEM colunas ext_llm_*, SEM adapter de persistência
+--   nem params livres. O compute_manifest_hash incorpora TODOS os determinantes computacionais
+--   (manifest_format_version + engine + pipeline/resolver/rule/rubric/opportunity versions+hashes);
+--   o PASS gate exige R1==R2 em engine_name, engine_version e manifest_hash (equivalência computacional).
 --   DEC-0025 supera §5.3 e §R (Q-3/Q-5) nas partes LLM-specific e DEC-0024 item 4.
 --
 -- Fontes vinculantes:
@@ -214,12 +217,11 @@ create table public.sg8_round_executions (
   source_collection_run_id uuid not null references public.report_runs (id) on delete restrict,
   resolution_snapshot_id   uuid not null references public.sg8_resolution_snapshots (id) on delete restrict,
   -- PROVENIÊNCIA DE COMPUTAÇÃO DETERMINÍSTICA (DEC-0025) — obrigatória em AMBAS as rodadas;
-  -- auditável; NUNCA entra no digest. SEM provider/model/prompt.
+  -- auditável; NUNCA entra no digest. SEM provider/model/prompt, SEM adapter de persistência,
+  -- SEM parâmetros livres (as configs SÃO os parâmetros, versionadas+hasheadas no manifesto).
   compute_engine_name      text not null,   -- motor determinístico (ex.: noxund-pipeline) — nunca um model id
-  compute_engine_version   text not null,   -- versão do motor (ex.: pipeline-wiring-2026_06_v1)
-  compute_manifest_hash    text not null,   -- sha256 (64 hex minúsculo) dos artefatos+config versionados que DETERMINAM o resultado
-  compute_adapter_version  text not null,   -- versão do adapter SG-8
-  compute_params_json      jsonb,           -- parâmetros determinísticos canônicos (contexto; OPCIONAL)
+  compute_engine_version   text not null,   -- versão do motor (== pipeline version); coluna p/ comparação explícita no PASS gate + dentro do manifesto
+  compute_manifest_hash    text not null,   -- sha256 (64 hex minúsculo) de TODOS os determinantes: manifest_format_version + engine + pipeline/resolver/rule/rubric/opportunity versions+hashes
   created_at               timestamptz not null default now(),
 
   -- alvo da FK composta da evidência (a rodada pertence à sessão declarada).
@@ -236,18 +238,18 @@ create table public.sg8_round_executions (
   constraint sg8_round_executions_snapshot_session_fk
     foreign key (resolution_snapshot_id, sg8_session_id)
     references public.sg8_resolution_snapshots (id, sg8_session_id) on delete restrict,
-  -- DEC-0025 PROVENIÊNCIA DE COMPUTAÇÃO — os 4 campos de identidade determinística são
+  -- DEC-0025 PROVENIÊNCIA DE COMPUTAÇÃO — os 3 campos de identidade determinística são
   --   obrigatórios (NOT NULL acima) e NÃO-BRANCOS em AMBAS as rodadas. Substitui integralmente a
   --   antiga proveniência LLM (llm_provider/llm_model/llm_model_version/llm_prompt_hash/
   --   llm_params_json/llm_adapter_version) + os antigos provenance_by_round_chk e
   --   prompt_hash_format_chk. NÃO há campos ext_llm_*; NÃO há engine_kind='llm_assisted';
-  --   NÃO há provider/model/prompt antecipados (DEC-0025 supera §5.3/Q-3/Q-5 LLM-specific + DEC-0024 item 4).
+  --   NÃO há provider/model/prompt antecipados; NÃO há adapter de persistência nem params livres
+  --   no contrato de computação (DEC-0025 supera §5.3/Q-3/Q-5 LLM-specific + DEC-0024 item 4).
   constraint sg8_round_executions_compute_provenance_nonblank_chk
     check (
           btrim(compute_engine_name)     <> ''
       and btrim(compute_engine_version)  <> ''
       and btrim(compute_manifest_hash)   <> ''
-      and btrim(compute_adapter_version) <> ''
     ),
   -- FORMATO DO MANIFESTO (backstop de defesa-em-profundidade): compute_manifest_hash DEVE ser um
   --   SHA-256 em hex minúsculo de 64 chars — NUNCA um token de versão, nome, id ou metadado. A
@@ -338,6 +340,8 @@ declare
   v_r1_src  uuid; v_r2_src  uuid;
   v_r1_snap uuid; v_r2_snap uuid;
   v_r1_manifest text; v_r2_manifest text;
+  v_r1_engine   text; v_r2_engine   text;
+  v_r1_engver   text; v_r2_engver   text;
   v_ev1     int;  v_ev2     int;
   v_pairs   int;  v_mism    int;
 begin
@@ -427,11 +431,13 @@ begin
       raise exception 'sg8_sessions PASS gate: exige exatamente 1 Round 1 e 1 Round 2 (r1=%, r2=%)', v_n1, v_n2
         using errcode = 'restrict_violation';
     end if;
-    select id, source_collection_run_id, resolution_snapshot_id, compute_manifest_hash
-      into v_r1_exec, v_r1_src, v_r1_snap, v_r1_manifest
+    select id, source_collection_run_id, resolution_snapshot_id,
+           compute_manifest_hash, compute_engine_name, compute_engine_version
+      into v_r1_exec, v_r1_src, v_r1_snap, v_r1_manifest, v_r1_engine, v_r1_engver
       from public.sg8_round_executions where sg8_session_id = new.id and round_number = 1;
-    select id, source_collection_run_id, resolution_snapshot_id, compute_manifest_hash
-      into v_r2_exec, v_r2_src, v_r2_snap, v_r2_manifest
+    select id, source_collection_run_id, resolution_snapshot_id,
+           compute_manifest_hash, compute_engine_name, compute_engine_version
+      into v_r2_exec, v_r2_src, v_r2_snap, v_r2_manifest, v_r2_engine, v_r2_engver
       from public.sg8_round_executions where sg8_session_id = new.id and round_number = 2;
     if v_r1_src is distinct from v_r2_src then
       raise exception 'sg8_sessions PASS gate: rodadas em source_collection_run_id distintos'
@@ -441,8 +447,19 @@ begin
       raise exception 'sg8_sessions PASS gate: rodadas em resolution_snapshot_id distintos'
         using errcode = 'restrict_violation';
     end if;
-    -- DEC-0025: divergência de MANIFESTO de computação impede passed, MESMO se os digests
-    --   coincidirem (motor/artefatos/config diferentes ⇒ resultado não reproduzível de fato).
+    -- DEC-0025: EQUIVALÊNCIA COMPUTACIONAL entre as rodadas (defesa em profundidade, além do
+    --   manifesto). Divergência em QUALQUER componente da identidade computacional impede passed,
+    --   MESMO se os report digests coincidirem (motor/artefatos/config diferentes ⇒ resultado não
+    --   reproduzível de fato). engine_name/engine_version também integram o manifesto — a comparação
+    --   explícita é um backstop contra manifesto forjado com colunas de identidade divergentes.
+    if v_r1_engine is distinct from v_r2_engine then
+      raise exception 'sg8_sessions PASS gate: compute_engine_name da Round 1 != Round 2 — PASS negado'
+        using errcode = 'restrict_violation';
+    end if;
+    if v_r1_engver is distinct from v_r2_engver then
+      raise exception 'sg8_sessions PASS gate: compute_engine_version da Round 1 != Round 2 — PASS negado'
+        using errcode = 'restrict_violation';
+    end if;
     if v_r1_manifest is distinct from v_r2_manifest then
       raise exception 'sg8_sessions PASS gate: compute_manifest_hash da Round 1 != Round 2 (motor/artefatos divergentes) — PASS negado'
         using errcode = 'restrict_violation';

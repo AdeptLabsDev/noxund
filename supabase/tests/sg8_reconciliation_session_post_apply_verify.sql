@@ -92,7 +92,6 @@ begin
     ('sg8_round_executions','round_number'),('sg8_round_executions','source_collection_run_id'),
     ('sg8_round_executions','resolution_snapshot_id'),('sg8_round_executions','compute_engine_name'),
     ('sg8_round_executions','compute_engine_version'),('sg8_round_executions','compute_manifest_hash'),
-    ('sg8_round_executions','compute_adapter_version'),('sg8_round_executions','compute_params_json'),
     ('sg8_round_executions','created_at'),
     ('sg8_round_report_evidence','id'),('sg8_round_report_evidence','round_execution_id'),
     ('sg8_round_report_evidence','sg8_session_id'),('sg8_round_report_evidence','report_id'),
@@ -103,17 +102,19 @@ begin
   if missing is not null then raise exception 'STRUCT/columns: missing: %', missing; end if;
 end $$;
 
--- DEC-0025: AUSÊNCIA das 6 colunas LLM (removidas integralmente; sem ext_llm_*) ------
+-- DEC-0025: AUSÊNCIA das 6 colunas LLM (sem ext_llm_*) + do adapter de persistência e params
+-- livres (não são determinantes de computação; fora do contrato) -----------------
 do $$
 declare leftover text;
 begin
   select string_agg(column_name, ', ') into leftover from information_schema.columns
    where table_schema = 'public' and table_name = 'sg8_round_executions'
      and (column_name in ('llm_provider','llm_model','llm_model_version','llm_prompt_hash',
-                          'llm_params_json','llm_adapter_version')
+                          'llm_params_json','llm_adapter_version',
+                          'compute_adapter_version','compute_params_json')
           or column_name like 'llm\_%' or column_name like 'ext\_llm\_%');
   if leftover is not null then
-    raise exception 'DEC-0025/no-llm: residual LLM column(s) on sg8_round_executions: %', leftover;
+    raise exception 'DEC-0025/no-llm: residual LLM/non-computational column(s) on sg8_round_executions: %', leftover;
   end if;
 end $$;
 
@@ -125,15 +126,14 @@ begin
    where table_schema = 'public'
      and ( (table_name = 'sg8_sessions' and column_name in ('id','source_collection_run_id','status','created_at'))
         or (table_name = 'sg8_resolution_snapshots' and column_name in ('id','sg8_session_id','source_collection_run_id','resolver_version','resolver_hash','fact_count','content_hash','frozen_at'))
-        or (table_name = 'sg8_round_executions' and column_name in ('id','sg8_session_id','round_number','source_collection_run_id','resolution_snapshot_id','compute_engine_name','compute_engine_version','compute_manifest_hash','compute_adapter_version','created_at'))
+        or (table_name = 'sg8_round_executions' and column_name in ('id','sg8_session_id','round_number','source_collection_run_id','resolution_snapshot_id','compute_engine_name','compute_engine_version','compute_manifest_hash','created_at'))
         or (table_name = 'sg8_round_report_evidence' and column_name in ('id','round_execution_id','sg8_session_id','report_id','canonical_digest','created_at')) )
      and is_nullable <> 'NO';
   if bad is not null then raise exception 'STRUCT/not-null: must be NOT NULL: %', bad; end if;
 
   select string_agg(table_name || '.' || column_name, ', ') into bad from information_schema.columns
    where table_schema = 'public'
-     and ( (table_name = 'sg8_sessions' and column_name in ('report_id_1','report_id_2','verdict_reason','terminal_at'))
-        or (table_name = 'sg8_round_executions' and column_name in ('compute_params_json')) )
+     and (table_name = 'sg8_sessions' and column_name in ('report_id_1','report_id_2','verdict_reason','terminal_at'))
      and is_nullable <> 'YES';
   if bad is not null then raise exception 'STRUCT/nullable: must be NULLABLE: %', bad; end if;
 end $$;
@@ -600,9 +600,9 @@ begin;
     begin
       insert into public.sg8_round_executions
         (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-         compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
+         compute_engine_name, compute_engine_version, compute_manifest_hash)
         values (v_sess, 1, v_src2, v_snap,
-                'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh, 'sg8-store-adapter-v1');
+                'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh);
       raise exception 'ROUND: round with a different dataset ACCEPTED';
     exception when foreign_key_violation then null; end;
 
@@ -610,9 +610,9 @@ begin;
     begin
       insert into public.sg8_round_executions
         (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-         compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
+         compute_engine_name, compute_engine_version, compute_manifest_hash)
         values (v_sess, 1, v_src, v_snap2,
-                'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh, 'sg8-store-adapter-v1');
+                'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh);
       raise exception 'ROUND: round reusing another session snapshot ACCEPTED';
     exception when foreign_key_violation then null; end;
 
@@ -621,9 +621,9 @@ begin;
     begin
       insert into public.sg8_round_executions
         (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-         compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
+         compute_engine_name, compute_engine_version, compute_manifest_hash)
         values (v_sess, 3, v_src, v_snap,
-                'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh, 'sg8-store-adapter-v1');
+                'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh);
       raise exception 'ROUND: round_number=3 ACCEPTED';
     exception when check_violation then null; end;
 
@@ -638,8 +638,8 @@ begin;
     begin
       insert into public.sg8_round_executions
         (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-         compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
-        values (v_sess, 1, v_src, v_snap, '   ', 'pipeline-wiring-2026_06_v1', c_mh, 'sg8-store-adapter-v1');
+         compute_engine_name, compute_engine_version, compute_manifest_hash)
+        values (v_sess, 1, v_src, v_snap, '   ', 'pipeline-wiring-2026_06_v1', c_mh);
       raise exception 'ROUND: blank compute_engine_name ACCEPTED';
     exception when check_violation then null; end;
 
@@ -647,26 +647,26 @@ begin;
     begin
       insert into public.sg8_round_executions
         (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-         compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
-        values (v_sess, 1, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', 'sg8-manifest-v1', 'sg8-store-adapter-v1');
+         compute_engine_name, compute_engine_version, compute_manifest_hash)
+        values (v_sess, 1, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', 'sg8-manifest-v1');
       raise exception 'ROUND: version-token compute_manifest_hash ACCEPTED';
     exception when check_violation then null; end;
 
     -- Round 1 legítima com proveniência de computação COMPLETA e manifesto SHA-256 → aceita
     insert into public.sg8_round_executions
       (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-       compute_engine_name, compute_engine_version, compute_manifest_hash, compute_params_json, compute_adapter_version)
-      values (v_sess, 1, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh,
-              '{"deterministic":true}'::jsonb, 'sg8-store-adapter-v1') returning id into v_r1;
+       compute_engine_name, compute_engine_version, compute_manifest_hash)
+      values (v_sess, 1, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh)
+      returning id into v_r1;
 
     -- SEGUNDA Round 1 → rejeitada (UNIQUE (sg8_session_id, round_number)). Proveniência válida
     -- (fixture) → o CHECK passa e a UNIQUE decide → unique_violation.
     begin
       insert into public.sg8_round_executions
         (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-         compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
+         compute_engine_name, compute_engine_version, compute_manifest_hash)
         values (v_sess, 1, v_src, v_snap,
-                'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh, 'sg8-store-adapter-v1');
+                'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh);
       raise exception 'ROUND: second Round 1 for a session ACCEPTED';
     exception when unique_violation then null; end;
 
@@ -681,16 +681,16 @@ begin;
     -- Round 2 legítima com proveniência completa → aceita (mesmo manifesto de R1).
     insert into public.sg8_round_executions
       (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-       compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
-      values (v_sess, 2, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh, 'sg8-store-adapter-v1');
+       compute_engine_name, compute_engine_version, compute_manifest_hash)
+      values (v_sess, 2, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh);
 
     -- SEGUNDA Round 2 → rejeitada
     begin
       insert into public.sg8_round_executions
         (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-         compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
+         compute_engine_name, compute_engine_version, compute_manifest_hash)
         values (v_sess, 2, v_src, v_snap,
-                'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh, 'sg8-store-adapter-v1');
+                'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh);
       raise exception 'ROUND: second Round 2 for a session ACCEPTED';
     exception when unique_violation then null; end;
 
@@ -729,10 +729,10 @@ begin;
     -- setup VÁLIDO da Round 1 (deve ter sucesso): proveniência de computação completa/válida (fixture).
     insert into public.sg8_round_executions
       (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-       compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
+       compute_engine_name, compute_engine_version, compute_manifest_hash)
       values (v_sess, 1, v_src, v_snap,
               'noxund-pipeline', 'pipeline-wiring-2026_06_v1',
-              'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'sg8-store-adapter-v1')
+              'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')
       returning id into v_round1;
 
     -- evidência ANTES do binding → rejeitada (trigger: binding ausente)
@@ -777,8 +777,8 @@ begin;
 
     -- ROUND 2 reusa EXATAMENTE os mesmos 2 relatórios
     insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-        compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
-      values (v_sess, 2, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'sg8-store-adapter-v1') returning id into v_round2;
+        compute_engine_name, compute_engine_version, compute_manifest_hash)
+      values (v_sess, 2, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') returning id into v_round2;
     begin
       insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest)
         values (v_round2, v_sess, v_rep_x, 'r2-X');
@@ -835,11 +835,11 @@ begin;
       values (v_sess, v_src, 'entity-resolver-v1', 'rhash', 500, 'chash') returning id into v_snap;
     update public.sg8_sessions set report_id_1 = v_rep1, report_id_2 = v_rep2, status = 'r1_computed' where id = v_sess;
     insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-        compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
-      values (v_sess, 1, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'sg8-store-adapter-v1') returning id into v_round1;
+        compute_engine_name, compute_engine_version, compute_manifest_hash)
+      values (v_sess, 1, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') returning id into v_round1;
     insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-        compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
-      values (v_sess, 2, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'sg8-store-adapter-v1') returning id into v_round2;
+        compute_engine_name, compute_engine_version, compute_manifest_hash)
+      values (v_sess, 2, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') returning id into v_round2;
     -- Round 1 completa (2 evidências); Round 2 só 1 evidência
     insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round1, v_sess, v_rep1, 'd1');
     insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round1, v_sess, v_rep2, 'd2');
@@ -869,11 +869,11 @@ begin;
       values (v_sess, v_src, 'entity-resolver-v1', 'rhash', 500, 'chash') returning id into v_snap;
     update public.sg8_sessions set report_id_1 = v_rep1, report_id_2 = v_rep2, status = 'r1_computed' where id = v_sess;
     insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-        compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
-      values (v_sess, 1, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'sg8-store-adapter-v1') returning id into v_round1;
+        compute_engine_name, compute_engine_version, compute_manifest_hash)
+      values (v_sess, 1, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') returning id into v_round1;
     insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-        compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
-      values (v_sess, 2, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'sg8-store-adapter-v1') returning id into v_round2;
+        compute_engine_name, compute_engine_version, compute_manifest_hash)
+      values (v_sess, 2, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') returning id into v_round2;
     -- R1 digests
     insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round1, v_sess, v_rep1, 'DIG-A');
     insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round1, v_sess, v_rep2, 'DIG-B');
@@ -914,11 +914,11 @@ begin;
     update public.sg8_sessions set report_id_1 = v_rep1, report_id_2 = v_rep2, status = 'r1_computed' where id = v_sess;
     -- R1 e R2: mesmo dataset+snapshot, MANIFESTOS DIFERENTES (c_mh1 vs c_mh2).
     insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-        compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
-      values (v_sess, 1, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh1, 'sg8-store-adapter-v1') returning id into v_round1;
+        compute_engine_name, compute_engine_version, compute_manifest_hash)
+      values (v_sess, 1, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh1) returning id into v_round1;
     insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-        compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
-      values (v_sess, 2, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh2, 'sg8-store-adapter-v1') returning id into v_round2;
+        compute_engine_name, compute_engine_version, compute_manifest_hash)
+      values (v_sess, 2, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh2) returning id into v_round2;
     -- Digests R1==R2 IDÊNTICOS nos 2 relatórios (para isolar o manifesto como única causa).
     insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round1, v_sess, v_rep1, 'DIG-A');
     insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round1, v_sess, v_rep2, 'DIG-B');
@@ -929,6 +929,79 @@ begin;
     begin
       update public.sg8_sessions set status = 'passed', terminal_at = now(), verdict_reason = 'byte-identical digests' where id = v_sess;
       raise exception 'ITEM4c2: passed with divergent compute_manifest_hash ACCEPTED';
+    exception when restrict_violation then null; end;
+  end $$;
+rollback;
+
+-- (4c3 · DEC-0025) EQUIVALÊNCIA COMPUTACIONAL — digests R1==R2 iguais E manifesto R1==R2 igual,
+-- mas compute_engine_name divergente → passed rejeitado (comparação explícita, defesa em
+-- profundidade contra manifesto forjado com coluna de identidade divergente).
+begin;
+  do $$
+  declare v_src uuid; v_rep1 uuid; v_rep2 uuid; v_sess uuid; v_snap uuid; v_round1 uuid; v_round2 uuid;
+          c_mh constant text := 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+  begin
+    insert into public.rubric_versions (version, config_json, hash) values ('sg8-vr', '{}'::jsonb, 'h');
+    insert into public.report_runs (window_start, window_end) values (now() - interval '30 days', now()) returning id into v_src;
+    insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R1', 'sg8-vr', 'h') returning id into v_rep1;
+    insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R2', 'sg8-vr', 'h') returning id into v_rep2;
+    insert into public.sg8_sessions (source_collection_run_id) values (v_src) returning id into v_sess;
+    update public.sg8_sessions set status = 'r1_awaiting_review'  where id = v_sess;
+    update public.sg8_sessions set status = 'r1_resolved'         where id = v_sess;
+    update public.sg8_sessions set status = 'r1_snapshot_frozen'  where id = v_sess;
+    insert into public.sg8_resolution_snapshots (sg8_session_id, source_collection_run_id, resolver_version, resolver_hash, fact_count, content_hash)
+      values (v_sess, v_src, 'entity-resolver-v1', 'rhash', 500, 'chash') returning id into v_snap;
+    update public.sg8_sessions set report_id_1 = v_rep1, report_id_2 = v_rep2, status = 'r1_computed' where id = v_sess;
+    -- Mesmo manifesto, engine_name DIFERENTE entre as rodadas.
+    insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
+        compute_engine_name, compute_engine_version, compute_manifest_hash)
+      values (v_sess, 1, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh) returning id into v_round1;
+    insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
+        compute_engine_name, compute_engine_version, compute_manifest_hash)
+      values (v_sess, 2, v_src, v_snap, 'other-engine', 'pipeline-wiring-2026_06_v1', c_mh) returning id into v_round2;
+    insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round1, v_sess, v_rep1, 'DIG-A');
+    insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round1, v_sess, v_rep2, 'DIG-B');
+    insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round2, v_sess, v_rep1, 'DIG-A');
+    insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round2, v_sess, v_rep2, 'DIG-B');
+    begin
+      update public.sg8_sessions set status = 'passed', terminal_at = now(), verdict_reason = 'engine name drift' where id = v_sess;
+      raise exception 'ITEM4c3: passed with divergent compute_engine_name ACCEPTED';
+    exception when restrict_violation then null; end;
+  end $$;
+rollback;
+
+-- (4c4 · DEC-0025) EQUIVALÊNCIA COMPUTACIONAL — digests + manifesto + engine_name iguais, mas
+-- compute_engine_version divergente → passed rejeitado (comparação explícita).
+begin;
+  do $$
+  declare v_src uuid; v_rep1 uuid; v_rep2 uuid; v_sess uuid; v_snap uuid; v_round1 uuid; v_round2 uuid;
+          c_mh constant text := 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+  begin
+    insert into public.rubric_versions (version, config_json, hash) values ('sg8-vr', '{}'::jsonb, 'h');
+    insert into public.report_runs (window_start, window_end) values (now() - interval '30 days', now()) returning id into v_src;
+    insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R1', 'sg8-vr', 'h') returning id into v_rep1;
+    insert into public.reports (run_id, title, rubric_version, rubric_hash) values (v_src, 'R2', 'sg8-vr', 'h') returning id into v_rep2;
+    insert into public.sg8_sessions (source_collection_run_id) values (v_src) returning id into v_sess;
+    update public.sg8_sessions set status = 'r1_awaiting_review'  where id = v_sess;
+    update public.sg8_sessions set status = 'r1_resolved'         where id = v_sess;
+    update public.sg8_sessions set status = 'r1_snapshot_frozen'  where id = v_sess;
+    insert into public.sg8_resolution_snapshots (sg8_session_id, source_collection_run_id, resolver_version, resolver_hash, fact_count, content_hash)
+      values (v_sess, v_src, 'entity-resolver-v1', 'rhash', 500, 'chash') returning id into v_snap;
+    update public.sg8_sessions set report_id_1 = v_rep1, report_id_2 = v_rep2, status = 'r1_computed' where id = v_sess;
+    -- Mesmo manifesto + engine_name, engine_version DIFERENTE entre as rodadas.
+    insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
+        compute_engine_name, compute_engine_version, compute_manifest_hash)
+      values (v_sess, 1, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', c_mh) returning id into v_round1;
+    insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
+        compute_engine_name, compute_engine_version, compute_manifest_hash)
+      values (v_sess, 2, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v2', c_mh) returning id into v_round2;
+    insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round1, v_sess, v_rep1, 'DIG-A');
+    insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round1, v_sess, v_rep2, 'DIG-B');
+    insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round2, v_sess, v_rep1, 'DIG-A');
+    insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round2, v_sess, v_rep2, 'DIG-B');
+    begin
+      update public.sg8_sessions set status = 'passed', terminal_at = now(), verdict_reason = 'engine version drift' where id = v_sess;
+      raise exception 'ITEM4c4: passed with divergent compute_engine_version ACCEPTED';
     exception when restrict_violation then null; end;
   end $$;
 rollback;
@@ -950,11 +1023,11 @@ begin;
       values (v_sess, v_src, 'entity-resolver-v1', 'rhash', 500, 'chash') returning id into v_snap;
     update public.sg8_sessions set report_id_1 = v_rep1, report_id_2 = v_rep2, status = 'r1_computed' where id = v_sess;
     insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-        compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
-      values (v_sess, 1, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'sg8-store-adapter-v1') returning id into v_round1;
+        compute_engine_name, compute_engine_version, compute_manifest_hash)
+      values (v_sess, 1, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') returning id into v_round1;
     insert into public.sg8_round_executions (sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
-        compute_engine_name, compute_engine_version, compute_manifest_hash, compute_adapter_version)
-      values (v_sess, 2, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'sg8-store-adapter-v1') returning id into v_round2;
+        compute_engine_name, compute_engine_version, compute_manifest_hash)
+      values (v_sess, 2, v_src, v_snap, 'noxund-pipeline', 'pipeline-wiring-2026_06_v1', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') returning id into v_round2;
     insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round1, v_sess, v_rep1, 'DIG-A');
     insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round1, v_sess, v_rep2, 'DIG-B');
     insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_round2, v_sess, v_rep1, 'DIG-A');

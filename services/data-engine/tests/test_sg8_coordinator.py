@@ -9,11 +9,17 @@ rounds. The DB-enforced behaviour (constraints/triggers/PASS gate) is the E2E su
 
 from __future__ import annotations
 
+import hashlib
+import inspect
+import json
 import re
 import unittest
 from datetime import datetime, timezone
 
+from noxund_data_engine import sg8_coordinator as coord_mod
+from noxund_data_engine.channel_filter import DEFAULT_CONFIG as CHANNEL_FILTER_DEFAULT_CONFIG
 from noxund_data_engine.entity_resolution import RESOLVER_VERSION
+from noxund_data_engine.opportunity import DEFAULT_CONFIG as OPPORTUNITY_DEFAULT_CONFIG
 from noxund_data_engine.pipeline import (
     PIPELINE_VERSION,
     ArtistRow,
@@ -22,7 +28,10 @@ from noxund_data_engine.pipeline import (
     RawVideoRow,
 )
 from noxund_data_engine.postgres_sg8 import Sg8ComputeProvenance
+from noxund_data_engine.scoring import DEFAULT_RUBRIC
 from noxund_data_engine.sg8_coordinator import (
+    COMPUTE_ENGINE_NAME,
+    COMPUTE_MANIFEST_FORMAT_VERSION,
     SequentialIdFactory,
     Sg8Coordinator,
     UuidIdFactory,
@@ -156,37 +165,123 @@ class IdFactoryTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Compute manifest + provenance bridge + snapshot metadata.
 # ---------------------------------------------------------------------------
-class ComputeManifestTests(unittest.TestCase):
-    def test_canonical_manifest_is_deterministic_64hex_and_drift_sensitive(self) -> None:
-        kw = dict(
-            pipeline_version="pv", resolver_version="rv", rule_version="rul", rule_hash="rh",
-            rubric_version="rbv", rubric_hash="rbh", opportunity_version="ov", opportunity_hash="oh",
-        )
-        a = canonical_compute_manifest(**kw)
-        b = canonical_compute_manifest(**kw)
-        self.assertEqual(a, b)  # deterministic
-        self.assertRegex(a, r"^[0-9a-f]{64}$")
-        # any versioned-artifact change flips the manifest
-        self.assertNotEqual(a, canonical_compute_manifest(**{**kw, "rubric_hash": "rbh2"}))
-        self.assertNotEqual(a, canonical_compute_manifest(**{**kw, "pipeline_version": "pv2"}))
+# Full determinant set (the 11 keys the manifest must incorporate).
+_MANIFEST_KW = dict(
+    manifest_format_version="mfv", engine_name="eng", engine_version="ev",
+    pipeline_version="pv", resolver_version="rv", rule_version="rul", rule_hash="rh",
+    rubric_version="rbv", rubric_hash="rbh", opportunity_version="ov", opportunity_hash="oh",
+)
 
-    def test_default_manifest_matches_frozen_configs(self) -> None:
-        self.assertEqual(default_compute_manifest(), default_compute_manifest())
+# GOLDEN FIXTURE — the DERIVED default compute manifest, pinned so ANY drift in a determinant,
+# a source-of-truth value, the determinant SET, or the canonical serialization is caught
+# fail-closed by CI. This is NOT a source the code reads: `default_compute_manifest()` derives
+# the value from the real sources of truth (PIPELINE_VERSION, RESOLVER_VERSION, the DEFAULT
+# config objects) and the test only COMPARES that derivation to this constant. It is the
+# manifest-provenance analogue of `test_repro_harness.GOLDEN_DIGEST`. Retired lineage (the
+# GREEN-but-insufficient 8-key manifest at SHA 3cc4d3d) was 6450b692…f89937; adding the
+# manifest-format-version + engine-identity determinants necessarily flipped it (DEC-0025 §6).
+_DEFAULT_MANIFEST_GOLDEN = "57cb27f4339b8b702675d7f17f65905da7ba1d04bbd33a09b62704e8104f0404"
+
+
+class ComputeManifestTests(unittest.TestCase):
+    def test_canonical_manifest_is_deterministic_and_64hex(self) -> None:
+        a = canonical_compute_manifest(**_MANIFEST_KW)
+        b = canonical_compute_manifest(**_MANIFEST_KW)
+        self.assertEqual(a, b)  # same determinants ⇒ same hash
+        self.assertRegex(a, r"^[0-9a-f]{64}$")
+
+    def test_changing_any_single_determinant_flips_the_hash(self) -> None:
+        base = canonical_compute_manifest(**_MANIFEST_KW)
+        for key in _MANIFEST_KW:
+            changed = canonical_compute_manifest(**{**_MANIFEST_KW, key: _MANIFEST_KW[key] + "-x"})
+            self.assertNotEqual(base, changed, f"determinant {key} did not affect the hash")
+
+    def test_key_order_does_not_change_the_hash(self) -> None:
+        # Independently recompute over the SAME determinants but a REVERSED dict order:
+        # canonical serialization sorts keys, so the hash must be identical.
+        manifest = {
+            "manifest_format_version": _MANIFEST_KW["manifest_format_version"],
+            "engine_name": _MANIFEST_KW["engine_name"],
+            "engine_version": _MANIFEST_KW["engine_version"],
+            "pipeline_version": _MANIFEST_KW["pipeline_version"],
+            "resolver_version": _MANIFEST_KW["resolver_version"],
+            "rule_version": _MANIFEST_KW["rule_version"],
+            "rule_hash": _MANIFEST_KW["rule_hash"],
+            "rubric_version": _MANIFEST_KW["rubric_version"],
+            "rubric_hash": _MANIFEST_KW["rubric_hash"],
+            "opportunity_version": _MANIFEST_KW["opportunity_version"],
+            "opportunity_hash": _MANIFEST_KW["opportunity_hash"],
+        }
+        reversed_order = dict(reversed(list(manifest.items())))
+        independent = hashlib.sha256(
+            json.dumps(reversed_order, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+        self.assertEqual(canonical_compute_manifest(**_MANIFEST_KW), independent)
+
+    def test_default_manifest_is_derived_from_the_real_sources_of_truth(self) -> None:
+        # Recompute independently from the SAME sources of truth the builder reads — proving
+        # the value is DERIVED (not a hardcoded constant) and matches byte-for-byte.
+        independent = canonical_compute_manifest(
+            manifest_format_version=COMPUTE_MANIFEST_FORMAT_VERSION,
+            engine_name=COMPUTE_ENGINE_NAME,
+            engine_version=PIPELINE_VERSION,
+            pipeline_version=PIPELINE_VERSION,
+            resolver_version=RESOLVER_VERSION,
+            rule_version=CHANNEL_FILTER_DEFAULT_CONFIG.rule_version,
+            rule_hash=CHANNEL_FILTER_DEFAULT_CONFIG.rule_hash,
+            rubric_version=DEFAULT_RUBRIC.rubric_version,
+            rubric_hash=DEFAULT_RUBRIC.rubric_hash,
+            opportunity_version=OPPORTUNITY_DEFAULT_CONFIG.opportunity_version,
+            opportunity_hash=OPPORTUNITY_DEFAULT_CONFIG.opportunity_hash,
+        )
+        self.assertEqual(default_compute_manifest(), independent)
         self.assertRegex(default_compute_manifest(), r"^[0-9a-f]{64}$")
+
+    def test_default_manifest_matches_pinned_golden_fixture(self) -> None:
+        # The derived value is COMPARED to the pinned golden — never fed from it. Any change to
+        # a determinant / source of truth / determinant set / serialization flips this and fails
+        # CI, forcing a conscious, reviewed golden bump (no silent drift, no manual copy).
+        self.assertEqual(default_compute_manifest(), _DEFAULT_MANIFEST_GOLDEN)
+
+    def test_default_manifest_is_sensitive_to_a_default_determinant(self) -> None:
+        # Swapping the REAL rubric hash for a different value flips the default lineage hash.
+        base = default_compute_manifest()
+        drifted = canonical_compute_manifest(
+            manifest_format_version=COMPUTE_MANIFEST_FORMAT_VERSION,
+            engine_name=COMPUTE_ENGINE_NAME,
+            engine_version=PIPELINE_VERSION,
+            pipeline_version=PIPELINE_VERSION,
+            resolver_version=RESOLVER_VERSION,
+            rule_version=CHANNEL_FILTER_DEFAULT_CONFIG.rule_version,
+            rule_hash=CHANNEL_FILTER_DEFAULT_CONFIG.rule_hash,
+            rubric_version=DEFAULT_RUBRIC.rubric_version,
+            rubric_hash=DEFAULT_RUBRIC.rubric_hash + "-drift",
+            opportunity_version=OPPORTUNITY_DEFAULT_CONFIG.opportunity_version,
+            opportunity_hash=OPPORTUNITY_DEFAULT_CONFIG.opportunity_hash,
+        )
+        self.assertNotEqual(base, drifted)
+
+    def test_no_hardcoded_manifest_constant_in_coordinator_source(self) -> None:
+        # No silent fallback to an old constant: the coordinator source contains no 64-hex
+        # literal — the manifest is always derived from the sources of truth.
+        src = inspect.getsource(coord_mod)
+        self.assertIsNone(
+            re.search(r"(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])", src),
+            "a 64-hex literal (a hardcoded manifest?) is present in the coordinator source",
+        )
 
     def test_build_compute_provenance_is_deterministic_engine_identity(self) -> None:
         prov = build_compute_provenance()
         self.assertIsInstance(prov, Sg8ComputeProvenance)
-        self.assertEqual(prov.engine_name, "noxund-pipeline")
+        self.assertEqual(prov.engine_name, COMPUTE_ENGINE_NAME)
         self.assertEqual(prov.engine_version, PIPELINE_VERSION)
-        self.assertEqual(prov.adapter_version, "sg8-store-adapter-v1")
         self.assertEqual(prov.manifest_hash, default_compute_manifest())
-        # no provider / model / prompt fields exist on the value object
-        for forbidden in ("provider", "model", "model_version", "prompt_hash"):
-            self.assertFalse(hasattr(prov, forbidden), f"residual LLM field: {forbidden}")
+        # only computational identity: no persistence adapter, no params, no provider/model/prompt
+        for forbidden in ("adapter_version", "params", "provider", "model", "model_version", "prompt_hash"):
+            self.assertFalse(hasattr(prov, forbidden), f"residual non-computational field: {forbidden}")
 
     def test_build_compute_provenance_accepts_explicit_manifest(self) -> None:
-        mh = re.sub(r".", "a", "x" * 64)  # 64 'a's — valid format
+        mh = "a" * 64  # valid format
         prov = build_compute_provenance(manifest_hash=mh)
         self.assertEqual(prov.manifest_hash, mh)
 

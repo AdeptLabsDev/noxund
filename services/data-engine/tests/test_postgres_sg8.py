@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import ast
 import inspect
-import json
 import unittest
 
 from noxund_data_engine import postgres_sg8 as pg
@@ -98,11 +97,6 @@ _PROVENANCE = Sg8ComputeProvenance(
     engine_name="noxund-pipeline",
     engine_version="pipeline-wiring-2026_06_v1",
     manifest_hash=_MANIFEST_HASH,
-    adapter_version="sg8-store-adapter-v1",
-    params={"deterministic": True},
-)
-_PROVENANCE_JSON = json.dumps(
-    {"deterministic": True}, ensure_ascii=False, separators=(",", ":"), sort_keys=True
 )
 
 
@@ -224,12 +218,12 @@ class RoundTests(unittest.TestCase):
             "noxund-pipeline",              # -> compute_engine_name
             "pipeline-wiring-2026_06_v1",   # -> compute_engine_version
             _MANIFEST_HASH,                 # -> compute_manifest_hash (a real 64-hex sha256)
-            "sg8-store-adapter-v1",         # -> compute_adapter_version
-            _PROVENANCE_JSON,               # -> compute_params_json
         )
         self.assertEqual(conn.executed, [(pg._INSERT_ROUND, expected_params)])
         # The manifest-hash column receives the hash (index 7), never a version token.
         self.assertEqual(conn.executed[0][1][7], _MANIFEST_HASH)
+        # No persistence-adapter or free-form-params value is ever persisted (3 provenance cols).
+        self.assertEqual(len(conn.executed[0][1]), 8)
         self.assertEqual(conn.commits, 1)
 
     def test_append_round2_also_persists_full_compute_provenance(self) -> None:
@@ -248,8 +242,7 @@ class RoundTests(unittest.TestCase):
         self.assertEqual(params[:5], ("re-2", "sess-1", 2, "src-1", "snap-1"))
         self.assertEqual(
             params[5:],
-            ("noxund-pipeline", "pipeline-wiring-2026_06_v1", _MANIFEST_HASH,
-             "sg8-store-adapter-v1", _PROVENANCE_JSON),
+            ("noxund-pipeline", "pipeline-wiring-2026_06_v1", _MANIFEST_HASH),
         )
 
     def test_append_round_rejects_bad_round_number(self) -> None:
@@ -472,13 +465,15 @@ class SqlDisciplineTests(unittest.TestCase):
             # every '%' belongs to a '%s' placeholder (no other formatting).
             self.assertEqual(sql.count("%"), sql.count("%s"), f"non-%s formatting in: {sql!r}")
 
-    def test_no_llm_columns_in_any_sql(self) -> None:
-        # DEC-0025: no residual LLM column anywhere in the adapter's SQL.
+    def test_no_llm_or_noncomputational_columns_in_any_sql(self) -> None:
+        # DEC-0025: no residual LLM column, and no non-computational compute_* column
+        # (persistence adapter / free-form params), anywhere in the adapter's SQL.
         for sql in _all_sql_constants():
             low = sql.lower()
             for forbidden in ("llm_provider", "llm_model", "llm_prompt_hash", "llm_params_json",
-                              "llm_adapter_version", "llm_model_version", "ext_llm"):
-                self.assertNotIn(forbidden, low, f"residual LLM column in: {sql!r}")
+                              "llm_adapter_version", "llm_model_version", "ext_llm",
+                              "compute_adapter_version", "compute_params_json"):
+                self.assertNotIn(forbidden, low, f"residual forbidden column in: {sql!r}")
 
     def test_adapter_imports_no_database_driver_via_ast(self) -> None:
         # Positive: the real adapter imports no forbidden driver (AST, not substring).
@@ -587,7 +582,6 @@ class ManifestHashContractTests(unittest.TestCase):
                 engine_name="noxund-pipeline",
                 engine_version="pipeline-wiring-2026_06_v1",
                 manifest_hash=manifest_hash,
-                adapter_version="sg8-store-adapter-v1",
             ),
         )
 
@@ -652,27 +646,19 @@ class ComputeProvenanceTests(unittest.TestCase):
             engine_name="noxund-pipeline",
             engine_version="pipeline-wiring-2026_06_v1",
             manifest_hash=_MANIFEST_HASH,
-            adapter_version="sg8-store-adapter-v1",
         )
-        for field_name in ("engine_name", "engine_version", "adapter_version"):
+        for field_name in ("engine_name", "engine_version"):
             conn = _RecConn()
             bad = dict(base, **{field_name: "   "})
             with self.assertRaises(Sg8ContractViolation, msg=field_name):
                 self._append(conn, round_number=1, provenance=Sg8ComputeProvenance(**bad))
             self.assertEqual(conn.executed, [], field_name)
 
-    def test_rejects_non_mapping_params_before_sql(self) -> None:
-        conn = _RecConn()
-        prov = Sg8ComputeProvenance(
-            engine_name="noxund-pipeline",
-            engine_version="pipeline-wiring-2026_06_v1",
-            manifest_hash=_MANIFEST_HASH,
-            adapter_version="sg8-store-adapter-v1",
-            params=[("deterministic", True)],  # not a mapping
-        )
-        with self.assertRaises(Sg8ContractViolation):
-            self._append(conn, round_number=1, provenance=prov)
-        self.assertEqual(conn.executed, [])
+    def test_provenance_has_no_persistence_or_params_fields(self) -> None:
+        # DEC-0025: the compute provenance carries ONLY computational identity — no
+        # persistence-adapter version and no free-form params.
+        for forbidden in ("adapter_version", "params"):
+            self.assertFalse(hasattr(_PROVENANCE, forbidden), f"residual field: {forbidden}")
 
     def test_both_rounds_accept_identical_provenance(self) -> None:
         # Positive both sides of the symmetric contract: the SAME provenance on each round.

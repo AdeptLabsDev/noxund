@@ -38,7 +38,7 @@ import hashlib
 import itertools
 import json
 import uuid
-from typing import Mapping, Protocol, Sequence
+from typing import Protocol, Sequence
 
 from .channel_filter import DEFAULT_CONFIG as CHANNEL_FILTER_DEFAULT_CONFIG
 from .entity_resolution import RESOLVER_VERSION
@@ -57,9 +57,11 @@ from .sg8_runner import (
 
 
 # The deterministic engine identity SG-8 records for every round (never a model id).
+# The "engine" IS the deterministic pipeline composition; its version is PIPELINE_VERSION.
 COMPUTE_ENGINE_NAME = "noxund-pipeline"
-# The SG-8 durable-store adapter's own version.
-SG8_ADAPTER_VERSION = "sg8-store-adapter-v1"
+# Version of the manifest SCHEMA itself: the set/serialization of determinants below. Bump
+# it whenever a determinant is added/removed so the manifest hash necessarily changes.
+COMPUTE_MANIFEST_FORMAT_VERSION = "sg8-compute-manifest-v1"
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +109,9 @@ class SequentialIdFactory:
 # ---------------------------------------------------------------------------
 def canonical_compute_manifest(
     *,
+    manifest_format_version: str,
+    engine_name: str,
+    engine_version: str,
     pipeline_version: str,
     resolver_version: str,
     rule_version: str,
@@ -118,18 +123,36 @@ def canonical_compute_manifest(
 ) -> str:
     """Canonical §DEC-0025 derivation of ``compute_manifest_hash``.
 
-    The manifest is the ordered, versioned identity of every deterministic artifact +
-    configuration that actually determines the report: the pipeline wiring version, the
-    entity-resolver version, and the rule / rubric / opportunity versions + hashes. It is
-    serialized canonically (sorted keys, compact, UTF-8) and hashed with SHA-256 → 64
-    lowercase hex chars. It contains NO credential, timestamp, execution UUID or unstable
-    datum — identical artifacts ⇒ identical manifest; any versioned-artifact change flips it.
+    The manifest is the ordered, versioned identity of EVERY computational determinant of
+    the report — everything that can change resolution / scoring / opportunity / the
+    canonical payload / the per-report digests / the comparison decision, EXCEPT the input
+    data (which is protected by the frozen snapshot):
 
-    This is the single, non-parallel provenance hash of a round (there is no prompt/model
-    hash). Both rounds of an attempt derive the SAME manifest; the schema PASS gate refuses
-    ``passed`` when the two rounds' manifests differ, even if the digests coincide.
+      * ``manifest_format_version`` — the version of the manifest schema itself, so adding
+        or removing a determinant necessarily changes the hash;
+      * ``engine_name`` + ``engine_version`` — the deterministic engine identity (the
+        pipeline composition; ``engine_version`` == ``pipeline_version``);
+      * ``pipeline_version`` — the composition/wiring version (DEC-0017 order);
+      * ``resolver_version`` — entity-resolution algorithm identity;
+      * ``rule_version`` + ``rule_hash`` — channel-filter ruleset;
+      * ``rubric_version`` + ``rubric_hash`` — scoring rubric;
+      * ``opportunity_version`` + ``opportunity_hash`` — opportunity rules.
+
+    It DELIBERATELY excludes: session/round ids, timestamps, credentials, local paths,
+    unstable values, and the persistence-adapter identity (persistence does NOT participate
+    in the computation). There are NO free-form runtime parameters: every knob that affects
+    the result lives inside a versioned config and is captured by its version + hash above.
+
+    Serialized canonically — ``json.dumps(sort_keys=True, separators=(",",":"), ensure_ascii=False)``
+    — so key ORDER never affects the hash; then SHA-256 → 64 lowercase hex chars. Identical
+    determinants ⇒ identical manifest; any single determinant change flips it. There is no
+    prompt/model/provider hash and no silent fallback to a hardcoded constant — the value is
+    always derived from these sources of truth.
     """
     manifest = {
+        "manifest_format_version": manifest_format_version,
+        "engine_name": engine_name,
+        "engine_version": engine_version,
         "pipeline_version": pipeline_version,
         "resolver_version": resolver_version,
         "rule_version": rule_version,
@@ -146,8 +169,16 @@ def canonical_compute_manifest(
 
 
 def default_compute_manifest() -> str:
-    """The canonical manifest for the frozen default configs (the golden-digest lineage)."""
+    """The canonical manifest DERIVED from the frozen default configs (golden-digest lineage).
+
+    Every value is read from its source of truth (``PIPELINE_VERSION``, ``RESOLVER_VERSION``,
+    and the DEFAULT config objects' version/hash) — never a hardcoded digest. Tests pin the
+    resulting value only as a golden fixture that is re-derived and compared here.
+    """
     return canonical_compute_manifest(
+        manifest_format_version=COMPUTE_MANIFEST_FORMAT_VERSION,
+        engine_name=COMPUTE_ENGINE_NAME,
+        engine_version=PIPELINE_VERSION,
         pipeline_version=PIPELINE_VERSION,
         resolver_version=RESOLVER_VERSION,
         rule_version=CHANNEL_FILTER_DEFAULT_CONFIG.rule_version,
@@ -159,22 +190,21 @@ def default_compute_manifest() -> str:
     )
 
 
-def build_compute_provenance(
-    *, manifest_hash: str | None = None, params: Mapping[str, object] | None = None
-) -> Sg8ComputeProvenance:
+def build_compute_provenance(*, manifest_hash: str | None = None) -> Sg8ComputeProvenance:
     """Build the deterministic ``Sg8ComputeProvenance`` persisted for every round.
 
-    ``manifest_hash`` defaults to :func:`default_compute_manifest` (the frozen default
-    lineage). The SAME provenance is persisted for Round 1 and Round 2, so the schema's
-    PASS-gate manifest equality holds by construction. There is no provider, model or
-    prompt: the value describes only the deterministic engine + versioned artifacts.
+    Carries only the COMPUTATIONAL identity: ``engine_name`` + ``engine_version`` (also
+    inside the manifest, for explicit PASS-gate defense-in-depth) and the derived
+    ``compute_manifest_hash`` (default = :func:`default_compute_manifest`). No persistence
+    adapter, no free-form params, no provider/model/prompt.
+
+    The SAME provenance is persisted for Round 1 and Round 2; the schema PASS gate
+    independently re-checks engine identity + manifest equality R1==R2.
     """
     return Sg8ComputeProvenance(
         engine_name=COMPUTE_ENGINE_NAME,
         engine_version=PIPELINE_VERSION,
         manifest_hash=manifest_hash or default_compute_manifest(),
-        adapter_version=SG8_ADAPTER_VERSION,
-        params=dict(params) if params else {},
     )
 
 
