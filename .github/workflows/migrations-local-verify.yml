@@ -264,7 +264,8 @@ jobs:
           snap() {
             psql "$DBURL" -tA -F'|' -c "
               select r.rolname,
-                     r.rolcanlogin::int||r.rolsuper::int||r.rolcreatedb::int||r.rolcreaterole::int||r.rolinherit::int||r.rolreplication::int||r.rolbypassrls::int,
+                     concat(r.rolcanlogin::int, r.rolsuper::int, r.rolcreatedb::int, r.rolcreaterole::int,
+                            r.rolinherit::int, r.rolreplication::int, r.rolbypassrls::int),
                      coalesce((select string_agg(m.rolname, ',' order by m.rolname)
                                  from pg_auth_members am join pg_roles m on m.oid = am.roleid
                                 where am.member = r.oid), '')

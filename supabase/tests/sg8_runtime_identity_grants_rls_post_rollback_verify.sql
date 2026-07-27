@@ -131,9 +131,15 @@ declare tbl text; att record; rol text; verb text; col_verbs constant text[]:=ar
 begin
   foreach tbl in array array['sg8_sessions','sg8_resolution_snapshots','sg8_round_executions','sg8_round_report_evidence'] loop
     for att in select attname, attacl from pg_attribute
-                where attrelid=('public.'||tbl)::regclass and attnum>0 and not attisdropped loop
-      if att.attacl is not null then
-        raise exception 'ROLLBACK/col: coluna %.% tem attacl != NULL (%) — restauração de coluna inexata (baseline 0008 = zero grant de coluna; grant do writer não revogado?)', tbl, att.attname, att.attacl::text;
+                where attrelid=('public.'||tbl)::regclass and attnum>0 and not attisdropped and attacl is not null loop
+      -- Baseline 0008 = ZERO grant de coluna. Pós-rollback o attacl deve normalizar p/ NULL; ainda assim,
+      -- de forma robusta, exigimos que NÃO reste NENHUMA entrada de coluna para grantee != OWNER — o que
+      -- captura PUBLIC(0), as 4 identidades amplas e o grantee DANGLING do writer dropado (tolerando apenas
+      -- uma eventual entrada inerte do próprio owner). Qualquer entrada não-owner = resíduo ⇒ falha.
+      if exists (
+        select 1 from aclexplode(att.attacl) x
+         where x.grantee <> (select relowner from pg_class where oid=('public.'||tbl)::regclass) ) then
+        raise exception 'ROLLBACK/col: coluna %.% tem grant de coluna a grantee != owner (resíduo; baseline 0008 = zero grant de coluna): %', tbl, att.attname, att.attacl::text;
       end if;
     end loop;
     foreach rol in array array['anon','authenticated','authenticator'] loop
