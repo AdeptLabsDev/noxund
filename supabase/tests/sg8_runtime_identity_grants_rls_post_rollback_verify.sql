@@ -141,9 +141,11 @@ begin
   select count(*) into v_dangling from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f'::"char", p.proowner))) a
     where p.oid=v_func::oid and a.grantee <> 0 and a.grantee not in (select oid from pg_authid);
   if v_dangling <> 0 then raise exception 'ROLLBACK/uuid: % grantee(s) dangling na ACL de %', v_dangling, v_func::text; end if;
+  -- NULL-safe: pós-rollback a role foi DROPADA ⇒ `'sg8_compute_writer'::regrole` levantaria "role does
+  -- not exist" (o cast constante é avaliado mesmo com guarda no WHERE). to_regrole() devolve NULL e o
+  -- `a.grantee = NULL` simplesmente não casa (v_writer=0) — que é justamente o esperado (zero resíduo).
   select count(*) into v_writer from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f'::"char", p.proowner))) a
-    where p.oid=v_func::oid and to_regrole('sg8_compute_writer') is not null
-      and a.grantee='sg8_compute_writer'::regrole and a.privilege_type='EXECUTE';
+    where p.oid=v_func::oid and a.grantee = to_regrole('sg8_compute_writer') and a.privilege_type='EXECUTE';
   if v_writer <> 0 then raise exception 'ROLLBACK/uuid: entrada residual de EXECUTE p/ sg8_compute_writer em %', v_func::text; end if;
 
   -- (c) PUBLIC mantém EXECUTE (nunca foi revogado — a 0009 não mexe na função).
