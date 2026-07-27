@@ -26,14 +26,17 @@ name: Migrations · Hermetic Local Verify (no remote, no secrets)
 #                 interpolated into the script body) → no command injection.
 #
 # CYCLE (fail-closed at every stage; ON_ERROR_STOP=1):
-#   [1] start disposable local stack →
-#   [2] apply the canonical migration sequence at target_sha (`supabase db reset`) →
-#   [3] post-apply verify →
-#   [4] rollback →
-#   [5] post-rollback verify (objects gone + prior contracts intact) →
-#   [6] reapply the migration →
-#   [7] repeat post-apply verify →
-#   [8] destroy the stack (always, no backup).
+#   [1]   start disposable local stack (this ALSO applies every migration once) →
+#   [1.5] pre-reset rollback of the TARGET migration (GENERIC — invokes only rollback_path, names no
+#         role) so any CLUSTER-GLOBAL object the unit created (which survives `db reset`) is cleared,
+#         letting a create-only forward re-apply clean; purely subtractive on cluster globals →
+#   [2]   apply the canonical migration sequence at target_sha (`supabase db reset`) →
+#   [3]   post-apply verify →
+#   [4]   rollback →
+#   [5]   post-rollback verify (objects gone + prior contracts intact) →
+#   [6]   reapply the migration →
+#   [7]   repeat post-apply verify →
+#   [8]   destroy the stack (always, no backup).
 #
 # This workflow applies NOTHING to any remote/live database and holds NO
 # credential capable of doing so. Reviews: DevOps + Security + Database + QA.
@@ -234,7 +237,8 @@ jobs:
           # Local Docker stack only. No `supabase link`, no access token, no remote.
           supabase start
 
-      - name: '[2..7] apply canonical → verify → rollback → post-rollback verify → reapply → verify'
+      - name: '[1.5..7] pre-reset rollback → apply canonical → verify → rollback → post-rollback verify → reapply → verify'
+        shell: bash
         env:
           P_MIGRATION: ${{ inputs.migration_path }}
           P_ROLLBACK: ${{ inputs.rollback_path }}
@@ -243,8 +247,31 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "== [1.5] pre-reset rollback of the TARGET migration (cluster-global-safe; GENERIC) =="
+          # `supabase start` already applied EVERY migration (incl. the target). A migration may create
+          # a CLUSTER-GLOBAL object (e.g. a role) that SURVIVES `db reset` (which recreates the DATABASE,
+          # not cluster globals). If the target's forward is CREATE-ONLY, `db reset` re-applying it would
+          # then abort ("already exists"). So, before the reset, run the migration's OWN paired rollback
+          # to clear whatever the unit created. The workflow stays GENERIC: it invokes only the provided
+          # rollback_path and NEVER names any role; it uses the SAME canonical `postgres` identity as every
+          # other step (never a superuser). Fail-closed: ON_ERROR_STOP=1 + pipefail → any error stops here.
+          roles_before="$(psql "$DBURL" -tA -c 'select rolname from pg_roles order by 1')"
+          psql "$DBURL" -v ON_ERROR_STOP=1 -f "$P_ROLLBACK"
+          roles_after="$(psql "$DBURL" -tA -c 'select rolname from pg_roles order by 1')"
+          # Confirm (generically, before `db reset`) that the pre-reset rollback was purely SUBTRACTIVE on
+          # cluster globals — it may only REMOVE what the forward created, never add and never touch unknown
+          # identities. The authoritative "target role absent" gate is the create-only forward inside the
+          # very next `db reset` (it aborts if the role persisted).
+          added="$(comm -13 <(printf '%s\n' "$roles_before") <(printf '%s\n' "$roles_after") || true)"
+          if [ -n "$added" ]; then
+            echo "::error::pre-reset rollback ADDED cluster role(s) — must be subtractive: ${added//$'\n'/ }"; exit 1
+          fi
+          removed="$(comm -23 <(printf '%s\n' "$roles_before") <(printf '%s\n' "$roles_after") || true)"
+          echo "pre-reset rollback removed cluster role(s): ${removed:-<none>}"
+
           echo "== [2] apply canonical migration sequence at target_sha (fail-closed) =="
           # Drops + re-applies EVERY supabase/migrations file in order; non-zero on any failure.
+          # For a create-only forward, this SUCCEEDING is the authoritative proof the role was absent.
           supabase db reset
 
           echo "== [3] post-apply verify (proves invariants, not just object existence) =="

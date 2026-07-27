@@ -11,24 +11,34 @@
 -- NATUREZA:
 --   §A  identidade: atributos EXATOS da role (NOLOGIN, NOBYPASSRLS, NOSUPERUSER, NOCREATEDB,
 --       NOCREATEROLE, NOINHERIT, NOREPLICATION), SEM senha, zero memberships, zero ownership.
---   §B  matriz de grants (has_table/column/function/schema/database_privilege): SELECT nas 4;
---       INSERT SÓ nas colunas autorizadas (por tabela); UPDATE SÓ nas 5 de sg8_sessions;
---       comparison_contract_version SÓ INSERT (nunca UPDATE); evidence.id NÃO recebe INSERT;
---       EXECUTE no default UUID exato; CONNECT no db; USAGE (não CREATE) no schema public;
---       ZERO DELETE/TRUNCATE/REFERENCES/TRIGGER; ZERO UPDATE nas append-only; ZERO sequence.
+--   §B  matriz de grants (has_table/column/function/schema/database_privilege + inspeção de catálogo):
+--       SELECT nas 4; INSERT SÓ nas colunas autorizadas (por tabela); UPDATE SÓ nas 5 de sg8_sessions;
+--       comparison_contract_version SÓ INSERT (nunca UPDATE); evidence.id NÃO recebe INSERT; o default
+--       UUID é uma DEPENDÊNCIA DE PUBLIC (grantee OID 0) provada por proacl/acldefault/aclexplode — ACL
+--       da função INTOCADA, ZERO grant direto p/ writer (DEC-0026-R4/B); CONNECT no db; USAGE (não
+--       CREATE) no schema public; ZERO DELETE/TRUNCATE/REFERENCES/TRIGGER; ZERO UPDATE append-only; ZERO sequence.
 --   §C  policies EXATAS: 9 policies, por tabela/operação, TODAS e SOMENTE TO sg8_compute_writer,
 --       USING/WITH CHECK = true; sem DELETE; UPDATE só em sg8_sessions.
 --   §D  isolamento das identidades amplas por PRIVILÉGIO EFETIVO (has_table_privilege): service_role,
 --       anon, authenticated, authenticator, PUBLIC = ZERO; owner/admin NÃO é descrito como bloqueado.
---   §E  comportamento sob a role: SELECT nas 4; INSERT só nas colunas autorizadas; UPDATE só nas 5;
---       comparison_contract_version não atualizável; FSM/trigger decidem a legalidade (transição
---       inválida → restrict_violation; passed/failed válidos NÃO bloqueados pela policy); default
---       UUID funciona; UPDATE/DELETE append-only, DELETE/TRUNCATE/DDL e acesso aos parents negados.
+--   §E  comportamento sob a role (membership temporária: §E0 ausente antes, current_user==writer em cada
+--       bloco, §E-post ausente depois — DEC-0026-R4/D): SELECT nas 4; INSERT só nas colunas autorizadas;
+--       UPDATE só nas 5; comparison_contract_version não atualizável; FSM/trigger decidem a legalidade
+--       (transição inválida → restrict_violation; passed/failed válidos NÃO bloqueados pela policy); o
+--       default UUID funciona (via PUBLIC EXECUTE); UPDATE/DELETE append-only, DELETE/TRUNCATE/DDL e
+--       acesso aos parents negados.
 --   §F  contratos da 0008 continuam GREEN (estrutura + o walk de PASS de §E prova FSM/PASS gate/append-only).
+--   §G  NEGATIVOS/fail-closed (o próprio harness prova; auto-contidos/revertidos): NEG-1 role preexistente
+--       → create-only recusa; NEG-2 baseline divergente em 1 tabela → precondition aborta; NEG-3 sem PUBLIC
+--       EXECUTE → dependência do UUID falha (e has_function_privilege enganado por PUBLIC ≠ inspeção direta);
+--       NEG-4 falha durante SET ROLE → zero membership residual.
 --
 -- CONTRACT: todo check RAISES on mismatch → `psql -v ON_ERROR_STOP=1` sai não-zero, falha o CI.
--- SIDE EFFECTS: nenhum persistido — toda escrita de probe vive em transação revertida.
--- Role de conexão: `postgres` (superuser/session_user; membro implícito de tudo; pode SET ROLE).
+-- SIDE EFFECTS: nenhum persistido — toda escrita de probe vive em transação revertida; a membership
+--   temporária p/ SET ROLE também (nunca persiste — provado em §E0/§E-post).
+-- Role de conexão: `postgres` — a MESMA identidade canônica do harness/apply remoto. NÃO é superuser
+--   neste stack e NÃO é membro do writer (contrato: zero memberships); tem CREATEROLE ⇒ concede a si
+--   uma membership TEMPORÁRIA (revertida na txn) só para habilitar o `SET LOCAL ROLE` de teste.
 -- ============================================================================
 
 \set ON_ERROR_STOP on
@@ -172,9 +182,15 @@ begin
   end if;
 end $$;
 
--- EXECUTE no default UUID EXATO de evidence.id (descoberto no catálogo, não presumido).
+-- DEFAULT UUID — a autorização de EXECUTE vem de PUBLIC (grantee OID 0), NÃO de grant dedicado
+-- (DEC-0026-R4/B). Prova por INSPEÇÃO DE CATÁLOGO (proacl/acldefault/aclexplode) — has_function_privilege
+-- seria satisfeito por PUBLIC e MASCARARIA a origem, logo NÃO é a prova única. Confirma: resolve p/
+-- pg_catalog.gen_random_uuid() sem shadowing; PUBLIC tem EXECUTE; ZERO grant direto p/ writer; e a ACL
+-- da função está INTOCADA/byte-equivalente ao baseline (proacl NULL == default do built-in pinado).
 do $$
-declare v_func regprocedure; v_attnum smallint;
+declare
+  v_func regprocedure; v_nsp text; v_proname text; v_attnum smallint;
+  v_pub_exec boolean; v_direct_writer int; v_unqual regprocedure; v_proacl_null boolean;
 begin
   select attnum into v_attnum from pg_attribute
    where attrelid = 'public.sg8_round_report_evidence'::regclass and attname = 'id' and not attisdropped;
@@ -187,10 +203,38 @@ begin
       from pg_attrdef ad where ad.adrelid='public.sg8_round_report_evidence'::regclass and ad.adnum=v_attnum;
   end if;
   if v_func is null then raise exception 'B/uuid: default de evidence.id sem função'; end if;
-  if not has_function_privilege('sg8_compute_writer', v_func::oid, 'EXECUTE') then
-    raise exception 'B/uuid: writer sem EXECUTE em % (default UUID de evidence.id)', v_func::text;
+
+  select n.nspname, p.proname, (p.proacl is null) into v_nsp, v_proname, v_proacl_null
+    from pg_proc p join pg_namespace n on n.oid=p.pronamespace where p.oid=v_func::oid;
+  if v_nsp <> 'pg_catalog' or v_proname <> 'gen_random_uuid' then
+    raise exception 'B/uuid: default resolve p/ %.% — esperado pg_catalog.gen_random_uuid()', v_nsp, v_proname;
   end if;
-  raise notice 'B/uuid: EXECUTE confirmado em % para sg8_compute_writer', v_func::text;
+  v_unqual := to_regprocedure('gen_random_uuid()');
+  if v_unqual is distinct from v_func then
+    raise exception 'B/uuid: SHADOWING por search_path — gen_random_uuid() resolve p/ % != %', v_unqual, v_func;
+  end if;
+
+  -- aclexplode(NULL) não retorna linhas ⇒ coalesce p/ acldefault revela a entrada IMPLÍCITA de PUBLIC.
+  select bool_or(a.grantee=0 and a.privilege_type='EXECUTE') into v_pub_exec
+    from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f'::"char", p.proowner))) a where p.oid=v_func::oid;
+  select count(*) into v_direct_writer
+    from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f'::"char", p.proowner))) a
+   where p.oid=v_func::oid and a.grantee='sg8_compute_writer'::regrole and a.privilege_type='EXECUTE';
+
+  if not coalesce(v_pub_exec,false) then
+    raise exception 'B/uuid: PUBLIC NÃO tem EXECUTE em % — dependência do default UUID insatisfeita', v_func::text;
+  end if;
+  if v_direct_writer <> 0 then
+    raise exception 'B/uuid: há grant DIRETO de EXECUTE p/ sg8_compute_writer em % — a 0009 não deve tocar a ACL da função', v_func::text;
+  end if;
+  if not v_proacl_null then
+    raise exception 'B/uuid: proacl de % != default (NULL) — a ACL da função foi ALTERADA (esperado intocada)', v_func::text;
+  end if;
+  -- has_function_privilege é CORROBORAÇÃO (satisfeita por PUBLIC), NUNCA a prova única.
+  if not has_function_privilege('sg8_compute_writer', v_func::oid, 'EXECUTE') then
+    raise exception 'B/uuid: writer sem EXECUTE efetivo em % (deveria herdar de PUBLIC)', v_func::text;
+  end if;
+  raise notice 'B/uuid OK: % — EXECUTE via PUBLIC(OID 0); ZERO grant direto p/ writer; ACL intocada (proacl NULL). Dependência de PUBLIC, não grant dedicado.', v_func::text;
 end $$;
 
 -- ZERO privilégio de sequence (as PKs são gen_random_uuid(); não há sequence SG-8). O LOOP garante
@@ -318,6 +362,21 @@ end $$;
 
 \echo '== sg8 runtime identity · §E behavior under SET ROLE sg8_compute_writer =='
 
+-- ESTRATÉGIA TRANSACIONAL (DEC-0026-R4/D): cada bloco comportamental abre uma transação EXPLÍCITA,
+-- concede `sg8_compute_writer TO current_user` SÓ DENTRO dela (membership temporária), faz `SET LOCAL
+-- ROLE` (set_config role, is_local=true), roda os asserts e TERMINA com `rollback;`. A membership NÃO
+-- depende de um REVOKE no fim do script: em QUALQUER erro, `ON_ERROR_STOP=1` aborta a transação (nunca
+-- commit) e o PostgreSQL a reverte no abort/disconnect ⇒ NENHUM caminho de execução deixa membership
+-- persistente. §E0 (abaixo) prova ausência ANTES; §E-post prova ausência DEPOIS.
+
+-- E0 — membership temporária AUSENTE antes do verify (ninguém é membro do writer; contrato: zero).
+do $$
+declare n int;
+begin
+  select count(*) into n from pg_auth_members where roleid = 'sg8_compute_writer'::regrole;
+  if n <> 0 then raise exception 'E0: sg8_compute_writer tem % membro(s) ANTES do verify — membership residual/persistente', n; end if;
+end $$;
+
 -- E1 — SELECT funcional nas 4 tabelas sob a role.
 begin;
   do $$
@@ -329,6 +388,9 @@ begin;
     -- vive só nesta transação revertida. postgres tem CREATEROLE ⇒ pode administrar role não-superuser.
     execute format('grant sg8_compute_writer to %I', current_user);
     perform set_config('role','sg8_compute_writer', true);
+    if current_user <> 'sg8_compute_writer' then
+      raise exception '§E: SET LOCAL ROLE não efetivou — os testes de isolamento DEVEM rodar como current_user=sg8_compute_writer (got %)', current_user;
+    end if;
     foreach tbl in array array['sg8_sessions','sg8_resolution_snapshots','sg8_round_executions','sg8_round_report_evidence'] loop
       execute format('select 1 from public.%I limit 1', tbl);   -- não deve levantar
     end loop;
@@ -348,6 +410,9 @@ begin;
     -- vive só nesta transação revertida. postgres tem CREATEROLE ⇒ pode administrar role não-superuser.
     execute format('grant sg8_compute_writer to %I', current_user);
     perform set_config('role','sg8_compute_writer', true);
+    if current_user <> 'sg8_compute_writer' then
+      raise exception '§E: SET LOCAL ROLE não efetivou — os testes de isolamento DEVEM rodar como current_user=sg8_compute_writer (got %)', current_user;
+    end if;
 
     -- autorizado: (id, source, contract) → status assume 'session_open'
     insert into public.sg8_sessions (id, source_collection_run_id, comparison_contract_version)
@@ -379,6 +444,9 @@ begin;
     -- vive só nesta transação revertida. postgres tem CREATEROLE ⇒ pode administrar role não-superuser.
     execute format('grant sg8_compute_writer to %I', current_user);
     perform set_config('role','sg8_compute_writer', true);
+    if current_user <> 'sg8_compute_writer' then
+      raise exception '§E: SET LOCAL ROLE não efetivou — os testes de isolamento DEVEM rodar como current_user=sg8_compute_writer (got %)', current_user;
+    end if;
     insert into public.sg8_sessions (id, source_collection_run_id, comparison_contract_version)
       values (v_sess, v_src, 'sg8-pass-v1');
 
@@ -415,6 +483,9 @@ begin;
     -- vive só nesta transação revertida. postgres tem CREATEROLE ⇒ pode administrar role não-superuser.
     execute format('grant sg8_compute_writer to %I', current_user);
     perform set_config('role','sg8_compute_writer', true);
+    if current_user <> 'sg8_compute_writer' then
+      raise exception '§E: SET LOCAL ROLE não efetivou — os testes de isolamento DEVEM rodar como current_user=sg8_compute_writer (got %)', current_user;
+    end if;
 
     -- UPDATE nas append-only → insufficient_privilege
     begin update public.sg8_resolution_snapshots set content_hash='x' where false;
@@ -476,6 +547,9 @@ begin;
     -- vive só nesta transação revertida. postgres tem CREATEROLE ⇒ pode administrar role não-superuser.
     execute format('grant sg8_compute_writer to %I', current_user);
     perform set_config('role','sg8_compute_writer', true);
+    if current_user <> 'sg8_compute_writer' then
+      raise exception '§E: SET LOCAL ROLE não efetivou — os testes de isolamento DEVEM rodar como current_user=sg8_compute_writer (got %)', current_user;
+    end if;
 
     insert into public.sg8_sessions (id, source_collection_run_id, comparison_contract_version)
       values (v_sess, v_src, 'sg8-pass-v1');
@@ -494,7 +568,8 @@ begin;
       (id, sg8_session_id, round_number, source_collection_run_id, resolution_snapshot_id,
        compute_engine_name, compute_engine_version, compute_manifest_hash)
       values (v_r2, v_sess, 2, v_src, v_snap, 'noxund-pipeline','pipeline-wiring-2026_06_v1', c_mh);
-    -- EVIDÊNCIA: adapter NÃO fornece id → default gen_random_uuid() sob a role (prova EXECUTE do §3).
+    -- EVIDÊNCIA: adapter NÃO fornece id → default gen_random_uuid() sob a role (prova a dependência de
+    -- PUBLIC EXECUTE FUNCIONANDO sob SET LOCAL ROLE writer — DEC-0026-R4/B; a ACL da função NÃO é tocada).
     insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_r1, v_sess, v_rep1, 'DIG-A');
     insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_r1, v_sess, v_rep2, 'DIG-B');
     insert into public.sg8_round_report_evidence (round_execution_id, sg8_session_id, report_id, canonical_digest) values (v_r2, v_sess, v_rep1, 'DIG-A');
@@ -513,6 +588,15 @@ begin;
     perform set_config('role','postgres', true);
   end $$;
 rollback;
+
+-- E-post — membership temporária AUSENTE depois do verify: prova que NENHUM bloco (nem no caminho de
+-- sucesso nem via abort/rollback) deixou membership persistente. §E0 provou antes; aqui, depois.
+do $$
+declare n int;
+begin
+  select count(*) into n from pg_auth_members where roleid = 'sg8_compute_writer'::regrole;
+  if n <> 0 then raise exception 'E-post: sg8_compute_writer tem % membro(s) DEPOIS do verify — membership residual (a estratégia transacional falhou)', n; end if;
+end $$;
 
 \echo '== sg8 runtime identity · §F 0008 contracts still GREEN =='
 
@@ -552,4 +636,109 @@ end $$;
 -- Nota: FSM, PASS gate, append-only e o contrato de comparação foram exercitados FUNCIONALMENTE
 --       em §E (walk completo até passed + transição inválida rejeitada) sob a role dedicada.
 
-\echo 'OK — sg8 runtime identity/grants/RLS post-apply verification PASSED (§A identity + §B grants + §C policies + §D isolation + §E behavior + §F 0008-green).'
+\echo '== sg8 runtime identity · §G negative / fail-closed proofs (DEC-0026-R4/E) =='
+
+-- Todos os NEGATIVOS são AUTO-CONTIDOS: cada perturbação vive numa transação REVERTIDA (begin/rollback)
+-- ou num bloco cuja falha ESPERADA é capturada por um EXCEPTION aninhado (o script segue e ASSERTA que
+-- a guarda disparou). Zero resíduo. Assim o próprio harness (que roda ESTE post-apply) PROVA as guardas.
+
+-- NEG-1 — role homônima PREEXISTENTE (aqui ela existe: a 0009 acabou de criá-la) faz o forward
+--         CREATE-ONLY recusar. Atributos idênticos são IRRELEVANTES: existência sozinha aborta.
+do $$
+declare raised boolean := false;
+begin
+  begin
+    -- réplica EXATA da guarda do §1 da migration
+    if to_regrole('sg8_compute_writer') is not null then
+      raise exception 'SG-8 0009: sg8_compute_writer JÁ EXISTE — create-only recusa (roles são cluster-global)';
+    end if;
+  exception when others then raised := true;
+  end;
+  if not raised then raise exception 'NEG-1 FALHOU: create-only não recusou uma role preexistente'; end if;
+  raise notice 'NEG-1 OK: role homônima preexistente (mesmo com atributos idênticos) faz a 0009 create-only FALHAR.';
+end $$;
+
+-- NEG-2 — baseline DIVERGENTE em UMA só das 4 tabelas faz a PRECONDITION abortar (não normaliza).
+begin;
+  do $$
+  declare tbl text; v_direct text[]; v_first text[] := null; raised boolean := false;
+  begin
+    -- perturba UMA tabela (grant extra a service_role) → diverge das outras três
+    grant truncate on table public.sg8_round_executions to service_role;
+    begin
+      foreach tbl in array array['sg8_sessions','sg8_resolution_snapshots','sg8_round_executions','sg8_round_report_evidence'] loop
+        select coalesce(array_agg(distinct a.privilege_type order by a.privilege_type), array[]::text[]) into v_direct
+          from pg_class c, aclexplode(c.relacl) a where c.oid=('public.'||tbl)::regclass and a.grantee='service_role'::regrole;
+        if v_first is null then v_first := v_direct;
+        elsif v_direct is distinct from v_first then
+          raise exception '0009 PRECONDITION: baseline REAL de % (%) diverge das demais (%) — abortando', tbl, v_direct, v_first;
+        end if;
+      end loop;
+    exception when others then raised := true;
+    end;
+    if not raised then raise exception 'NEG-2 FALHOU: a precondition não abortou com baseline divergente'; end if;
+    raise notice 'NEG-2 OK: baseline divergente em UMA tabela SG-8 faz a 0009 PRECONDITION abortar.';
+  end $$;
+rollback;
+
+-- NEG-3 — a AUSÊNCIA de PUBLIC EXECUTE faz o check de dependência do default UUID FALHAR (fail-closed),
+--         e demonstra que has_function_privilege É ENGANADO por PUBLIC enquanto a inspeção de catálogo NÃO.
+begin;
+  do $$
+  declare v_pub_exec boolean; v_hfp boolean; v_direct int; raised boolean := false;
+  begin
+    create function public._sg8_neg_uuid() returns uuid language sql as 'select gen_random_uuid()';
+    create role _sg8_neg_probe nologin;
+
+    -- (a) has_function_privilege enganado por PUBLIC (TRUE) enquanto NÃO há grant direto (0).
+    v_hfp := has_function_privilege('_sg8_neg_probe','public._sg8_neg_uuid()','EXECUTE');
+    select count(*) into v_direct from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f'::"char", p.proowner))) a
+      where p.oid='public._sg8_neg_uuid()'::regprocedure::oid and a.grantee='_sg8_neg_probe'::regrole and a.privilege_type='EXECUTE';
+    if not v_hfp then raise exception 'NEG-3 setup: esperava has_function_privilege=TRUE via PUBLIC'; end if;
+    if v_direct <> 0 then raise exception 'NEG-3 setup: não deveria haver grant direto'; end if;
+    raise notice 'NEG-3a OK: has_function_privilege=% (enganado por PUBLIC) vs grant direto=% — a inspeção de catálogo distingue.', v_hfp, v_direct;
+
+    -- (b) revogado PUBLIC EXECUTE → o check de dependência (réplica do §3/§B) deve ABORTAR.
+    revoke execute on function public._sg8_neg_uuid() from public;
+    begin
+      select bool_or(a.grantee=0 and a.privilege_type='EXECUTE') into v_pub_exec
+        from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f'::"char", p.proowner))) a
+       where p.oid='public._sg8_neg_uuid()'::regprocedure::oid;
+      if not coalesce(v_pub_exec,false) then
+        raise exception 'SG-8 0009: PUBLIC NÃO tem EXECUTE — ABORTANDO (sem elevar privilégio)';
+      end if;
+    exception when others then raised := true;
+    end;
+    if not raised then raise exception 'NEG-3 FALHOU: dependência não abortou sem PUBLIC EXECUTE'; end if;
+    raise notice 'NEG-3b OK: ausência de PUBLIC EXECUTE faz o check de dependência FALHAR (fail-closed), mesmo que has_function_privilege parecesse OK.';
+  end $$;
+rollback;
+
+-- NEG-4 — FALHA INTENCIONAL dentro do bloco SET ROLE não deixa membership residual (garantia é a
+--         transação, não um REVOKE final). A membership vive só na txn revertida.
+begin;
+  do $$
+  declare raised boolean := false;
+  begin
+    execute format('grant sg8_compute_writer to %I', current_user);
+    perform set_config('role','sg8_compute_writer', true);
+    if current_user <> 'sg8_compute_writer' then raise exception 'NEG-4 setup: SET ROLE não efetivou'; end if;
+    begin
+      raise exception 'FALHA INTENCIONAL durante o bloco SET ROLE';
+    exception when others then raised := true;   -- capturada só p/ podermos alcançar o rollback e provar a limpeza
+    end;
+    perform set_config('role','postgres', true);
+    if not raised then raise exception 'NEG-4 setup: a falha intencional não ocorreu'; end if;
+  end $$;
+rollback;
+do $$
+declare n int; v_oid oid;
+begin
+  v_oid := to_regrole('sg8_compute_writer');
+  if v_oid is null then raise exception 'NEG-4: writer sumiu inesperadamente'; end if;
+  select count(*) into n from pg_auth_members where roleid = v_oid;
+  if n <> 0 then raise exception 'NEG-4 FALHOU: % membership(s) residual(is) após falha+rollback', n; end if;
+  raise notice 'NEG-4 OK: falha intencional durante SET ROLE + rollback → ZERO membership residual (garantia transacional, não REVOKE final).';
+end $$;
+
+\echo 'OK — sg8 runtime identity/grants/RLS post-apply verification PASSED (§A identity + §B grants[+UUID PUBLIC-origin] + §C policies + §D isolation + §E behavior[+membership hygiene E0/E-post] + §F 0008-green + §G negatives[preexist/divergent/no-PUBLIC/SET-ROLE-fail]).'

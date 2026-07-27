@@ -2,36 +2,41 @@
 -- NOXUND · ROLLBACK — SG-8 Runtime Identity, Grants & RLS (DATA-SG8-001 estágio 3 · U3A-GRANTS)
 -- ----------------------------------------------------------------------------
 -- Reverte 20260620000009_sg8_runtime_identity_grants_rls.sql POR COMPLETO, restaurando EXATAMENTE
--- o baseline da 0008 (as 4 tabelas voltam ao estado "RLS habilitada, zero policies, service_role
--- com seus grants default, anon/authenticated/PUBLIC negados").
+-- o baseline pós-0008 de CADA UMA das quatro tabelas-alvo (RLS habilitada, zero policies, service_role
+-- com seus grants default, anon/authenticated/PUBLIC negados) e devolvendo a ACL da função UUID ao
+-- default. A 0009 é a ÚNICA proprietária de sg8_compute_writer (create-only), então o rollback pode e
+-- deve DROPAR a role que a 0009 criou.
 --
 -- LOCAL: fora de supabase/migrations/ DE PROPÓSITO (o Supabase CLI aplica migrations/ como forward).
---        Rodar manualmente (service-role/admin) só para reverter esta unidade.
+--        Rodar manualmente (admin) só para reverter esta unidade. O harness hermético também roda ESTE
+--        arquivo no passo [1.5] (limpar a role cluster-global que `supabase start` cria, antes do
+--        `db reset`, para o create-only da 0009 aplicar limpo).
 --
 -- ADITIVA ⇒ reversível sem perda de contrato: só remove role + grants + policies que ESTA unidade
---   criou, e RE-CONCEDE ao service_role exatamente o baseline que ESTA unidade revogou. NÃO toca
+--   criou, e RE-CONCEDE ao service_role EXATAMENTE o baseline que ESTA unidade revogou. NÃO toca
 --   tabelas/enums/triggers/colunas da 0008 nem de qualquer Fase.
 --
 -- ORDEM (contrato da unidade):
 --   [1] remover as 9 policies dedicadas;
---   [2] revogar TODOS os grants dedicados (função, tabela+coluna, schema, database);
+--   [2] revogar TODOS os grants dedicados (tabela+coluna, schema, database); a ACL da função UUID NÃO
+--       é tocada (dependência de PUBLIC — a 0009 nunca a alterou; permanece byte-equivalente ao baseline);
 --   [3] COMPROVAR ausência de ownership e memberships (escala se houver);
 --   [4] remover a role sg8_compute_writer;
---   [5] restaurar SÓ os grants de baseline da 0008 que foram comprovadamente revogados (service_role).
+--   [5] restaurar SÓ os grants de baseline da 0008 que foram comprovadamente revogados (service_role),
+--       por tabela, verbo a verbo.
 --
--- BASELINE NÃO PRESUMIDO: o baseline pós-0008 do service_role é o conjunto de default privileges do
---   Supabase, CAPTURADO EM RUNTIME de uma tabela-irmã intocada no MESMO schema/contexto de criação —
---   public.report_runs, que NENHUMA migration 0001–0008 concede/revoga para service_role (só
---   anon/authenticated/PUBLIC são mexidos). anon/authenticated/PUBLIC já eram negados pela 0008 ⇒
---   nada a restaurar para eles; authenticator nunca teve grant SG-8 (default privileges miram
---   anon/authenticated/service_role) ⇒ nada a restaurar.
+-- BASELINE NÃO PRESUMIDO, SEM report_runs (DEC-0026-R4/C): a FONTE DE VERDADE é o ESTADO REAL das quatro
+--   tabelas-alvo — a precondition fail-closed da 0009 PROVOU, no apply, que a ACL DIRETA real de service_role
+--   é IDÊNTICA nas quatro e bate, verbo a verbo, com o mecanismo de reconstrução (pg_default_acl, união entre
+--   grantors), que é exatamente o que produziu o baseline na criação. Logo reconstruir pelo mecanismo ==
+--   restaurar o baseline REAL comprovado. pg_default_acl é auxiliar/mecanismo, nunca substituto do estado
+--   real. report_runs NÃO é usada (nem fonte, nem prova) — só as tabelas-alvo e o mecanismo corroborado.
 --
 -- ATIVAÇÃO FUTURA (registro operacional): esta unidade é DESIGN-ONLY e a role nasce NOLOGIN/sem
---   sessão. Um rollback FUTURO, DEPOIS de ativação (LOGIN concedido out-of-band), exige PRIMEIRO:
---     (i) ALTER ROLE sg8_compute_writer NOLOGIN;
---     (ii) drenagem/encerramento controlado das sessões da role;
---     (iii) só então executar este rollback.
---   Esta migration design-only NÃO encerra sessões nem executa ALTER ROLE LOGIN/NOLOGIN operacional.
+--   sessão. Um rollback FUTURO, DEPOIS de ativação (LOGIN out-of-band), exige PRIMEIRO:
+--     (i) ALTER ROLE sg8_compute_writer NOLOGIN; (ii) drenagem/encerramento controlado das sessões;
+--     (iii) só então executar este rollback. Esta migration design-only NÃO encerra sessões nem
+--     executa ALTER ROLE LOGIN/NOLOGIN operacional.
 --
 -- STATUS: AUTORADO, NÃO APLICADO (DESIGN-ONLY). DoD Database: "migration aplica e reverte".
 -- ============================================================================
@@ -52,39 +57,16 @@ drop policy if exists sg8_round_report_evidence_writer_select on public.sg8_roun
 drop policy if exists sg8_round_report_evidence_writer_insert on public.sg8_round_report_evidence;
 
 -- ----------------------------------------------------------------------------
--- [2] Revogar TODOS os grants dedicados da role (função, tabela+coluna, schema, database).
+-- [2] Revogar TODOS os grants dedicados da role (tabela+coluna, schema, database).
 --     Necessário ANTES do DROP ROLE: privilégios concedidos são dependências que bloqueiam o drop.
---     Re-descobre a MESMA função de default do §3 da migration para revogar EXECUTE (e a USAGE de
---     schema não-padrão, se concedida).
+--     NOTA (DEC-0026-R4/B): a 0009 NÃO concede mais EXECUTE na função UUID (a escrita apoia-se no
+--     EXECUTE de PUBLIC). Logo NÃO há ACL de função a reverter aqui — a ACL de gen_random_uuid()
+--     permanece BYTE-EQUIVALENTE ao baseline (intocada no apply e no rollback).
 -- ----------------------------------------------------------------------------
 do $$
-declare v_func regprocedure; v_nsp text; v_attnum smallint;
 begin
   if to_regrole('sg8_compute_writer') is null then
     return;  -- role já ausente ⇒ nada a revogar
-  end if;
-
-  -- Função de default (EXECUTE) + eventual USAGE de schema não-padrão.
-  select attnum into v_attnum from pg_attribute
-   where attrelid = 'public.sg8_round_report_evidence'::regclass and attname = 'id' and not attisdropped;
-  select dep.refobjid::regprocedure into v_func
-    from pg_attrdef ad
-    join pg_depend dep
-      on dep.classid = 'pg_attrdef'::regclass and dep.objid = ad.oid and dep.refclassid = 'pg_proc'::regclass
-   where ad.adrelid = 'public.sg8_round_report_evidence'::regclass and ad.adnum = v_attnum
-   limit 1;
-  -- fallback p/ built-in PINADO (pg_catalog.gen_random_uuid não gera pg_depend): parse do texto.
-  if v_func is null then
-    select to_regprocedure(pg_get_expr(ad.adbin, ad.adrelid)) into v_func
-      from pg_attrdef ad
-     where ad.adrelid = 'public.sg8_round_report_evidence'::regclass and ad.adnum = v_attnum;
-  end if;
-  if v_func is not null then
-    execute format('revoke execute on function %s from sg8_compute_writer', v_func::text);
-    select n.nspname into v_nsp from pg_proc p join pg_namespace n on n.oid = p.pronamespace where p.oid = v_func::oid;
-    if v_nsp not in ('pg_catalog', 'public') then
-      execute format('revoke usage on schema %I from sg8_compute_writer', v_nsp);
-    end if;
   end if;
 
   -- COLUNA — INSERT (espelha exatamente os grants do §2d da migration).
@@ -140,30 +122,34 @@ begin
 end $$;
 
 -- ----------------------------------------------------------------------------
--- [4] Remover a role (agora sem dependências).
+-- [4] Remover a role (agora sem dependências). A 0009 a criou (create-only) ⇒ o rollback a remove.
 -- ----------------------------------------------------------------------------
 drop role if exists sg8_compute_writer;
 
 -- ----------------------------------------------------------------------------
--- [5] Restaurar SÓ o baseline do service_role que a 0009 revogou. Capturado em RUNTIME da
---     tabela-irmã intocada public.report_runs (mesmo schema/criador; default privileges idênticos;
---     nunca revogada/concedida p/ service_role). Restaura verbo-a-verbo — sem presumir "ALL".
---     anon/authenticated/PUBLIC: nada a restaurar (já negados pela 0008). authenticator: idem.
+-- [5] Restaurar SÓ o baseline do service_role que a 0009 revogou, POR TABELA e VERBO a VERBO. O baseline
+--     é DERIVADO das default privileges (pg_default_acl, união entre grantors) — a MESMA referência que a
+--     precondition fail-closed da 0009 provou bater, verbo a verbo, com a ACL DIRETA REAL das 4 tabelas
+--     (fonte de verdade). Sem report_runs. anon/authenticated/PUBLIC/authenticator: nada a restaurar (0008).
 -- ----------------------------------------------------------------------------
 do $$
-declare verb text; tbl text; n_base int := 0;
+declare v_ref text[]; verb text; tbl text;
 begin
-  foreach verb in array array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] loop
-    if has_table_privilege('service_role', 'public.report_runs', verb) then
-      n_base := n_base + 1;
-      foreach tbl in array array['sg8_sessions','sg8_resolution_snapshots','sg8_round_executions','sg8_round_report_evidence'] loop
-        execute format('grant %s on table public.%I to service_role', verb, tbl);
-      end loop;
-    end if;
+  if to_regrole('service_role') is null then return; end if;
+  -- baseline (mesmo mecanismo/consulta da precondition da 0009, corroborada lá == estado real das 4
+  -- tabelas): default privileges p/ service_role em public — UNIÃO entre grantors (robusto a defaclrole).
+  select coalesce(array_agg(distinct a.privilege_type order by a.privilege_type), array[]::text[])
+    into v_ref
+    from pg_default_acl da, aclexplode(da.defaclacl) a
+   where da.defaclnamespace = 'public'::regnamespace and da.defaclobjtype = 'r'
+     and a.grantee = 'service_role'::regrole;
+
+  foreach tbl in array array['sg8_sessions','sg8_resolution_snapshots','sg8_round_executions','sg8_round_report_evidence'] loop
+    foreach verb in array v_ref loop
+      execute format('grant %s on table public.%I to service_role', verb, tbl);
+    end loop;
   end loop;
-  if n_base = 0 then
-    raise exception 'ROLLBACK/baseline: service_role tem ZERO privilégio na tabela-irmã report_runs — captura de baseline insegura; escalar (não deixar as tabelas SG-8 com baseline desconhecido de service_role)';
-  end if;
+  raise notice '0009 ROLLBACK: baseline de service_role restaurado nas 4 tabelas-alvo, verbo a verbo = %', v_ref;
 end $$;
 
 commit;
