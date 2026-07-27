@@ -29,7 +29,8 @@ name: Migrations · Hermetic Local Verify (no remote, no secrets)
 #   [1]   start disposable local stack (this ALSO applies every migration once) →
 #   [1.5] pre-reset rollback of the TARGET migration (GENERIC — invokes only rollback_path, names no
 #         role) so any CLUSTER-GLOBAL object the unit created (which survives `db reset`) is cleared,
-#         letting a create-only forward re-apply clean; purely subtractive on cluster globals →
+#         letting a create-only forward re-apply clean; strengthened guard proves it is purely
+#         subtractive: no role added, surviving roles' attributes+memberships unchanged, removals logged →
 #   [2]   apply the canonical migration sequence at target_sha (`supabase db reset`) →
 #   [3]   post-apply verify →
 #   [4]   rollback →
@@ -247,7 +248,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "== [1.5] pre-reset rollback of the TARGET migration (cluster-global-safe; GENERIC) =="
+          echo "== [1.5] pre-reset rollback of the TARGET migration (cluster-global-safe; GENERIC; strengthened guard) =="
           # `supabase start` already applied EVERY migration (incl. the target). A migration may create
           # a CLUSTER-GLOBAL object (e.g. a role) that SURVIVES `db reset` (which recreates the DATABASE,
           # not cluster globals). If the target's forward is CREATE-ONLY, `db reset` re-applying it would
@@ -255,19 +256,43 @@ jobs:
           # to clear whatever the unit created. The workflow stays GENERIC: it invokes only the provided
           # rollback_path and NEVER names any role; it uses the SAME canonical `postgres` identity as every
           # other step (never a superuser). Fail-closed: ON_ERROR_STOP=1 + pipefail → any error stops here.
-          roles_before="$(psql "$DBURL" -tA -c 'select rolname from pg_roles order by 1')"
+          #
+          # STRENGTHENED GUARD (DEC-0026-R4-gap4): to justify "subtractive only", snapshot BEFORE and AFTER
+          # the pre-reset rollback a canonical line per role — "rolname|<7 attribute bits>|<sorted memberships>"
+          # — and prove: (a) NO new role; (b) surviving roles' ATTRIBUTES unchanged; (c) surviving roles'
+          # MEMBERSHIPS unchanged; (d) removed roles logged explicitly. Never hardcodes any role name.
+          snap() {
+            psql "$DBURL" -tA -F'|' -c "
+              select r.rolname,
+                     r.rolcanlogin::int||r.rolsuper::int||r.rolcreatedb::int||r.rolcreaterole::int||r.rolinherit::int||r.rolreplication::int||r.rolbypassrls::int,
+                     coalesce((select string_agg(m.rolname, ',' order by m.rolname)
+                                 from pg_auth_members am join pg_roles m on m.oid = am.roleid
+                                where am.member = r.oid), '')
+                from pg_roles r order by r.rolname;"
+          }
+          before="$(snap)"
           psql "$DBURL" -v ON_ERROR_STOP=1 -f "$P_ROLLBACK"
-          roles_after="$(psql "$DBURL" -tA -c 'select rolname from pg_roles order by 1')"
-          # Confirm (generically, before `db reset`) that the pre-reset rollback was purely SUBTRACTIVE on
-          # cluster globals — it may only REMOVE what the forward created, never add and never touch unknown
-          # identities. The authoritative "target role absent" gate is the create-only forward inside the
-          # very next `db reset` (it aborts if the role persisted).
-          added="$(comm -13 <(printf '%s\n' "$roles_before") <(printf '%s\n' "$roles_after") || true)"
+          after="$(snap)"
+
+          nb="$(printf '%s\n' "$before" | cut -d'|' -f1 | sort)"
+          na="$(printf '%s\n' "$after"  | cut -d'|' -f1 | sort)"
+          added="$(comm -13 <(printf '%s\n' "$nb") <(printf '%s\n' "$na") || true)"
+          removed="$(comm -23 <(printf '%s\n' "$nb") <(printf '%s\n' "$na") || true)"
           if [ -n "$added" ]; then
             echo "::error::pre-reset rollback ADDED cluster role(s) — must be subtractive: ${added//$'\n'/ }"; exit 1
           fi
-          removed="$(comm -23 <(printf '%s\n' "$roles_before") <(printf '%s\n' "$roles_after") || true)"
-          echo "pre-reset rollback removed cluster role(s): ${removed:-<none>}"
+          # surviving roles (in BOTH snapshots): their FULL canonical line (attrs + memberships) must be identical.
+          survivors="$(comm -12 <(printf '%s\n' "$nb") <(printf '%s\n' "$na") || true)"
+          bsurv="$(awk -F'|' 'NR==FNR{s[$0]=1; next} ($1 in s)' <(printf '%s\n' "$survivors") <(printf '%s\n' "$before") | sort)"
+          asurv="$(awk -F'|' 'NR==FNR{s[$0]=1; next} ($1 in s)' <(printf '%s\n' "$survivors") <(printf '%s\n' "$after")  | sort)"
+          if [ "$bsurv" != "$asurv" ]; then
+            echo "::error::pre-reset rollback CHANGED surviving role attributes/memberships:"
+            diff <(printf '%s\n' "$bsurv") <(printf '%s\n' "$asurv") || true
+            exit 1
+          fi
+          # The authoritative "target role absent" gate remains the create-only forward inside the very next
+          # `db reset` (it aborts if the role persisted).
+          echo "pre-reset rollback removed cluster role(s): ${removed:-<none>} — NO role added; surviving roles' attributes+memberships UNCHANGED."
 
           echo "== [2] apply canonical migration sequence at target_sha (fail-closed) =="
           # Drops + re-applies EVERY supabase/migrations file in order; non-zero on any failure.

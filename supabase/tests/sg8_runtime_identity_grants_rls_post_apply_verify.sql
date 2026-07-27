@@ -21,6 +21,9 @@
 --       USING/WITH CHECK = true; sem DELETE; UPDATE só em sg8_sessions.
 --   §D  isolamento das identidades amplas por PRIVILÉGIO EFETIVO (has_table_privilege): service_role,
 --       anon, authenticated, authenticator, PUBLIC = ZERO; owner/admin NÃO é descrito como bloqueado.
+--   §D2 isolamento das identidades amplas no NÍVEL DE COLUNA (has_any_column_privilege + has_column_privilege
+--       por coluna/verbo + pg_attribute.attacl): ZERO SELECT/INSERT/UPDATE/REFERENCES em qualquer coluna SG-8
+--       — falha mesmo quando has_table_privilege é falso (DEC-0026-R4-gap2).
 --   §E  comportamento sob a role (membership temporária: §E0 ausente antes, current_user==writer em cada
 --       bloco, §E-post ausente depois — DEC-0026-R4/D): SELECT nas 4; INSERT só nas colunas autorizadas;
 --       UPDATE só nas 5; comparison_contract_version não atualizável; FSM/trigger decidem a legalidade
@@ -358,6 +361,58 @@ begin
       raise exception 'D/honesty: superuser postgres deveria manter SELECT em %', tbl;
     end if;
   end loop;
+end $$;
+
+\echo '== sg8 runtime identity · §D2 broad-identity isolation at COLUMN level (DEC-0026-R4-gap2) =='
+
+-- Isolamento por PRIVILÉGIO DE COLUNA — deve falhar mesmo quando has_table_privilege=false. Nenhuma
+-- identidade ampla (service_role, anon, authenticated, authenticator, PUBLIC) pode manter SELECT,
+-- INSERT, UPDATE ou REFERENCES em QUALQUER coluna SG-8. Prova por 3 mecanismos independentes:
+--   (1) has_any_column_privilege (qualquer coluna);
+--   (2) has_column_privilege POR coluna e verbo;
+--   (3) inspeção direta de pg_attribute.attacl (grantee = 0/PUBLIC ou as 4 roles amplas).
+-- O writer tem grants de coluna legítimos (INSERT/UPDATE) — NÃO é alvo desta checagem (grantee ≠ amplos).
+do $$
+declare
+  tbl text; rol text; verb text; att record;
+  col_verbs constant text[] := array['SELECT','INSERT','UPDATE','REFERENCES'];
+begin
+  foreach tbl in array array['sg8_sessions','sg8_resolution_snapshots','sg8_round_executions','sg8_round_report_evidence'] loop
+    foreach rol in array array['service_role','anon','authenticated','authenticator'] loop
+      if to_regrole(rol) is not null then
+        -- (1) qualquer coluna
+        foreach verb in array col_verbs loop
+          if has_any_column_privilege(rol, ('public.'||tbl)::regclass, verb) then
+            raise exception 'D2/anycol: % ainda tem % em ALGUMA coluna de % (has_any_column_privilege)', rol, verb, tbl;
+          end if;
+        end loop;
+        -- (2) por coluna e verbo
+        for att in select attname, attnum from pg_attribute
+                    where attrelid=('public.'||tbl)::regclass and attnum>0 and not attisdropped loop
+          foreach verb in array col_verbs loop
+            if has_column_privilege(rol, ('public.'||tbl)::regclass, att.attnum, verb) then
+              raise exception 'D2/col: % ainda tem % em %.% (has_column_privilege)', rol, verb, tbl, att.attname;
+            end if;
+          end loop;
+        end loop;
+      end if;
+    end loop;
+    -- (3) attacl direto: nenhuma coluna concede SELECT/INSERT/UPDATE/REFERENCES a PUBLIC(0) ou às 4 amplas
+    for att in select attname, attacl from pg_attribute
+                where attrelid=('public.'||tbl)::regclass and attnum>0 and not attisdropped and attacl is not null loop
+      if exists (
+        select 1 from aclexplode(att.attacl) x
+         where x.privilege_type in ('SELECT','INSERT','UPDATE','REFERENCES')
+           and ( x.grantee = 0
+              or x.grantee = to_regrole('service_role')
+              or x.grantee = to_regrole('anon')
+              or x.grantee = to_regrole('authenticated')
+              or x.grantee = to_regrole('authenticator') ) ) then
+        raise exception 'D2/attacl: coluna %.% concede verbo de coluna a identidade ampla/PUBLIC (pg_attribute.attacl)', tbl, att.attname;
+      end if;
+    end loop;
+  end loop;
+  raise notice 'D2 OK: ZERO privilégio de coluna (SELECT/INSERT/UPDATE/REFERENCES) p/ service_role/anon/authenticated/authenticator/PUBLIC nas 4 tabelas (has_any_column + has_column por coluna/verbo + attacl).';
 end $$;
 
 \echo '== sg8 runtime identity · §E behavior under SET ROLE sg8_compute_writer =='
@@ -741,4 +796,4 @@ begin
   raise notice 'NEG-4 OK: falha intencional durante SET ROLE + rollback → ZERO membership residual (garantia transacional, não REVOKE final).';
 end $$;
 
-\echo 'OK — sg8 runtime identity/grants/RLS post-apply verification PASSED (§A identity + §B grants[+UUID PUBLIC-origin] + §C policies + §D isolation + §E behavior[+membership hygiene E0/E-post] + §F 0008-green + §G negatives[preexist/divergent/no-PUBLIC/SET-ROLE-fail]).'
+\echo 'OK — sg8 runtime identity/grants/RLS post-apply verification PASSED (§A identity + §B grants[+UUID PUBLIC-origin] + §C policies + §D isolation + §D2 column-isolation + §E behavior[+membership hygiene E0/E-post] + §F 0008-green + §G negatives[preexist/divergent/no-PUBLIC/SET-ROLE-fail]).'

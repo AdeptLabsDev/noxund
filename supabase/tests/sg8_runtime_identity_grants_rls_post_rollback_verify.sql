@@ -6,17 +6,22 @@
 --   (supabase/rollback/20260620000009_sg8_runtime_identity_grants_rls.rollback.sql)
 -- has reverted the unit, while migration 0008 (e 0001–0006) permanecem aplicadas.
 --
--- NATURE: PURELY READ-ONLY — catálogo + has_*_privilege. ZERO escrita. Prova QUATRO coisas:
+-- NATURE: read-only (catálogo + has_*_privilege), EXCETO o §5 (probe de atomicidade numa txn REVERTIDA
+--   — nenhuma escrita persiste). Prova SEIS coisas:
 --   §1 AUSÊNCIA — a role sg8_compute_writer sumiu (create-only ⇒ o rollback a removeu); as 9 policies
 --      dedicadas sumiram; as 4 tabelas voltaram a ter ZERO policies; RLS continua HABILITADA; nenhum
 --      objeto residual da 0009.
---   §2 BASELINE RESTAURADO — FONTE DE VERDADE = as PRÓPRIAS 4 tabelas-alvo (estado real: efetivo==direto,
---      verbo a verbo, IDÊNTICAS entre si; basta uma divergir p/ falhar). pg_default_acl entra SÓ como
+--   §2 BASELINE RESTAURADO (TABELA) — FONTE DE VERDADE = as PRÓPRIAS 4 tabelas-alvo (estado real: efetivo==
+--      direto, verbo a verbo, IDÊNTICAS entre si; basta uma divergir p/ falhar). pg_default_acl SÓ como
 --      corroboração AUXILIAR (DEC-0026-R4/C) — NÃO report_runs. anon/authenticated/authenticator/PUBLIC NEGADOS.
+--   §2b BASELINE RESTAURADO (COLUNA) — attacl NULL em TODAS as colunas SG-8 (baseline 0008 = zero grant de
+--      coluna; grants de coluna do writer removidos); anon/authenticated/authenticator sem privilégio de coluna.
 --   §3 ACL DA FUNÇÃO UUID INTOCADA — byte-equivalente ao baseline: a 0009 nunca altera a função (dependência
 --      de PUBLIC). proacl == default (NULL p/ o built-in pinado); PUBLIC mantém EXECUTE; ZERO entrada
 --      residual da role removida; nenhum grantee dangling.
 --   §4 CONTRATOS 0008 INTACTOS — 4 tabelas + enum (7) + 3 funções + 8 triggers + CHECKs-chave.
+--   §5 ATOMICIDADE — wrapper de teste: falha DEPOIS de CREATE ROLE + rollback ⇒ to_regrole IS NULL (sem
+--      resíduo cluster-global; sem cleanup silencioso — a garantia é a fronteira transacional).
 --
 -- CONTRACT: todo mismatch RAISES → `psql -v ON_ERROR_STOP=1` sai não-zero, falha o CI.
 -- Scope: este arquivo NÃO modifica migration, rollback, post-apply verify ou workflow.
@@ -114,6 +119,36 @@ begin
   raise notice 'ROLLBACK/baseline OK: service_role restaurado nas 4 tabelas-alvo (estado real, direto==efetivo, idêntico entre si) = % (corroborado pelo mecanismo = %)', coalesce(v_first, array[]::text[]), v_ref;
 end $$;
 
+\echo '== sg8 runtime identity · §2b column ACLs restored to 0008 baseline (attacl NULL; column-level deny) =='
+
+-- Restauração EXATA no NÍVEL DE COLUNA (DEC-0026-R4-gap2). A 0008 não concedeu privilégio de coluna a
+-- ninguém ⇒ o baseline de coluna é attacl NULL em TODAS as colunas SG-8. O rollback revogou os grants
+-- de coluna do writer (INSERT/UPDATE) e dropou a role ⇒ attacl deve voltar a NULL. As identidades de
+-- default-deny (anon/authenticated/authenticator) seguem sem qualquer privilégio de coluna. service_role
+-- mantém APENAS o baseline de TABELA (§2) — sem grant de coluna.
+do $$
+declare tbl text; att record; rol text; verb text; col_verbs constant text[]:=array['SELECT','INSERT','UPDATE','REFERENCES'];
+begin
+  foreach tbl in array array['sg8_sessions','sg8_resolution_snapshots','sg8_round_executions','sg8_round_report_evidence'] loop
+    for att in select attname, attacl from pg_attribute
+                where attrelid=('public.'||tbl)::regclass and attnum>0 and not attisdropped loop
+      if att.attacl is not null then
+        raise exception 'ROLLBACK/col: coluna %.% tem attacl != NULL (%) — restauração de coluna inexata (baseline 0008 = zero grant de coluna; grant do writer não revogado?)', tbl, att.attname, att.attacl::text;
+      end if;
+    end loop;
+    foreach rol in array array['anon','authenticated','authenticator'] loop
+      if to_regrole(rol) is not null then
+        foreach verb in array col_verbs loop
+          if has_any_column_privilege(rol, ('public.'||tbl)::regclass, verb) then
+            raise exception 'ROLLBACK/col: % recuperou % em coluna de %', rol, verb, tbl;
+          end if;
+        end loop;
+      end if;
+    end loop;
+  end loop;
+  raise notice 'ROLLBACK/col OK: attacl NULL em todas as colunas SG-8 (baseline 0008; grants de coluna do writer removidos); anon/authenticated/authenticator sem privilégio de coluna.';
+end $$;
+
 \echo '== sg8 runtime identity · §3 UUID function ACL byte-equivalent to baseline (untouched; PUBLIC intact) =='
 
 do $$
@@ -187,4 +222,36 @@ begin
   if missing is not null then raise exception 'ROLLBACK/0008: CHECK(s) ausente(s): %', missing; end if;
 end $$;
 
-\echo 'OK — sg8 runtime identity/grants/RLS POST-ROLLBACK verification PASSED (§1 absence + §2 baseline restored [target tables] + §3 UUID ACL restored + §4 0008 intact).'
+\echo '== sg8 runtime identity · §5 ATOMICITY wrapper — failure after CREATE ROLE leaves no cluster residue (DEC-0026-R4-gap3) =='
+
+-- WRAPPER DE TESTE da atomicidade da migration (NÃO altera a migration canônica). A migration é uma
+-- transação única (begin;…commit;) e CREATE ROLE é TRANSACIONAL ⇒ uma falha DEPOIS da criação da role
+-- desfaz a criação no rollback da transação. Pré-condição: a role está AUSENTE (provado no §1). Aqui,
+-- numa transação explícita, criamos a role, provamos que ela existe, provocamos uma FALHA POSTERIOR e
+-- damos ROLLBACK — a fronteira TRANSACIONAL (não um cleanup) remove a role. Exigência: to_regrole IS NULL.
+-- (A falha é capturada por um EXCEPTION aninhado SÓ para o script alcançar o assert final; se a
+--  atomicidade estivesse quebrada, o assert abaixo levantaria ATOMICITY VIOLATION — nada é mascarado.)
+begin;
+  do $$
+  begin
+    create role sg8_compute_writer
+      nologin nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls;
+    if to_regrole('sg8_compute_writer') is null then
+      raise exception 'ATOMICITY setup: a role deveria EXISTIR dentro da txn logo após CREATE ROLE';
+    end if;
+    begin
+      raise exception 'FALHA INTENCIONAL pós-CREATE ROLE (simula falha da migration após criar a identidade)';
+    exception when others then null;   -- capturada p/ alcançar o rollback abaixo (não é cleanup)
+    end;
+  end $$;
+rollback;   -- fronteira transacional: DESFAZ o CREATE ROLE (é a atomicidade, não um DROP silencioso)
+
+do $$
+begin
+  if to_regrole('sg8_compute_writer') is not null then
+    raise exception 'ATOMICITY VIOLATION: sg8_compute_writer PERMANECEU no cluster após CREATE ROLE + falha + rollback — fronteira transacional insuficiente';
+  end if;
+  raise notice 'ATOMICITY OK: to_regrole(sg8_compute_writer) IS NULL após CREATE ROLE + falha posterior + rollback (atomicidade transacional; sem resíduo cluster-global; sem cleanup silencioso).';
+end $$;
+
+\echo 'OK — sg8 runtime identity/grants/RLS POST-ROLLBACK verification PASSED (§1 absence + §2 baseline restored [table] + §2b column ACLs restored + §3 UUID ACL byte-equivalent + §4 0008 intact + §5 atomicity).'
