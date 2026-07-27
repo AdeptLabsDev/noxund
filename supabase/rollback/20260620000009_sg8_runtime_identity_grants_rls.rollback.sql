@@ -27,10 +27,10 @@
 --
 -- BASELINE NÃO PRESUMIDO, SEM report_runs (DEC-0026-R4/C): a FONTE DE VERDADE é o ESTADO REAL das quatro
 --   tabelas-alvo — a precondition fail-closed da 0009 PROVOU, no apply, que a ACL DIRETA real de service_role
---   é IDÊNTICA nas quatro e bate, verbo a verbo, com o mecanismo de reconstrução (pg_default_acl, união entre
---   grantors), que é exatamente o que produziu o baseline na criação. Logo reconstruir pelo mecanismo ==
---   restaurar o baseline REAL comprovado. pg_default_acl é auxiliar/mecanismo, nunca substituto do estado
---   real. report_runs NÃO é usada (nem fonte, nem prova) — só as tabelas-alvo e o mecanismo corroborado.
+--   é IDÊNTICA nas quatro e bate, verbo a verbo, com o mecanismo de reconstrução (pg_default_acl do defaclrole
+--   == OWNER/criador — as default privileges que EFETIVAMENTE se aplicaram às SG-8, p.ex. {REFERENCES,TRIGGER,
+--   TRUNCATE}). Logo reconstruir pelo mecanismo == restaurar o baseline REAL comprovado. pg_default_acl é
+--   auxiliar/mecanismo, nunca substituto do estado real. report_runs NÃO é usada (nem fonte, nem prova).
 --
 -- ATIVAÇÃO FUTURA (registro operacional): esta unidade é DESIGN-ONLY e a role nasce NOLOGIN/sem
 --   sessão. Um rollback FUTURO, DEPOIS de ativação (LOGIN out-of-band), exige PRIMEIRO:
@@ -128,7 +128,7 @@ drop role if exists sg8_compute_writer;
 
 -- ----------------------------------------------------------------------------
 -- [5] Restaurar SÓ o baseline do service_role que a 0009 revogou, POR TABELA e VERBO a VERBO. O baseline
---     é DERIVADO das default privileges (pg_default_acl, união entre grantors) — a MESMA referência que a
+--     é DERIVADO das default privileges (pg_default_acl do defaclrole==OWNER) — a MESMA referência que a
 --     precondition fail-closed da 0009 provou bater, verbo a verbo, com a ACL DIRETA REAL das 4 tabelas
 --     (fonte de verdade). Sem report_runs. anon/authenticated/PUBLIC/authenticator: nada a restaurar (0008).
 -- ----------------------------------------------------------------------------
@@ -137,11 +137,13 @@ declare v_ref text[]; verb text; tbl text;
 begin
   if to_regrole('service_role') is null then return; end if;
   -- baseline (mesmo mecanismo/consulta da precondition da 0009, corroborada lá == estado real das 4
-  -- tabelas): default privileges p/ service_role em public — UNIÃO entre grantors (robusto a defaclrole).
+  -- tabelas): default privileges p/ service_role em public do defaclrole == OWNER/criador (as que se
+  -- aplicaram às SG-8). Filtra por defaclrole=owner (NÃO união entre grantors, que superestima).
   select coalesce(array_agg(distinct a.privilege_type order by a.privilege_type), array[]::text[])
     into v_ref
     from pg_default_acl da, aclexplode(da.defaclacl) a
    where da.defaclnamespace = 'public'::regnamespace and da.defaclobjtype = 'r'
+     and da.defaclrole = (select relowner from pg_class where oid = 'public.sg8_sessions'::regclass)
      and a.grantee = 'service_role'::regrole;
 
   foreach tbl in array array['sg8_sessions','sg8_resolution_snapshots','sg8_round_executions','sg8_round_report_evidence'] loop

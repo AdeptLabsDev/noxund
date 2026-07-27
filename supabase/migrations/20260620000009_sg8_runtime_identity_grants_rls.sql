@@ -102,13 +102,15 @@ begin
     from pg_auth_members m join pg_roles r on r.oid = m.roleid
    where to_regrole('service_role') is not null and m.member = 'service_role'::regrole;
 
-  -- AUXILIAR (mecanismo de reconstrução do rollback; NÃO é a fonte de verdade): default privileges p/
-  -- service_role em tabelas public — UNIÃO entre os grantor roles (robusto à identidade do defaclrole:
-  -- não presume que defaclrole == owner). Read-only; NÃO report_runs. Corroborado == estado real abaixo.
+  -- AUXILIAR (mecanismo de reconstrução do rollback; NÃO é a fonte de verdade): as default privileges
+  -- p/ service_role em public que EFETIVAMENTE se aplicaram às SG-8 = as do defaclrole == OWNER/criador
+  -- das tabelas (grantor real das ACLs = postgres). Filtra por defaclrole=owner (NÃO união entre grantors,
+  -- que superestima). Read-only; NÃO report_runs. Corroborado, verbo a verbo, == estado real abaixo.
   select coalesce(array_agg(distinct a.privilege_type order by a.privilege_type), array[]::text[])
     into v_ref
     from pg_default_acl da, aclexplode(da.defaclacl) a
    where da.defaclnamespace = 'public'::regnamespace and da.defaclobjtype = 'r'
+     and da.defaclrole = (select relowner from pg_class where oid = 'public.sg8_sessions'::regclass)
      and a.grantee = 'service_role'::regrole;
 
   foreach tbl in array array['sg8_sessions','sg8_resolution_snapshots','sg8_round_executions','sg8_round_report_evidence'] loop

@@ -66,12 +66,13 @@ end $$;
 do $$
 declare v_ref text[]; tbl text; got text[]; got_direct text[]; v_first text[] := null; verb text;
 begin
-  -- AUXILIAR (corroboração; NÃO substitui o estado real): mecanismo pg_default_acl — UNIÃO entre grantors
-  -- (robusto à identidade do defaclrole). DEC-0026-R4/C.
+  -- AUXILIAR (corroboração; NÃO substitui o estado real): mecanismo pg_default_acl do defaclrole==OWNER
+  -- (as default privileges que se aplicaram às SG-8; NÃO união entre grantors, que superestima). DEC-0026-R4/C.
   select coalesce(array_agg(distinct a.privilege_type order by a.privilege_type), array[]::text[])
     into v_ref
     from pg_default_acl da, aclexplode(da.defaclacl) a
    where da.defaclnamespace='public'::regnamespace and da.defaclobjtype='r'
+     and da.defaclrole=(select relowner from pg_class where oid='public.sg8_sessions'::regclass)
      and a.grantee='service_role'::regrole;
 
   foreach tbl in array array['sg8_sessions','sg8_resolution_snapshots','sg8_round_executions','sg8_round_report_evidence'] loop
