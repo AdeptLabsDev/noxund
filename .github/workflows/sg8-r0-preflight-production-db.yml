@@ -1,0 +1,260 @@
+name: SG-8 · R0 Preflight (READ-ONLY, pre-0008) — production-db
+
+# =============================================================================
+# R0 PREFLIGHT — READ-ONLY diagnosis of the REMOTE production database BEFORE any
+# SG-8 migration (0008/0009). This workflow APPLIES NOTHING. It runs a single
+# read-only transaction (REPEATABLE READ, READ ONLY, final ROLLBACK) and reports
+# GREEN (environment exactly compatible + SG-8 objects absent) or RED.
+#
+# THREAT MODEL / INVARIANTS (Security + DevOps + Database review surface):
+#   • MANUAL ONLY — workflow_dispatch; never push/PR/schedule.
+#   • Dispatch restricted to `main`: the `production-db` Environment's deployment
+#     branch rule DENIES the Environment/secrets to any ref ≠ main (SEC-F18); we
+#     also assert github.ref == refs/heads/main and that target_sha ∈ main.
+#   • EXACTLY ONE Environment: production-db (inherits required reviewers). NO
+#     other environment. NO new secret. NO `configure_env`.
+#   • permissions: contents: read ONLY (no write scope, no id-token).
+#   • NO migration / repair / push / apply / DDL command anywhere. NO `supabase`
+#     CLI (no link/db push/db reset/migration up). psql runs ONLY the read-only
+#     preflight .sql; the SQL's own READ ONLY txn + final ROLLBACK make writes
+#     impossible (and a write probe PROVES it, SQLSTATE 25006).
+#   • The DB URL is built from the Environment secret/vars and MASKED
+#     (::add-mask::) — never echoed; the SQL output carries no secret.
+#   • Every `uses:` action is pinned by full commit SHA (SEC-F17).
+#
+# FAITHFUL MIRROR of the production-db governance in phase5/entity-db-apply.yml
+# (same Environment, same secret SUPABASE_DB_PASSWORD + vars HOST/PORT/USER, same
+# session-pooler IPv4-safe URL) — MINUS every write path. Any deviation (new
+# permissions/secrets/triggers, a second Environment, any DDL/apply) → Security
+# review (agent-review-matrix.md #8) BEFORE merge.
+#
+# DOES NOT DISPATCH ON AUTHORING. R1..R7 remain blocked; each future gate needs a
+# fresh GO. See docs/product/decisions/DEC-0027-sg8-remote-promotion-r0-preflight.md.
+# =============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: 'FULL 40-char lowercase Git commit SHA on main to check out (NOT a branch/tag/short SHA).'
+        required: true
+        type: string
+      confirm:
+        description: 'Type PREFLIGHT-SG8-R0-READONLY-NO-WRITES to confirm a READ-ONLY preflight (applies nothing).'
+        required: true
+        type: string
+
+# Least privilege: read-only, no write, no id-token, no packages.
+permissions:
+  contents: read
+
+# Serialize; never cancel a running preflight.
+concurrency:
+  group: sg8-r0-preflight-production-db
+  cancel-in-progress: false
+
+env:
+  # Non-secret: the project ref appears in the project URL (mirrors entity-db-apply.yml).
+  SUPABASE_PROJECT_REF: pwbkplzyzmortwjjpcbg
+  # The remote major MUST equal the major the 0008/0009 harness validated.
+  EXPECTED_PG_MAJOR: '15'
+
+jobs:
+  guard:
+    name: Validate intent (format + confirm phrase + main-only) — no checkout, no DB
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert dispatch ref is main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::R0 may be dispatched ONLY from main (got $REF). Aborting."; exit 1
+          fi
+          echo "Dispatch ref is main."
+
+      - name: Assert target_sha is a FULL 40-char lowercase commit SHA
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::target_sha must be a full 40-char lowercase hex commit SHA. Aborting with no checkout."; exit 1
+          fi
+          echo "target_sha format OK."
+
+      - name: Validate confirmation phrase
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          if [ "$CONFIRM" != "PREFLIGHT-SG8-R0-READONLY-NO-WRITES" ]; then
+            echo "::error::Confirmation phrase mismatch — aborting (nothing runs)."; exit 1
+          fi
+          echo "Confirmation accepted."
+
+  preflight:
+    name: Read-only remote preflight (single snapshot; ROLLBACK)
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The ONLY Environment. Inherits required reviewers + main-only branch policy.
+    environment: production-db
+    steps:
+      - name: Re-assert main + target_sha format (defense-in-depth, before checkout)
+        env:
+          REF: ${{ github.ref }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          set -euo pipefail
+          [ "$REF" = "refs/heads/main" ] || { echo "::error::not main"; exit 1; }
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad sha"; exit 1; }
+
+      - name: Checkout EXACTLY target_sha
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          ref: ${{ inputs.target_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assert HEAD == target_sha, is a commit, and belongs to main
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          [ "$head" = "$TARGET_SHA" ] || { echo "::error::HEAD ($head) != target_sha ($TARGET_SHA)"; exit 1; }
+          [ "$(git cat-file -t "$TARGET_SHA")" = "commit" ] || { echo "::error::target_sha not a commit"; exit 1; }
+          git fetch --no-tags --depth=200 origin main
+          if ! git merge-base --is-ancestor "$TARGET_SHA" FETCH_HEAD; then
+            echo "::error::target_sha is not an ancestor of origin/main — refusing (main-only)."; exit 1
+          fi
+          echo "HEAD is target_sha, a commit, and on main."
+
+      - name: Assert the R0 SQL is tracked at target_sha and present
+        run: |
+          set -euo pipefail
+          f="supabase/remote/sg8_r0_preflight_pre_0008.sql"
+          git cat-file -e "HEAD:$f" 2>/dev/null || { echo "::error::$f not tracked at target_sha"; exit 1; }
+          test -f "$f" || { echo "::error::$f missing on disk"; exit 1; }
+          echo "R0 SQL present: $f"
+
+      - name: Install psql client (talks ONLY to the remote via masked URL)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Build MASKED DB URL (session pooler — IPv4-safe; no CLI, no link)
+        env:
+          DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          DB_HOST: ${{ vars.SUPABASE_DB_HOST }}
+          DB_PORT: ${{ vars.SUPABASE_DB_PORT }}
+          DB_USER: ${{ vars.SUPABASE_DB_USER }}
+        run: |
+          set -euo pipefail
+          : "${DB_PASSWORD:?missing secret SUPABASE_DB_PASSWORD in Environment production-db}"
+          : "${DB_HOST:?missing variable SUPABASE_DB_HOST in Environment production-db}"
+          user="${DB_USER:-postgres.${SUPABASE_PROJECT_REF}}"
+          port="${DB_PORT:-5432}"
+          # URL-encode the password (no jq dependency; pure bash percent-encoding).
+          enc_pw=""
+          for ((i=0; i<${#DB_PASSWORD}; i++)); do
+            c="${DB_PASSWORD:$i:1}"
+            case "$c" in
+              [a-zA-Z0-9.~_-]) enc_pw+="$c" ;;
+              *) enc_pw+=$(printf '%%%02X' "'$c") ;;
+            esac
+          done
+          url="postgresql://${user}:${enc_pw}@${DB_HOST}:${port}/postgres?sslmode=require"
+          echo "::add-mask::${url}"
+          echo "SUPABASE_DB_URL=${url}" >> "$GITHUB_ENV"
+          # Non-secret host is a variable, safe to surface for the report.
+          echo "R0_DB_HOST=${DB_HOST}" >> "$GITHUB_ENV"
+
+      - name: Run READ-ONLY preflight (single session; SQL ends in ROLLBACK)
+        env:
+          SUPABASE_DB_URL: ${{ env.SUPABASE_DB_URL }}
+          R0_DB_HOST: ${{ env.R0_DB_HOST }}
+        run: |
+          set -euo pipefail
+          # ON_ERROR_STOP=1: a fatal boundary breach (or connection error) fails the job.
+          # The SQL prints the human report + machine blocks (R0-CANON, R0-LEDGER) + a
+          # DB-side R0_VERDICT. Output has NO secret (URL is masked; SQL prints no password).
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 \
+            -v expected_ref="$SUPABASE_PROJECT_REF" \
+            -v expected_host="$R0_DB_HOST" \
+            -f supabase/remote/sg8_r0_preflight_pre_0008.sql | tee r0_output.txt
+
+      - name: Ledger-set checks (runner-side) + final verdict + deterministic digest
+        run: |
+          set -euo pipefail
+          out="r0_output.txt"
+
+          # --- extract machine blocks from the single-session output ---
+          canon="$(awk '/^R0-CANON-START$/{f=1;next} /^R0-CANON-END$/{f=0} f' "$out")"
+          ledger="$(awk '/^R0-LEDGER-START$/{f=1;next} /^R0-LEDGER-END$/{f=0} f' "$out" | sed '/^$/d')"
+          db_verdict="$(grep -oE 'R0_VERDICT=(GREEN|RED)' "$out" | head -1 | cut -d= -f2)"
+          [ -n "$db_verdict" ] || { echo "::error::no R0_VERDICT emitted — preflight incomplete"; exit 1; }
+
+          # --- checkout migration versions (14-digit prefixes) ---
+          checkout_versions="$(for fx in supabase/migrations/*.sql; do
+              b="$(basename "$fx")"; echo "${b%%_*}"; done | grep -E '^[0-9]{14}$' | sort -u)"
+
+          # remote ledger versions (already sorted, one per line)
+          remote_versions="$(printf '%s\n' "$ledger" | grep -E '^[0-9]{14}$' | sort -u || true)"
+
+          # (a) 0008 / 0009 absent remotely
+          v0008_absent=true; v0009_absent=true
+          printf '%s\n' "$remote_versions" | grep -qx '20260620000008' && v0008_absent=false || true
+          printf '%s\n' "$remote_versions" | grep -qx '20260620000009' && v0009_absent=false || true
+
+          # (b) no UNKNOWN remote version (every remote version exists in the checkout)
+          unknown_remote="$(comm -23 <(printf '%s\n' "$remote_versions") <(printf '%s\n' "$checkout_versions") || true)"
+
+          # (c) no LOCAL migration missing remotely, EXCEPT the authorized {0008,0009}
+          missing_remote="$(comm -13 <(printf '%s\n' "$remote_versions") <(printf '%s\n' "$checkout_versions") \
+                             | grep -vxE '20260620000008|20260620000009' || true)"
+
+          # (d) prefix compatibility: the applied remote set is a prefix of the checkout
+          #     ordering (no remote version newer than the newest non-SG8 checkout migration).
+          ledger_set_ok=true; reasons=""
+          [ "$v0008_absent" = true ] || { ledger_set_ok=false; reasons+="0008-present-in-ledger; "; }
+          [ "$v0009_absent" = true ] || { ledger_set_ok=false; reasons+="0009-present-in-ledger; "; }
+          [ -z "$unknown_remote" ] || { ledger_set_ok=false; reasons+="unknown-remote-versions:[${unknown_remote//$'\n'/,}]; "; }
+          [ -z "$missing_remote" ] || { ledger_set_ok=false; reasons+="pending-outside-0008-0009:[${missing_remote//$'\n'/,}]; "; }
+
+          # --- final verdict (fail-closed; never GREEN-with-observations) ---
+          final="RED"
+          if [ "$db_verdict" = "GREEN" ] && [ "$ledger_set_ok" = true ]; then final="GREEN"; fi
+
+          # --- deterministic digest: canonical DB block + runner ledger-set summary ---
+          #     (volatile fields — pid/now/ip/port/version-string — are excluded by design)
+          canon_norm="$(printf '%s\n' "$canon" | sed '/^$/d' | sort)"
+          ledger_join="$(printf '%s\n' "$remote_versions" | paste -sd, - || true)"
+          digest_input="$(printf 'CANON\n%s\nLEDGER=%s\nLEDGER_SET_OK=%s\nDB_VERDICT=%s\n' \
+                            "$canon_norm" "$ledger_join" "$ledger_set_ok" "$db_verdict")"
+          digest="$(printf '%s' "$digest_input" | sha256sum | cut -d' ' -f1)"
+
+          # --- sanitized report to the step summary (no secrets anywhere) ---
+          {
+            echo "## SG-8 · R0 Preflight — \`$final\`"
+            echo ""
+            echo "- DB-side verdict: \`$db_verdict\`"
+            echo "- Ledger-set OK: \`$ledger_set_ok\` ${reasons:+(→ $reasons)}"
+            echo "- Remote ledger versions: \`${ledger_join:-<none>}\`"
+            echo "- Deterministic digest (sha256): \`$digest\`"
+            echo ""
+            echo "### Canonical decision vector"
+            echo '```'
+            printf '%s\n' "$canon_norm"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "R0 FINAL=$final DIGEST=$digest"
+          if [ "$final" != "GREEN" ]; then
+            echo "::error::R0 is RED (db_verdict=$db_verdict ledger_set_ok=$ledger_set_ok ${reasons}). No migration is authorized."
+            exit 1
+          fi
+          echo "R0 GREEN — environment exactly compatible and SG-8 objects absent. (Still no GO for R1.)"
