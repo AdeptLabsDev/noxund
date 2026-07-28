@@ -24,29 +24,48 @@ digest**. Neither ever contains a connection string, password, token, or secret 
   runner's set comparison against the checkout migrations.
 - `R0_VERDICT=GREEN|RED` — DB-side verdict.
 
-## 3. Deterministic digest
+Computed by the shared evaluator `supabase/remote/r0_evaluate.sh` (single source of truth for the
+workflow **and** the tests): `sha256( sorted-canonical-vector + LEDGER=<versions> + LEDGER_SET_OK=<bool>
++ DB_VERDICT=<v> )`. It is a function of **remote DB state + checkout ledger set ONLY** — it **excludes**
+the operator backup input and every volatile field (pid/now/ip/port/version-string). Same state ⇒ same
+digest (proven `×2` by the tests).
 
-`sha256( sorted-canonical-vector + LEDGER=<versions> + LEDGER_SET_OK=<bool> + DB_VERDICT=<v> )`.
-Stable across repeated runs against the same remote state; the same digest ⇒ the same decision inputs.
+## 4. Final verdict (fail-closed) — separated inputs, single GREEN/RED
 
-## 4. Final verdict (fail-closed)
+The report **separates** the *technical automated result* from the *operator backup evidence*, but the
+**canonical FINAL verdict is only `GREEN` or `RED`**:
 
-`GREEN` **iff** DB-side `R0_VERDICT=GREEN` **and** the runner ledger-set checks pass:
-0008 absent · 0009 absent · no unknown remote version · nothing pending outside `{0008,0009}`.
-Otherwise `RED`. **Never "GREEN with observations."** `pg_major ≠ 15` ⇒ `RED` (+ escalate a new
-hermetic validation on the remote major).
+`FINAL = GREEN` **iff** **(i)** technical GREEN — DB-side `R0_VERDICT=GREEN` **and** runner ledger-set
+checks pass (0008 absent · 0009 absent · no unknown remote version · nothing pending outside `{0008,0009}`)
+— **and (ii)** backup evidence complete (§5). Otherwise `RED`.
 
-## 5. Manual backup checklist (SEPARATE — cannot be GREEN without operator evidence)
+- **Never `GREEN WITH NOTES`.** **Never `TECHNICAL_GREEN` as authorization.** `pg_major ≠ 15` ⇒ `RED`
+  (+ escalate a new hermetic validation on the remote major). A partial SG-8 object ⇒ `RED` + inventory.
 
-This checklist is **out of the automated preflight** (DEC-0027: no new Management-API token/call in
-this unit). It is marked GREEN **only** with external evidence supplied by the operator, attached to
-the R0 record:
+## 5. Backup evidence — RED-default, operator-supplied at dispatch (no Management API)
 
-- [ ] **PITR or backup available** — evidence: _______________________
-- [ ] **Last backup timestamp** — value: _______________________
-- [ ] **Restore procedure** — link/reference: _______________________
-- [ ] **Decision owner** (who authorizes apply) — name: _______________________
-- [ ] **Operational window** (agreed maintenance window) — value: _______________________
+The 5 backup facts are **not** self-attested by the workflow and are **not** an external call. They are
+**dispatch inputs** the operator fills in, and the **human `production-db` reviewer validates the
+referenced evidence before approving the run**. Any empty/placeholder value ⇒ `backup_ok=false` ⇒ FINAL
+`RED`. An empty checklist can **never** yield GREEN.
 
-Until every box has attached evidence, the backup checklist is **NOT GREEN**, and R1 stays blocked
-independently of the automated R0 result.
+| Input | Meaning | RED if |
+|---|---|---|
+| `backup_pitr_available` (`yes`/`no`, default `no`) | PITR or a verified backup exists | ≠ `yes` |
+| `backup_timestamp` | date/time of the last backup | empty / placeholder |
+| `restore_procedure_ref` | link/reference to the restore procedure | empty / placeholder |
+| `backup_responsible` | who owns the apply decision | empty / placeholder |
+| `operational_window` | agreed maintenance window | empty / placeholder |
+
+**How evidence is referenced/validated at the future dispatch:** the operator pastes the values (and a
+reference in `restore_procedure_ref`, e.g. a runbook/ticket URL) into the dispatch form; the required
+`production-db` reviewer confirms the reference matches real backup/restore evidence before approving.
+The workflow records the values in the sanitized summary and gates FINAL on their completeness — it does
+**not** fetch or vouch for them itself.
+
+## 6. Tip-of-main dispatch rule
+
+At dispatch the workflow requires `target_sha == the CURRENT origin/main tip` (fetched live), not merely
+an ancestor of main. Any advance of main between authorization and dispatch invalidates the gate; a stale
+ancestor SHA is rejected. The preflight is thus bound to the exact bytes that R1 would apply next.
+`github.ref` must also be `refs/heads/main` (belt-and-suspenders with the Environment branch policy).

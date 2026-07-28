@@ -1,69 +1,76 @@
 #!/usr/bin/env bash
 # ============================================================================
-# NOXUND · SG-8 R0 preflight — LOCAL disposable-DB test (NO remote, NO secrets).
+# NOXUND · SG-8 R0 preflight — LOCAL disposable-DB integration test (NO remote).
 # ----------------------------------------------------------------------------
-# Validates supabase/remote/sg8_r0_preflight_pre_0008.sql against a DISPOSABLE
-# LOCAL Supabase stack in TWO states:
-#   (A) PRE-0008  — migrations 0008/0009 temporarily relocated out of
-#       supabase/migrations/ so `supabase start` applies ONLY 0001..0006. The
-#       ledger truly lacks 0008/0009 and no SG-8 object exists → expect GREEN.
-#   (B) FULL      — all migrations applied (incl. 0008/0009) → expect RED.
+# Exercises the FULL path (SQL + r0_evaluate.sh) against a DISPOSABLE LOCAL
+# Supabase stack — the parts that need a real PostgreSQL 15 + Supabase roles:
+#   (A) PRE-0008  — 0008/0009 relocated out so `supabase start` applies ONLY
+#       0001..0006; ledger lacks 0008/0009, no SG-8 object exists → GREEN
+#       (with backup evidence) and RED (backup default).
+#   (B) FULL      — all migrations applied → RED.
+#   boundary      — transaction_read_only=on; write-probe SQLSTATE 25006 caught
+#                   without aborting the rest; digest identical ×2 on same state.
 #
-# The LOCAL sentinel (expected_ref=LOCAL) disables ONLY the remote-identity match;
-# the remote workflow ALWAYS passes the real project ref, never LOCAL.
+# The DB-FREE runner-side logic (unrelated-pending → RED, unknown-remote → RED,
+# digest determinism, backup RED-default, sanitized output) is proven WITHOUT
+# Docker by supabase/remote/tests/r0_evaluate_unit_test.sh.
 #
-# Requires: docker + supabase CLI + psql (same toolchain as the hermetic harness).
-# Talks ONLY to loopback 127.0.0.1:54322. Applies NOTHING to any remote.
-# Idempotent cleanup: relocated files are restored and the stack stopped on exit.
+# Requires: docker + PINNED supabase CLI (config.toml) + psql (PG15). Talks ONLY
+# to loopback 127.0.0.1:54322. NO `supabase link`, NO remote token, NO prod URL/
+# password. Applies NOTHING to any remote. Restores relocated files + stops the
+# stack on exit; the working tree ends clean.
 # ============================================================================
 set -euo pipefail
-
-ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-cd "$ROOT"
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"; cd "$ROOT"
 
 DBURL="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
 SQL="supabase/remote/sg8_r0_preflight_pre_0008.sql"
+EVAL="supabase/remote/r0_evaluate.sh"
+MIGDIR="supabase/migrations"
+M8="$MIGDIR/20260620000008_sg8_reconciliation_session.sql"
+M9="$MIGDIR/20260620000009_sg8_runtime_identity_grants_rls.sql"
 HOLD="$(mktemp -d)"
-M8="supabase/migrations/20260620000008_sg8_reconciliation_session.sql"
-M9="supabase/migrations/20260620000009_sg8_runtime_identity_grants_rls.sql"
 
 cleanup() {
-  # restore relocated migrations no matter what
   [ -f "$HOLD/$(basename "$M8")" ] && mv -f "$HOLD/$(basename "$M8")" "$M8" || true
   [ -f "$HOLD/$(basename "$M9")" ] && mv -f "$HOLD/$(basename "$M9")" "$M9" || true
   supabase stop --no-backup >/dev/null 2>&1 || true
   rm -rf "$HOLD" || true
+  # working tree must end clean (relocations undone)
+  if ! git diff --quiet -- "$MIGDIR"; then echo "HYGIENE FAIL: migrations dir dirty after test"; fi
 }
 trap cleanup EXIT
 
-run_preflight() { psql "$DBURL" -v ON_ERROR_STOP=1 -v expected_ref=LOCAL -v expected_host=LOCAL -f "$SQL"; }
-
+run_preflight() { # $1 = output file
+  psql "$DBURL" -v ON_ERROR_STOP=1 -v expected_ref=LOCAL -v expected_host=LOCAL -f "$SQL" | tee "$1"
+}
+final_backup() { bash "$EVAL" "$1" "$MIGDIR" "$2" | grep -oE 'R0_FINAL=(GREEN|RED)' | cut -d= -f2 || true; }
+digest_of()    { bash "$EVAL" "$1" "$MIGDIR" true | grep -oE 'R0_DIGEST=[0-9a-f]{64}' | cut -d= -f2 || true; }
 assert_grep()  { grep -qE "$1" "$2" || { echo "FAIL: expected /$1/ in $2"; exit 1; }; }
-refute_grep()  { grep -qE "$1" "$2" && { echo "FAIL: did NOT expect /$1/ in $2"; exit 1; } || true; }
 
-echo "== (A) PRE-0008 state — relocate 0008/0009, apply 0001..0006, expect GREEN =="
-mv -f "$M8" "$HOLD/" ; mv -f "$M9" "$HOLD/"
+echo "== (A) PRE-0008 — relocate 0008/0009, apply 0001..0006 =="
+mv -f "$M8" "$HOLD/"; mv -f "$M9" "$HOLD/"
 supabase stop --no-backup >/dev/null 2>&1 || true
 supabase start
-run_preflight | tee r0_local_pre0008.txt
-assert_grep 'transaction_read_only=on'            r0_local_pre0008.txt
-assert_grep 'fronteira enforçada'                 r0_local_pre0008.txt   # write probe rejected (25006)
-assert_grep 'R0_VERDICT=GREEN'                    r0_local_pre0008.txt
-# ledger must NOT contain the SG-8 targets in this state
-ledger="$(awk '/^R0-LEDGER-START$/{f=1;next}/^R0-LEDGER-END$/{f=0}f' r0_local_pre0008.txt | sed '/^$/d')"
-printf '%s\n' "$ledger" | grep -qx '20260620000008' && { echo "FAIL: 0008 in pre-0008 ledger"; exit 1; } || true
-printf '%s\n' "$ledger" | grep -qx '20260620000009' && { echo "FAIL: 0009 in pre-0008 ledger"; exit 1; } || true
-echo "PASS (A): GREEN in pre-0008 state; boundary enforced; ledger clean."
+run_preflight r0_local_pre0008.txt
+assert_grep 'transaction_read_only=on' r0_local_pre0008.txt          # boundary proven
+assert_grep 'fronteira enforçada'      r0_local_pre0008.txt          # write-probe rejected (25006), caught
+assert_grep 'R0_VERDICT=GREEN'         r0_local_pre0008.txt          # DB-side GREEN
+# restore files BEFORE evaluate so the checkout migration set is complete for the ledger comparison
+mv -f "$HOLD/$(basename "$M8")" "$M8"; mv -f "$HOLD/$(basename "$M9")" "$M9"
+[ "$(final_backup r0_local_pre0008.txt true)"  = GREEN ] && echo "PASS A1: FINAL GREEN with backup evidence" || { echo "FAIL A1"; exit 1; }
+[ "$(final_backup r0_local_pre0008.txt false)" = RED   ] && echo "PASS A2: FINAL RED when backup evidence absent (RED-default)" || { echo "FAIL A2"; exit 1; }
+# digest identical ×2 on the SAME state
+run_preflight r0_local_pre0008_b.txt >/dev/null
+d1="$(digest_of r0_local_pre0008.txt)"; d2="$(digest_of r0_local_pre0008_b.txt)"
+[ -n "$d1" ] && [ "$d1" = "$d2" ] && echo "PASS A3: digest identical ×2 ($d1)" || { echo "FAIL A3: $d1 vs $d2"; exit 1; }
 
-# restore + reset to FULL state
-mv -f "$HOLD/$(basename "$M8")" "$M8" ; mv -f "$HOLD/$(basename "$M9")" "$M9"
-
-echo "== (B) FULL state — apply ALL migrations (incl. 0008/0009), expect RED =="
+echo "== (B) FULL — apply ALL migrations (incl. 0008/0009) =="
 supabase db reset
-run_preflight | tee r0_local_full.txt
-assert_grep 'transaction_read_only=on'            r0_local_full.txt
-assert_grep 'fronteira enforçada'                 r0_local_full.txt
-assert_grep 'R0_VERDICT=RED'                      r0_local_full.txt
-echo "PASS (B): RED once SG-8 objects/ledger are present."
+run_preflight r0_local_full.txt
+assert_grep 'transaction_read_only=on' r0_local_full.txt
+assert_grep 'fronteira enforçada'      r0_local_full.txt
+assert_grep 'R0_VERDICT=RED'           r0_local_full.txt
+[ "$(final_backup r0_local_full.txt true)" = RED ] && echo "PASS B1: FINAL RED once SG-8 present" || { echo "FAIL B1"; exit 1; }
 
-echo "ALL R0 LOCAL TESTS PASSED (pre-0008 GREEN + full RED; read-only boundary proven)."
+echo "ALL R0 LOCAL INTEGRATION TESTS PASSED (pre-0008 GREEN/backup-gate/digest×2 + full RED; boundary proven)."

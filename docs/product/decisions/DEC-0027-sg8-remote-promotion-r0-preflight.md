@@ -66,4 +66,25 @@ new Environment · variables or secrets · LOGIN or password · runtime workflow
 never removed or normalized. Remote **major must equal 15** (the major validated by the 0008/0009 harness);
 otherwise `RED`, no migration authorized, and a new hermetic validation on the remote major is escalated.
 
+## 7. R0-AUTHOR corrective (pre-merge gap fixes — 2026-07-28)
+
+Applied under the Product Lead's pre-merge GO (no merge, no dispatch, no remote connection):
+
+- **Tip-of-main dispatch rule.** The workflow now requires `target_sha == the CURRENT origin/main tip`
+  (fetched live at dispatch), **not merely an ancestor**. Any advance of main between authorization and
+  dispatch invalidates the gate; a stale ancestor SHA is rejected. Still main-only (`github.ref` assert +
+  Environment branch policy).
+- **Backup RED-default.** FINAL verdict stays strictly `GREEN`/`RED`. The report **separates** the technical
+  automated result from the operator backup evidence, but FINAL is `RED` unless all 5 backup facts
+  (`backup_pitr_available=yes` + timestamp + restore ref + responsible + window) are supplied at dispatch
+  and validated by the human reviewer. No `GREEN WITH NOTES`, no `TECHNICAL_GREEN` authorization, no empty/
+  self-attested checklist, no Management API/token/external call.
+- **Shared evaluator + executed tests.** Evaluation is factored into `supabase/remote/r0_evaluate.sh`
+  (one source of truth for the workflow and tests). `supabase/remote/tests/r0_evaluate_unit_test.sh` is a
+  **DB-free** unit test (runnable without Docker) proving unrelated-pending→RED, unknown-remote→RED,
+  0008-in-ledger→RED, backup RED-default, digest identical ×2 (state-only), sanitized output — **executed
+  9/9 GREEN** during authoring. The Docker-backed `r0_preflight_local_test.sh` (transaction_read_only /
+  write-probe 25006 / real object GREEN·RED) **still requires a Docker + pinned-Supabase-CLI + PG15 host**
+  and was **not runnable in the authoring environment** — it remains the pre-**dispatch** gate (QA-1/DO-1).
+
 Related: [[DEC-0026]] · [[DEC-0025]] · [[DEC-0024]] · `docs/agents/handoffs/HANDOFF-SG8-R0-PREFLIGHT.md`.

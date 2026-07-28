@@ -11,13 +11,16 @@ migration is applied to `production-db`. It applies nothing and connects to noth
 
 | Artifact | Path |
 |---|---|
-| R0 workflow (gated, production-db, read-only) | `.github/workflows/sg8-r0-preflight-production-db.yml` |
+| R0 workflow (gated, production-db, read-only; **tip-of-main** + **backup RED-default**) | `.github/workflows/sg8-r0-preflight-production-db.yml` |
 | R0 preflight SQL (single READ ONLY snapshot; ROLLBACK) | `supabase/remote/sg8_r0_preflight_pre_0008.sql` |
-| Local disposable-DB test | `supabase/remote/tests/r0_preflight_local_test.sh` |
-| Report format + manual backup checklist | `docs/data/DATA-SG8-001-R0-preflight-report-format.md` |
-| Decision record (authorization + rejections + open decisions) | `docs/product/decisions/DEC-0027-sg8-remote-promotion-r0-preflight.md` |
+| Shared evaluator (ledger-set + backup gate + verdict + digest) | `supabase/remote/r0_evaluate.sh` |
+| DB-free evaluator unit test (runs without Docker) | `supabase/remote/tests/r0_evaluate_unit_test.sh` |
+| Docker integration test (disposable local stack) | `supabase/remote/tests/r0_preflight_local_test.sh` |
+| Executable evidence (unit test transcript, 9/9) | `docs/agents/reviews/SG8-R0-evaluate-unit-test-evidence.md` |
+| Report format + backup RED-default semantics + tip-of-main | `docs/data/DATA-SG8-001-R0-preflight-report-format.md` |
+| Decision record (authorization + rejections + open decisions + corrective §7) | `docs/product/decisions/DEC-0027-sg8-remote-promotion-r0-preflight.md` |
 | Directory contract | `supabase/remote/README.md` |
-| Six-role review | `docs/agents/reviews/SG8-R0-preflight-six-role-review.md` |
+| Six-role review (posted as immutable PR comment on the final SHA) | PR #65 comment |
 
 ## Acceptance criteria (R0-AUTHOR)
 
