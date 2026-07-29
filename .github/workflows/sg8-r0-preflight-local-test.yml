@@ -1,0 +1,292 @@
+name: SG-8 · R0 Preflight — LOCAL disposable-DB test (no remote, no secrets)
+
+# =============================================================================
+# EXECUTABLE VALIDATION of the SG-8 R0 preflight against a DISPOSABLE LOCAL
+# Supabase stack — the QA-1/DO-1 gate that the six-role review deferred to a
+# real Docker + pinned-Supabase-CLI + PostgreSQL 15 host. NEVER touches a
+# remote/live project and holds NO credential capable of doing so.
+#
+# It runs, EXACTLY ONCE, `supabase/remote/tests/r0_preflight_local_test.sh`,
+# which exercises the full read-only preflight path (SQL + r0_evaluate.sh)
+# against a throwaway PG15 stack on loopback, and (DB-free) the runner-side
+# unit test for the two RED cases the Docker test does not exercise.
+#
+# THREAT MODEL / HERMETIC INVARIANTS (Security + DevOps + Database + QA surface):
+#   • Trigger is `pull_request` — NEVER `pull_request_target`. Untrusted PR code
+#     runs with a READ-ONLY token, NO secrets, NO Environment, on an ephemeral
+#     runner: there is nothing to exfiltrate and nothing to write.
+#   • NO `environment:` on any job → CANNOT read the `production-db` secrets.
+#   • NO secrets referenced anywhere. NO `supabase link`, NO access token, NO
+#     remote host / password / external DB URL is accepted or referenced.
+#   • `permissions: contents: read` ONLY (no write scope, no id-token, no packages).
+#   • The test talks ONLY to loopback 127.0.0.1; a static guard blocks ANY other
+#     Postgres host before Docker starts (fail-closed).
+#   • Checkout is EXACTLY `github.event.pull_request.head.sha` (the PR head, not
+#     the merge ref); HEAD is asserted to equal it.
+#   • Supabase CLI is pinned to an EXACT, already-validated version (never latest)
+#     by a SHA-pinned action; every `uses:` is pinned by full commit SHA (SEC-F17).
+#   • The mandatory boundary proofs are STDOUT machine markers (R0_ASSERT|...),
+#     validated statically (unique, ordered, shell-consumed) BEFORE the run and
+#     verified in the transcript AFTER it — never human RAISE NOTICE phrases.
+#   • Capture is `psql ... 2>&1 | tee` under `set -euo pipefail`, so a successful
+#     `tee` can NEVER mask a psql/SQL failure (statically enforced).
+#   • The disposable stack is destroyed in `if: always()`; the job then FAILS if
+#     the working tree is not clean or any Supabase container/volume remains.
+#
+# This workflow APPLIES NOTHING to any remote/live database. It does NOT dispatch
+# the remote R0 workflow. See docs/product/decisions/DEC-0027-sg8-remote-promotion-r0-preflight.md.
+# =============================================================================
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/remote/**'
+      - 'supabase/migrations/**'
+      - 'supabase/config.toml'
+      - '.github/workflows/sg8-r0-preflight-local-test.yml'
+
+# Least privilege: read-only, no write, no id-token, no packages.
+permissions:
+  contents: read
+
+# Serialize per PR head; never cancel a running validation.
+concurrency:
+  group: sg8-r0-preflight-local-test-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: false
+
+env:
+  # The exact SHA under review — the PR head (NEVER the merge ref).
+  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  # The disposable stack's Postgres major MUST equal the SG-8 harness major.
+  EXPECTED_PG_MAJOR: '15'
+
+jobs:
+  local-r0:
+    name: R0 local integration (disposable Supabase · markers · hygiene)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # DELIBERATELY no `environment:` — cannot reach the production-db secrets.
+    steps:
+      - name: Assert HEAD_SHA is a FULL 40-char lowercase commit SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::HEAD_SHA must be a full 40-char lowercase hex commit SHA (got '${HEAD_SHA}')."
+            exit 1
+          fi
+          echo "HEAD_SHA format OK: ${HEAD_SHA}"
+
+      - name: Checkout EXACTLY github.event.pull_request.head.sha (not the merge ref)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assert HEAD == head.sha and it is a commit object
+        shell: bash
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          if [ "$head" != "$HEAD_SHA" ]; then
+            echo "::error::checked-out HEAD ($head) != github.event.pull_request.head.sha ($HEAD_SHA)."; exit 1
+          fi
+          if [ "$(git cat-file -t "$HEAD_SHA")" != "commit" ]; then
+            echo "::error::head.sha is not a commit object."; exit 1
+          fi
+          echo "HEAD is exactly github.event.pull_request.head.sha (a commit)."
+
+      - name: Assert R0 assets are tracked at head.sha and present
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in \
+            supabase/remote/sg8_r0_preflight_pre_0008.sql \
+            supabase/remote/r0_evaluate.sh \
+            supabase/remote/tests/r0_preflight_local_test.sh \
+            supabase/remote/tests/r0_evaluate_unit_test.sh \
+            supabase/config.toml; do
+            git cat-file -e "HEAD:$f" 2>/dev/null || { echo "::error::$f not tracked at head.sha"; exit 1; }
+            test -f "$f" || { echo "::error::$f missing on disk"; exit 1; }
+          done
+          echo "R0 SQL + evaluator + local test + unit test + config present."
+
+      - name: 'Guard: loopback-only + no remote/link/token path (block any Postgres host != 127.0.0.1)'
+        shell: bash
+        run: |
+          set -euo pipefail
+          SH=supabase/remote/tests/r0_preflight_local_test.sh
+          # Every Postgres URL in the test MUST be loopback (127.0.0.1). Any other host
+          # aborts BEFORE Docker starts. Fail-closed.
+          urls="$(grep -oE 'postgres(ql)?://[^"'"'"' ]+' "$SH" || true)"
+          [ -n "$urls" ] || { echo "::error::no Postgres URL in test — cannot prove loopback."; exit 1; }
+          while IFS= read -r u; do
+            [ -z "$u" ] && continue
+            case "$u" in
+              *@127.0.0.1:*) : ;;
+              *) echo "::error::non-loopback Postgres host in test script: $u"; exit 1 ;;
+            esac
+          done <<< "$urls"
+          # No remote / link / token / apply path may exist in the R0 test surface.
+          if grep -nE 'supabase +link|SUPABASE_ACCESS_TOKEN|sslmode=|db +push|migration +up' "$SH"; then
+            echo "::error::test references a remote/link/token/apply path — refusing."; exit 1
+          fi
+          echo "Loopback-only guard passed; no remote/link/token path in the test."
+
+      - name: 'Static validation: machine markers (once · ordered · shell-consumed) + capture hardening'
+        shell: bash
+        run: |
+          set -euo pipefail
+          SQLF=supabase/remote/sg8_r0_preflight_pre_0008.sql
+          SH=supabase/remote/tests/r0_preflight_local_test.sh
+          markers=(
+            'R0_ASSERT|transaction_read_only|on'
+            'R0_ASSERT|write_probe_sqlstate|25006'
+            'R0_ASSERT|readonly_boundary|enforced'
+          )
+          for m in "${markers[@]}"; do
+            n="$(grep -Fc "$m" "$SQLF" || true)"
+            [ "$n" -eq 1 ] || { echo "::error::marker [$m] must appear EXACTLY once in the SQL (found ${n})."; exit 1; }
+            grep -Fq "assert_marker '$m'" "$SH" || { echo "::error::shell does not assert machine marker [$m]."; exit 1; }
+          done
+          # Mandatory ORDER: read_only < write_probe < readonly_boundary (no premature boundary).
+          l1="$(grep -Fn 'R0_ASSERT|transaction_read_only|on'   "$SQLF" | head -1 | cut -d: -f1)"
+          l2="$(grep -Fn 'R0_ASSERT|write_probe_sqlstate|25006' "$SQLF" | head -1 | cut -d: -f1)"
+          l3="$(grep -Fn 'R0_ASSERT|readonly_boundary|enforced' "$SQLF" | head -1 | cut -d: -f1)"
+          { [ "$l1" -lt "$l2" ] && [ "$l2" -lt "$l3" ]; } || { echo "::error::marker order must be read_only < write_probe < boundary (got ${l1},${l2},${l3})."; exit 1; }
+          # Write-probe is fail-closed: a SUCCESSFUL write, or ANY other sqlstate, must raise
+          # (psql exits != 0) so the 25006 marker cannot be reached spuriously.
+          grep -Fq 'SUCEDEU em txn READ ONLY' "$SQLF" || { echo "::error::write-probe missing FATAL-on-success guard."; exit 1; }
+          grep -Fq 'when others then'          "$SQLF" || { echo "::error::write-probe missing FATAL-on-other-sqlstate guard."; exit 1; }
+          # Capture hardening: 2>&1 (stderr+stdout → transcript) + pipefail (tee must not mask psql failure).
+          grep -Eq 'psql .*2>&1[[:space:]]*\|[[:space:]]*tee' "$SH" || { echo "::error::run_preflight must capture with '2>&1 | tee'."; exit 1; }
+          grep -Eq '^set -euo pipefail' "$SH" || { echo "::error::test must 'set -euo pipefail' so pipefail preserves psql's exit code."; exit 1; }
+          echo "Static validation OK: markers unique+ordered+shell-consumed; write-probe fail-closed; capture hardened."
+
+      - name: Install psql client (talks ONLY to the local stack)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Setup Supabase CLI (EXACT pin — never latest)
+        uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1  # v1.7.1
+        with:
+          version: 2.109.1
+
+      - name: Register tool versions (Docker · Supabase CLI · psql) + confirm PG major 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "== Tool versions (registered) =="
+          docker --version
+          docker compose version 2>/dev/null || docker-compose version 2>/dev/null || true
+          supabase --version
+          psql --version
+          # The disposable stack's Postgres major is driven by supabase/config.toml [db].major_version.
+          # The LIVE server major is re-confirmed from the run transcript (pg_major=15) further below.
+          major="$(grep -E '^[[:space:]]*major_version[[:space:]]*=' supabase/config.toml | grep -oE '[0-9]+' | head -1)"
+          echo "config.toml [db].major_version = ${major:-<none>}"
+          [ "${major}" = "${EXPECTED_PG_MAJOR}" ] || { echo "::error::config.toml Postgres major (${major}) != required ${EXPECTED_PG_MAJOR}."; exit 1; }
+          echo "PostgreSQL major ${EXPECTED_PG_MAJOR} confirmed (config source of truth)."
+
+      - name: 'DB-free unit proof: unrelated-pending => RED, unknown-remote => RED (+ digest x2, sanitized)'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # No Docker/DB/network. Covers the two mandatory RED cases the Docker
+          # integration test does NOT exercise, plus digest determinism + sanitized
+          # output. Fail-closed (exit 0 required).
+          bash supabase/remote/tests/r0_evaluate_unit_test.sh 2>&1 | tee "${RUNNER_TEMP}/r0_unit_test.log"
+          U="${RUNNER_TEMP}/r0_unit_test.log"
+          grep -Fq 'T4 unrelated pending (0007)' "$U" || { echo "::error::unit: unrelated-pending => RED not proven."; exit 1; }
+          grep -Fq 'T5 unknown-remote'           "$U" || { echo "::error::unit: unknown-remote => RED not proven."; exit 1; }
+          grep -Eq 'r0_evaluate unit: PASS=[0-9]+ FAIL=0' "$U" || { echo "::error::unit: not all DB-free cases passed."; exit 1; }
+          echo "DB-free unit proofs OK (unrelated-pending + unknown-remote => RED)."
+
+      - name: 'Run the LOCAL R0 integration test EXACTLY ONCE (disposable Supabase)'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # EXACTLY ONE invocation. 2>&1 mirrors the full transcript to the workflow log;
+          # pipefail makes any script/psql failure fail this step (a successful tee never
+          # masks it). The script manages its own stack lifecycle and file relocations.
+          bash supabase/remote/tests/r0_preflight_local_test.sh 2>&1 | tee "${RUNNER_TEMP}/r0_local_test.log"
+
+      - name: 'Evidence gate: markers + verdicts + live PG15 + digest + sanitized transcript'
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOG="${RUNNER_TEMP}/r0_local_test.log"
+          test -s "$LOG" || { echo "::error::integration transcript missing/empty."; exit 1; }
+          # Boundary machine markers — present in BOTH states (pre-0008 first run + full run).
+          for m in \
+            'R0_ASSERT|transaction_read_only|on' \
+            'R0_ASSERT|write_probe_sqlstate|25006' \
+            'R0_ASSERT|readonly_boundary|enforced'; do
+            c="$(grep -Fc "$m" "$LOG" || true)"
+            [ "$c" -ge 2 ] || { echo "::error::marker [$m] expected in both pre-0008 and full states (found ${c})."; exit 1; }
+          done
+          # SQLSTATE 25006 explicitly observed.
+          grep -Fq '25006' "$LOG" || { echo "::error::SQLSTATE 25006 not observed in transcript."; exit 1; }
+          # State verdicts: pre-0008 GREEN, full RED.
+          grep -Fq 'R0_VERDICT=GREEN' "$LOG" || { echo "::error::pre-0008 GREEN verdict not observed."; exit 1; }
+          grep -Fq 'R0_VERDICT=RED'   "$LOG" || { echo "::error::full RED verdict not observed."; exit 1; }
+          # LIVE server Postgres major == 15 (canonical marker line from the running stack).
+          grep -Fxq 'pg_major=15'      "$LOG" || { echo "::error::live PostgreSQL major != 15."; exit 1; }
+          grep -Fxq 'pg_major_ok=true' "$LOG" || { echo "::error::pg_major_ok=true not observed."; exit 1; }
+          # Backup gate + digest determinism + full-state RED (script-level proofs).
+          grep -Fq 'PASS A1: FINAL GREEN with backup evidence' "$LOG" || { echo "::error::FINAL GREEN (with backup) not proven."; exit 1; }
+          grep -Fq 'PASS A2: FINAL RED when backup evidence absent (RED-default)' "$LOG" || { echo "::error::backup RED-default not proven."; exit 1; }
+          grep -Fq 'PASS A3: digest identical' "$LOG" || { echo "::error::digest determinism (x2) not proven."; exit 1; }
+          grep -Fq 'PASS B1: FINAL RED once SG-8 present' "$LOG" || { echo "::error::full-state FINAL RED not proven."; exit 1; }
+          grep -Fq 'ALL R0 LOCAL INTEGRATION TESTS PASSED' "$LOG" || { echo "::error::integration suite did not report full PASS."; exit 1; }
+          # Sanitized transcript (stderr+stdout merged): no connection URL with creds, no password/token/service-role.
+          if grep -nEi 'postgres(ql)?://[^[:space:]]*:[^[:space:]]*@|password[[:space:]]*=|sslmode=|access[_-]?token|service[_-]?role' "$LOG"; then
+            echo "::error::transcript may contain a URL/password/token — refusing."; exit 1
+          fi
+          # Compact, sanitized evidence to the step summary.
+          {
+            echo "## SG-8 · R0 Local Preflight — PASS"
+            echo ""
+            echo "- Markers (both states): \`transaction_read_only|on\`, \`write_probe_sqlstate|25006\`, \`readonly_boundary|enforced\`"
+            echo "- Verdicts: pre-0008 \`R0_VERDICT=GREEN\` · full \`R0_VERDICT=RED\`"
+            echo "- Live PostgreSQL major \`15\` (\`pg_major_ok=true\`)"
+            echo "- Backup gate: FINAL GREEN w/ evidence · RED-default w/o · digest identical x2"
+            echo "- DB-free unit: unrelated-pending + unknown-remote => RED"
+            echo "- Transcript sanitized (no URL/password/token)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Evidence gate passed."
+
+      - name: 'Teardown (always): destroy stack + remove transcripts'
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          supabase stop --no-backup >/dev/null 2>&1 || true
+          # Best-effort removal of any lingering disposable-stack volumes (hygiene).
+          for v in $(docker volume ls -q --filter 'name=supabase' 2>/dev/null || true); do
+            docker volume rm -f "$v" >/dev/null 2>&1 || true
+          done
+          rm -f r0_local_pre0008.txt r0_local_pre0008_b.txt r0_local_full.txt || true
+          echo "Teardown complete (stack stopped; volumes pruned; transcripts removed)."
+
+      - name: 'Hygiene gate (always): clean working tree + no residual containers/volumes'
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 1) Working tree clean — relocated migrations restored, no stray transcripts.
+          dirty="$(git status --porcelain)"
+          if [ -n "$dirty" ]; then
+            echo "::error::working tree NOT clean after test:"; printf '%s\n' "$dirty"; exit 1
+          fi
+          echo "Working tree clean (relocated migrations restored)."
+          # 2) No residual Supabase containers/volumes.
+          cids="$(docker ps -aq --filter 'name=supabase' 2>/dev/null || true)"
+          vids="$(docker volume ls -q --filter 'name=supabase' 2>/dev/null || true)"
+          if [ -n "$cids" ] || [ -n "$vids" ]; then
+            echo "::error::residual Supabase docker artifacts remain — containers: [${cids//$'\n'/ }] volumes: [${vids//$'\n'/ }]"; exit 1
+          fi
+          echo "No residual Supabase containers or volumes — stack destroyed."

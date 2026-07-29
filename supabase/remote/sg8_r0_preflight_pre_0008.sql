@@ -58,6 +58,14 @@ set local idle_in_transaction_session_timeout = '60s';
 
 -- ----------------------------------------------------------------------------
 -- [0] PROVA DA FRONTEIRA READ-ONLY (fail-closed antes de qualquer inventário).
+--     Cada prova é validada DENTRO de um bloco PL/pgSQL que LANÇA em caso de
+--     falha; com ON_ERROR_STOP=on, o psql sai != 0 e ABORTA o script. O MARCADOR
+--     MÁQUINA correspondente é impresso em STDOUT por \echo LOGO APÓS o bloco —
+--     portanto SÓ é alcançado quando aquela prova passou (nunca antecipado). A
+--     ordem obrigatória é read-only → write-probe(25006) → fronteira. Os asserts
+--     do shell consomem ESTES marcadores máquina; as frases de RAISE NOTICE (que
+--     o psql envia a stderr) ficam só como contexto humano no transcript, NUNCA
+--     como fonte de verdade das provas obrigatórias.
 -- ----------------------------------------------------------------------------
 do $$
 begin
@@ -66,9 +74,12 @@ begin
   end if;
   raise notice 'R0 boundary: transaction_read_only=on';
 end $$;
+-- MARCADOR MÁQUINA (stdout) — alcançado SÓ após confirmar o setting read-only=on.
+\echo 'R0_ASSERT|transaction_read_only|on'
 
--- Qualquer ESCRITA deve falhar (CREATE é proibido em txn READ ONLY → SQLSTATE 25006).
--- Se a escrita SUCEDER, a fronteira está quebrada ⇒ RED FATAL (erro não capturado).
+-- Qualquer ESCRITA deve falhar com EXATAMENTE SQLSTATE 25006 (read_only_sql_transaction).
+-- Se a escrita SUCEDER, ou falhar com OUTRO sqlstate ⇒ R0-FATAL (psql sai != 0) e o
+-- marcador de write-probe abaixo NÃO é alcançado.
 do $$
 begin
   begin
@@ -77,8 +88,15 @@ begin
   exception
     when read_only_sql_transaction then
       raise notice 'R0 boundary: escrita rejeitada (SQLSTATE 25006) — fronteira enforçada';
+    when others then
+      raise exception 'R0-FATAL: write-probe falhou com SQLSTATE % (esperado 25006/read_only_sql_transaction)', sqlstate;
   end;
 end $$;
+-- MARCADOR MÁQUINA (stdout) — alcançado SÓ quando a escrita falhou com EXATAMENTE 25006.
+\echo 'R0_ASSERT|write_probe_sqlstate|25006'
+
+-- MARCADOR MÁQUINA (stdout) de FRONTEIRA — só após as DUAS provas acima terem passado.
+\echo 'R0_ASSERT|readonly_boundary|enforced'
 
 -- ----------------------------------------------------------------------------
 -- [1] IDENTIDADE DO AMBIENTE (relatório humano). Sem secrets.
