@@ -1,0 +1,91 @@
+# =============================================================================
+# NOXUND — LOCAL PostgreSQL 15 (vanilla) — PG-EXIT-P2 (DEC-0028)
+# -----------------------------------------------------------------------------
+# Single hermetic Postgres service for local dev + CI. NO Supabase, NO Adminer,
+# NO pgAdmin. Loopback-only publish (127.0.0.1:5433 -> 5432). Deliberate
+# lifecycle: `restart: "no"` (never self-starts on reboot). Image pinned by
+# DIGEST (never a floating tag).
+#
+# Passwords are NEVER passed via `environment:` or `env_file:` — they are
+# Docker Compose SECRETS mounted read-only at /run/secrets/* (files under
+# ./.local-secrets, gitignored, created by scripts/prepare-local with 0600).
+#
+# Project-scoped: no container_name; the volume is the LOGICAL name `pgdata`
+# (Compose prefixes it with the project name, default COMPOSE_PROJECT_NAME=
+# noxund-local). Scripts discover the container/volume/network/port from
+# Compose — nothing is hardcoded — so a different COMPOSE_PROJECT_NAME (e.g. in
+# CI) does not collide.
+#
+# Locale (binding, P2): initdb --encoding=UTF8 --locale=C.UTF-8 --data-checksums
+# --auth-host=scram-sha-256; timezone + log_timezone = UTC; password_encryption
+# = scram-sha-256. NO ICU in P2. NO claim of textual-ordering parity with the
+# legacy Supabase collation — the legacy collation will be inventoried before P9.
+# =============================================================================
+
+services:
+  postgres:
+    # 15.18-bookworm pinned by the multi-arch INDEX digest. On linux/amd64 this
+    # resolves to manifest sha256:fafb7480959eeeb7f1e43b479e642ffef2aa0f067242a1954ab41f2d764e2786.
+    image: postgres:15.18-bookworm@sha256:b0c5bab0fbba8e0c221f73b1dc6359ec35f8650074377e727299df248fc8ad51
+    # Deliberate & hermetic: never auto-restart. The operator starts it on purpose.
+    restart: "no"
+    # LOOPBACK ONLY. Never 0.0.0.0. 5433 avoids colliding with a default 5432 /
+    # the retired Supabase 54322.
+    ports:
+      - "127.0.0.1:5433:5432"
+    environment:
+      # Non-secret only. The ADMIN (bootstrap) superuser password comes from a
+      # SECRET FILE, never a literal env value.
+      POSTGRES_DB: noxund
+      POSTGRES_USER: postgres            # image bootstrap superuser — admin/break-glass ONLY, never the app
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8 --data-checksums --auth-host=scram-sha-256"
+      TZ: UTC
+      PGTZ: UTC
+    # Thin ROOT wrapper so the (non-root) init can read the custom role secrets.
+    # It copies them to a postgres-owned container dir, then execs the stock
+    # entrypoint with the command below. Host secret files stay 0600.
+    entrypoint: ["bash", "/usr/local/bin/noxund-entrypoint.sh"]
+    command:
+      - postgres
+      - -c
+      - timezone=UTC
+      - -c
+      - log_timezone=UTC
+      - -c
+      - password_encryption=scram-sha-256
+      # Passwords must never reach the server log (defense-in-depth; default is
+      # already 'none', pinned here so a stray override cannot leak DDL literals).
+      - -c
+      - log_statement=none
+    # Compose (non-swarm) ignores secret uid/gid/mode and mounts them with the
+    # host file's 0600 ownership — unreadable to the postgres user. The root
+    # entrypoint wrapper (above) bridges that for the two ROLE secrets; the
+    # bootstrap superuser secret is read by the stock entrypoint as root.
+    secrets:
+      - postgres_password
+      - noxund_migrator_password
+      - noxund_app_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d:ro
+      - ./init-entrypoint.sh:/usr/local/bin/noxund-entrypoint.sh:ro
+    healthcheck:
+      # Finite: ~ up to 100s to become healthy, then it is a hard failure.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d noxund -h 127.0.0.1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+secrets:
+  postgres_password:
+    file: ./.local-secrets/postgres_password
+  noxund_migrator_password:
+    file: ./.local-secrets/noxund_migrator_password
+  noxund_app_password:
+    file: ./.local-secrets/noxund_app_password
+
+volumes:
+  # LOGICAL name; actual volume is <COMPOSE_PROJECT_NAME>_pgdata (project-scoped).
+  pgdata:

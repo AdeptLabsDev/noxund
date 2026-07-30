@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# =============================================================================
+# prepare-local — create the 3 Compose secret files (once), with strong values,
+# 0600 perms, under umask 077. NEVER prints a value. REFUSES to overwrite an
+# existing secret. Secrets live in ./.local-secrets (gitignored).
+# =============================================================================
+set -euo pipefail
+umask 077
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
+
+mkdir -p "${SECRETS_DIR}"
+chmod 700 "${SECRETS_DIR}" 2>/dev/null || true
+
+gen_secret() {  # strong, filesystem/URL-safe (64 hex chars). No newline.
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 32
+  else
+    head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'
+  fi
+}
+
+created=0; kept=0
+for name in "${SECRET_NAMES[@]}"; do
+  f="${SECRETS_DIR}/${name}"
+  if [ -e "${f}" ]; then
+    echo "kept    : ${name} (already exists — NOT overwritten)"
+    kept=$((kept+1))
+    chmod 600 "${f}" 2>/dev/null || true
+    continue
+  fi
+  # Write with NO trailing newline (value == exact file content).
+  printf '%s' "$(gen_secret)" > "${f}"
+  chmod 600 "${f}"
+  echo "created : ${name} (0600; value NOT displayed)"
+  created=$((created+1))
+done
+
+echo "prepare-local done — created=${created} kept=${kept}. Secrets dir: ${SECRETS_DIR} (gitignored)."

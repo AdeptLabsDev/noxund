@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# =============================================================================
+# start-local — bring up the hermetic local Postgres, FAIL-CLOSED. Never repairs.
+# Preconditions (all before the container is created):
+#   • the 3 secret files exist and are NOT group/other-accessible;
+#   • the loopback port is free (unless our own service already owns it).
+# After `up`: wait for healthy (finite), then assert the canonical marker AND
+# the canonical roles. Any divergence / incomplete bootstrap => hard fail, no
+# auto-repair.
+# =============================================================================
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
+
+# --- precondition 1: secrets present + secure perms (before touching Docker) ---
+[ -d "${SECRETS_DIR}" ] || die "secrets dir missing — run scripts/prepare-local first."
+for name in "${SECRET_NAMES[@]}"; do
+  f="${SECRETS_DIR}/${name}"
+  [ -s "${f}" ] || die "secret '${name}' missing or empty — run scripts/prepare-local (start refused BEFORE container)."
+  perm="$(stat -c '%a' "${f}")"; go="${perm: -2}"
+  [ "${go}" = "00" ] || die "secret '${name}' has insecure perms ${perm} (group/other can access) — fix to 600. Start refused."
+done
+
+# --- precondition 2: loopback port free unless we already own it ---
+HOSTPORT="$(assert_loopback)"; HOST="${HOSTPORT%:*}"; PORT="${HOSTPORT##*:}"
+if [ -z "$(container_id)" ] && port_open "${HOST}" "${PORT}"; then
+  die "port ${HOST}:${PORT} is already in use by another process — start refused (volume untouched)."
+fi
+
+info "starting service '${SERVICE}' (project ${COMPOSE_PROJECT_NAME}) on ${HOST}:${PORT} ..."
+dc up -d
+
+# --- wait for healthy (finite) ---
+cid="$(container_id)"; [ -n "${cid}" ] || die "container did not come up."
+deadline=$(( $(date +%s) + 120 ))
+while :; do
+  st="$(docker inspect -f '{{.State.Health.Status}}' "${cid}" 2>/dev/null || echo unknown)"
+  [ "${st}" = "healthy" ] && break
+  [ "$(date +%s)" -lt "${deadline}" ] || die "container not healthy within 120s (last=${st}). State preserved for inspection."
+  sleep 3
+done
+info "container healthy."
+
+# --- fail-closed bootstrap verification (NO repair) ---
+marker="$(read_marker)"
+if [ -z "${marker}" ]; then
+  die "bootstrap INCOMPLETE or volume initialized WITHOUT marker (no noxund_bootstrap.marker) — refusing (no auto-repair). Use scripts/reset-local for a clean re-init."
+fi
+if [ "${marker}" != "${EXPECTED_MARKER}" ]; then
+  die "marker DIVERGENT: found '${marker}', expected '${EXPECTED_MARKER}' — refusing (no auto-repair)."
+fi
+
+# canonical roles present with exact attribute bits (login,super,createdb,createrole,inherit,repl,bypassrls)
+roles_bad="$(psql_admin -tAc "
+  with want(rolname, bits) as (values
+    ('noxund_owner','0000000'),
+    ('noxund_migrator','1000000'),
+    ('noxund_app','1000000'),
+    ('sg8_compute_writer','0000000'))
+  select w.rolname
+    from want w
+    left join pg_roles r on r.rolname = w.rolname
+   where r.rolname is null
+      or concat(r.rolcanlogin::int,r.rolsuper::int,r.rolcreatedb::int,r.rolcreaterole::int,
+                r.rolinherit::int,r.rolreplication::int,r.rolbypassrls::int) <> w.bits
+   order by w.rolname" | tr '\n' ' ')"
+if [ -n "${roles_bad// /}" ]; then
+  die "canonical roles missing/divergent: ${roles_bad}— refusing (no auto-repair)."
+fi
+
+info "OK — healthy, marker=${EXPECTED_MARKER}, canonical roles intact. Published loopback ${HOST}:${PORT}."
