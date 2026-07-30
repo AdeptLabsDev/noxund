@@ -15,6 +15,10 @@
 # =============================================================================
 set -euo pipefail   # NOTE: deliberately NO `set -x` — would leak secrets.
 
+# Remove the postgres-readable secret copies on EXIT — success OR failure — so no
+# plaintext role secret lingers in the container after bootstrap.
+trap 'rm -f /run/noxund-secrets/* 2>/dev/null || true; rmdir /run/noxund-secrets 2>/dev/null || true' EXIT
+
 # Readable copies produced by the root entrypoint wrapper (init runs as postgres,
 # which cannot read the root-owned /run/secrets mounts). Host files stay 0600.
 MIGRATOR_SECRET="/run/noxund-secrets/noxund_migrator_password"

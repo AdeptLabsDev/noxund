@@ -6,6 +6,7 @@
 # =============================================================================
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
+assert_local_docker
 
 follow=""; tail_n="200"
 for a in "$@"; do

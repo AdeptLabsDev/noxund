@@ -11,6 +11,10 @@
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
 
+# Strictly-local FIRST: a remote/ambiguous context aborts BEFORE any docker op,
+# even with a valid confirmation token — reset must touch nothing when remote.
+assert_local_docker
+
 TOKEN="${1:-}"
 if [ "${TOKEN}" != "RESET-NOXUND-LOCAL" ]; then
   die "confirmation required — run: scripts/reset-local RESET-NOXUND-LOCAL (nothing removed)."

@@ -8,6 +8,11 @@ set -euo pipefail
 umask 077
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
 
+# refuse a symlinked / non-directory secrets path (no writing through a link).
+if [ -e "${SECRETS_DIR}" ]; then
+  [ ! -L "${SECRETS_DIR}" ] || { echo "::error:: secrets dir '${SECRETS_DIR}' is a SYMLINK — refusing." >&2; exit 1; }
+  [ -d "${SECRETS_DIR}" ] || { echo "::error:: secrets path '${SECRETS_DIR}' is not a directory — refusing." >&2; exit 1; }
+fi
 mkdir -p "${SECRETS_DIR}"
 chmod 700 "${SECRETS_DIR}" 2>/dev/null || true
 
@@ -22,6 +27,12 @@ gen_secret() {  # strong, filesystem/URL-safe (64 hex chars). No newline.
 created=0; kept=0
 for name in "${SECRET_NAMES[@]}"; do
   f="${SECRETS_DIR}/${name}"
+  if [ -L "${f}" ]; then
+    echo "::error:: secret '${name}' is a SYMLINK — refusing (regular file required)." >&2; exit 1
+  fi
+  if [ -e "${f}" ] && [ ! -f "${f}" ]; then
+    echo "::error:: secret '${name}' exists but is not a regular file — refusing." >&2; exit 1
+  fi
   if [ -e "${f}" ]; then
     echo "kept    : ${name} (already exists — NOT overwritten)"
     kept=$((kept+1))
