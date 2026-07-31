@@ -64,16 +64,26 @@ v1_exit=$?
 set -e
 log "V1 migrate exit=${v1_exit}"
 
+# LP-0 probes must NEVER abort the run: a failed/empty probe simply makes LP-0 fail
+# and the script proceeds to emit ESCALATE. (A missing flyway_schema_history — the
+# exact failure we may be proving — must not crash the harness on its own error.)
+set +e
 owner_nologin=$(q "SELECT NOT rolcanlogin FROM pg_roles WHERE rolname='noxund_owner';")
 mig_noinherit=$(q "SELECT NOT rolinherit  FROM pg_roles WHERE rolname='noxund_migrator';")
 owner_nosuper=$(q "SELECT NOT rolsuper    FROM pg_roles WHERE rolname='noxund_owner';")
 mig_nosuper=$(q   "SELECT NOT rolsuper    FROM pg_roles WHERE rolname='noxund_migrator';")
 mig_minimal=$(q   "SELECT NOT (rolcreatedb OR rolcreaterole OR rolsuper OR rolreplication OR rolbypassrls) FROM pg_roles WHERE rolname='noxund_migrator';")
+hist_present=$(q  "SELECT to_regclass('public.flyway_schema_history') IS NOT NULL;")
 hist_owner=$(q    "SELECT tableowner='noxund_owner' FROM pg_tables WHERE schemaname='public' AND tablename='flyway_schema_history';")
 spike_owner=$(q   "SELECT nspowner::regrole::text='noxund_owner' FROM pg_namespace WHERE nspname='spike';")
-v1_success=$(q    "SELECT success FROM public.flyway_schema_history WHERE version='1';")
+if [ "$hist_present" = "t" ]; then
+  v1_success=$(q  "SELECT success FROM public.flyway_schema_history WHERE version='1';")
+else
+  v1_success="(no-history-table)"
+fi
 # no non-bootstrap superuser exists beyond the image bootstrap 'postgres'
 extra_super=$(q   "SELECT count(*) FROM pg_roles WHERE rolsuper AND rolname NOT IN ('postgres');")
+set -e
 
 {
   echo "v1_migrate_exit      = ${v1_exit}   (0 => V1 guard passed => callback set current_user=noxund_owner, session_user=noxund_migrator on the migration connection)"
