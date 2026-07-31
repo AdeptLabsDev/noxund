@@ -1,0 +1,8 @@
+# P3B spike — force LF on every shell/SQL artifact. These files are executed
+# inside Linux containers (postgres init, flyway entrypoint) and via Git Bash;
+# CRLF would break the shebang and the SQL callbacks. Never let autocrlf touch them.
+* text=auto eol=lf
+*.sh text eol=lf
+*.sql text eol=lf
+*.yml text eol=lf
+*.conf text eol=lf

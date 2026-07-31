@@ -1,0 +1,104 @@
+# =============================================================================
+# NOXUND — PG-EXIT-P3B — Flyway Community atomicity falsification (spike stack)
+# -----------------------------------------------------------------------------
+# ISOLATED, DISPOSABLE, NO-EGRESS. This stack exists only to run ONE fatal
+# atomicity test against Flyway 13.1.0 Community on vanilla PostgreSQL 15.
+#
+#   * Compose project (set by the harness):   noxund-p3b     (never noxund-local)
+#   * Database:                                flyway_spike   (never `noxund`)
+#   * Network:                                 internal: true (NO egress at all)
+#   * Ports:                                   NONE published (no 127.0.0.1, no 0.0.0.0)
+#   * Volume:                                  pgdata, project-scoped, disposable
+#   * Secrets:                                 Compose secrets ONLY (never env/env_file)
+#   * Images:                                  pinned by TAG + DIGEST (never floating)
+#
+# A PASS here authorizes only a FUTURE full evaluation — never adoption (DEC-0029).
+# =============================================================================
+
+services:
+  postgres:
+    # Same PG15 pin used by the P2 local stack (multi-arch INDEX digest).
+    image: postgres:15.18-bookworm@sha256:b0c5bab0fbba8e0c221f73b1dc6359ec35f8650074377e727299df248fc8ad51
+    restart: "no"
+    # NO published ports — reachable only from the flyway service on the internal net.
+    environment:
+      POSTGRES_DB: flyway_spike
+      POSTGRES_USER: postgres            # bootstrap superuser — harness/instrumentation ONLY, never a migration identity
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8 --data-checksums --auth-host=scram-sha-256"
+      TZ: UTC
+      PGTZ: UTC
+    # Thin ROOT wrapper so the (non-root) init can read the migrator role secret,
+    # exactly as in P2. Host secret files stay 0600.
+    entrypoint: ["bash", "/usr/local/bin/noxund-entrypoint.sh"]
+    command:
+      - postgres
+      - -c
+      - timezone=UTC
+      - -c
+      - log_timezone=UTC
+      - -c
+      - password_encryption=scram-sha-256
+      # Never log DDL literals; RAISE LOG from the fatal triggers still reaches the
+      # server log (LOG >= WARNING), which is exactly the durable, rollback-proof
+      # channel we use to capture PID/XID.
+      - -c
+      - log_statement=none
+      - -c
+      - log_min_messages=warning
+    secrets:
+      - postgres_password
+      - noxund_migrator_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d:ro
+      - ./init-entrypoint.sh:/usr/local/bin/noxund-entrypoint.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d flyway_spike -h 127.0.0.1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks:
+      - spikenet
+
+  flyway:
+    # Flyway 13.1.0 Community, pinned by TAG + DIGEST (resolved at authoring time).
+    image: flyway/flyway:13.1.0@sha256:3cc7587dcb678b67ab822984197237f84dfc65e0b19b98c52ea84d6ef8be1f4a
+    # Root ONLY to read the 0600 Compose secret; the DATABASE identity is the
+    # PostgreSQL role (noxund_migrator -> SET ROLE noxund_owner), enforced by the
+    # server, not by the container user. No migration ever runs as a DB superuser.
+    user: "0:0"
+    # Wrapper: reads the secret at exec (never prints/persists it) AND is the single
+    # executable sentinel refusing clean/repair/baseline/undo.
+    entrypoint: ["bash", "/flyway-entrypoint.sh"]
+    environment:
+      # Belt-and-suspenders; the internal no-egress network already makes any
+      # telemetry/update call impossible.
+      REDGATE_DISABLE_TELEMETRY: "true"
+    secrets:
+      - noxund_migrator_password
+    volumes:
+      - ./flyway/conf/flyway.conf:/flyway/conf/flyway.conf:ro
+      - ./flyway/sql:/flyway/sql:ro
+      - ./flyway/callbacks:/flyway/callbacks:ro
+      - ./flyway-entrypoint.sh:/flyway-entrypoint.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - spikenet
+
+secrets:
+  postgres_password:
+    file: ./.local-secrets/postgres_password
+  noxund_migrator_password:
+    file: ./.local-secrets/noxund_migrator_password
+
+volumes:
+  pgdata:
+
+networks:
+  spikenet:
+    # NO egress: containers can reach each other but NOT the internet / host LAN.
+    internal: true
