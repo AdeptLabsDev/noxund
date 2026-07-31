@@ -1,0 +1,5 @@
+%syntax-version=1.0.0
+%project=noxund_p3a_spike
+
+baseline_schema 2026-07-31T11:24:23Z NOXUND P3A Spike <spike@noxund.local> # baseline: create spike schema (normal change; inits registry)
+atomicity_gap_probe [baseline_schema] 2026-07-31T11:24:23Z NOXUND P3A Spike <spike@noxund.local> # fatal: DDL committed, registry gap probe
