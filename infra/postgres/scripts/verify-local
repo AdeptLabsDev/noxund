@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# =============================================================================
+# verify-local — fail-closed assertion runner against a RUNNING local instance.
+# Uses the SHARED bootstrap contract (_common.sh: catalog roles/attrs/memberships/
+# owners/privs/settings/marker) so start-local and verify-local can never diverge.
+# Adds docker-side checks (health, loopback, volume, image-derivation) and
+# transactional, fail-closed runtime privilege probes (ON_ERROR_STOP; ROLLBACK;
+# residual checks). Emits a canonical STRUCTURAL DIGEST. Exit != 0 on any failure.
+# =============================================================================
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
+assert_local_docker
+
+fails=0
+pass() { echo "PASS  $1"; }
+fail() { echo "FAIL  $1"; fails=$((fails+1)); }
+chk()  { if [ "$2" = "$3" ]; then pass "$1 ($2)"; else fail "$1 (got '$2', want '$3')"; fi; }
+
+cid="$(container_id)"; [ -n "${cid}" ] || die "service is DOWN — run scripts/start-local first."
+
+# psql as a role over TCP with SCRAM (password via env, never argv/logs). Fail-closed.
+as_role() {  # returns psql exit (nonzero on any error)
+  dc exec -T "${SERVICE}" env ROLE="$1" SECRET="$2" SQL="$3" bash -c '
+    set -euo pipefail
+    PGPASSWORD="$(cat "/run/secrets/${SECRET}")" \
+      psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "${ROLE}" -d noxund -c "${SQL}" >/dev/null 2>&1'
+}
+as_role_stdin() {  # pipe SQL via stdin (sequential), print stdout; ON_ERROR_STOP
+  dc exec -T "${SERVICE}" env ROLE="$1" SECRET="$2" SQL="$3" bash -c '
+    export PGPASSWORD="$(cat "/run/secrets/${SECRET}")"
+    printf "%s" "${SQL}" | psql -v ON_ERROR_STOP=1 -tAq -h 127.0.0.1 -U "${ROLE}" -d noxund 2>/dev/null'
+}
+as_role_stdin_rc() {  # like above but returns psql exit code (discard output)
+  dc exec -T "${SERVICE}" env ROLE="$1" SECRET="$2" SQL="$3" bash -c '
+    export PGPASSWORD="$(cat "/run/secrets/${SECRET}")"
+    printf "%s" "${SQL}" | psql -v ON_ERROR_STOP=1 -tAq -h 127.0.0.1 -U "${ROLE}" -d noxund >/dev/null 2>&1'
+}
+
+echo "== NOXUND local Postgres — verification =="
+
+# ---- docker-side ----
+chk "A1 container healthy" "$(docker inspect -f '{{.State.Health.Status}}' "${cid}")" "healthy"
+hostip="$(docker inspect -f '{{range $p,$c := .NetworkSettings.Ports}}{{range $c}}{{.HostIp}}:{{.HostPort}} {{end}}{{end}}' "${cid}" | tr ' ' '\n' | grep ':5433$' | cut -d: -f1)"
+chk "A3 publish loopback-only" "${hostip}" "127.0.0.1"
+if [ -n "$(volume_name)" ]; then pass "A4 project volume present ($(volume_name))"; else fail "A4 project volume missing"; fi
+want_img="$(compose_image)"; got_img="$(running_image)"
+case "${want_img}" in *@sha256:*) pass "A0a compose image digest-pinned (${want_img})";; *) fail "A0a compose image NOT digest-pinned (${want_img})";; esac
+chk "A0b running image == pinned compose image" "${got_img}" "${want_img}"
+
+# ---- SHARED bootstrap contract (single source of truth) ----
+echo "-- shared bootstrap contract (roles/attrs/memberships/owners/privs/settings/marker) --"
+if contract="$(check_catalog_contract)"; then printf '%s\n' "${contract}"; pass "CONTRACT all checks ok"
+else printf '%s\n' "${contract}"; fail "CONTRACT has violations"; fi
+
+# ---- runtime privilege probes (transactional, fail-closed) ----
+if as_role noxund_app noxund_app_password "create table public.t_probe(x int)"; then fail "A8a app CREATE TABLE blocked (it succeeded!)"; else pass "A8a app cannot CREATE TABLE"; fi
+if as_role noxund_app noxund_app_password "create schema s_probe"; then fail "A8b app CREATE SCHEMA blocked (it succeeded!)"; else pass "A8b app cannot CREATE SCHEMA"; fi
+if as_role noxund_app noxund_app_password "set role noxund_owner"; then fail "A9 app SET ROLE owner blocked (it succeeded!)"; else pass "A9 app cannot SET ROLE noxund_owner"; fi
+if as_role noxund_migrator noxund_migrator_password "create table public.t_probe(x int)"; then fail "A10a migrator direct CREATE blocked (it succeeded!)"; else pass "A10a migrator has no automatic CREATE"; fi
+
+# A10b positive: explicit txn, SET LOCAL ROLE owner, create probe, read owner, ROLLBACK
+probe_out="$(as_role_stdin noxund_migrator noxund_migrator_password \
+  "begin; set local role noxund_owner; create table public._probe_owner(x int); select 'OWNER='||tableowner from pg_tables where tablename='_probe_owner'; rollback;")"
+probe_owner="$(printf '%s' "${probe_out}" | grep -o 'OWNER=[a-z_]*' | cut -d= -f2)"
+chk "A10b migrator SET LOCAL ROLE owner -> owned-by-owner (rolled back)" "${probe_owner}" "noxund_owner"
+chk "A10c no residual _probe_owner after ROLLBACK" "$(psql_admin -tAc "select count(*) from pg_tables where tablename='_probe_owner'")" "0"
+
+# A10d controlled negative: force an error AFTER the CREATE inside the txn; the
+# connection aborts fail-closed and leaves ZERO residual object.
+if as_role_stdin_rc noxund_migrator noxund_migrator_password \
+   "begin; set local role noxund_owner; create table public._probe_fail(x int); select 1/0; rollback;"; then
+  fail "A10d expected non-zero exit after error post-CREATE (it succeeded!)"
+else pass "A10d aborts fail-closed after CREATE (connection error)"; fi
+chk "A10e no residual _probe_fail after aborted txn" "$(psql_admin -tAc "select count(*) from pg_tables where tablename='_probe_fail'")" "0"
+
+# sg8 cannot log in
+if dc exec -T "${SERVICE}" bash -c 'PGPASSWORD=x psql -h 127.0.0.1 -U sg8_compute_writer -d noxund -c "select 1" >/dev/null 2>&1'; then
+  fail "A11 sg8 login blocked (it logged in!)"; else pass "A11 sg8_compute_writer cannot log in"; fi
+
+# positive auth migrator/app (SCRAM over TCP)
+if as_role noxund_migrator noxund_migrator_password "select 1"; then pass "B2a migrator authenticates"; else fail "B2a migrator auth failed"; fi
+if as_role noxund_app noxund_app_password "select 1"; then pass "B2b app authenticates"; else fail "B2b app auth failed"; fi
+
+# the actual secret VALUES never appear in `docker compose config` or logs
+cfg="$(dc config 2>/dev/null || true)"; logs="$(dc logs --no-color 2>/dev/null || true)"; leak=0
+for name in "${SECRET_NAMES[@]}"; do
+  val="$(cat "${SECRETS_DIR}/${name}")"
+  printf '%s' "${cfg}"  | grep -qF -- "${val}" && { fail "B5a secret value of ${name} leaks in compose config"; leak=1; }
+  printf '%s' "${logs}" | grep -qF -- "${val}" && { fail "B5b secret value of ${name} leaks in logs"; leak=1; }
+done
+[ "${leak}" -eq 0 ] && pass "B5 no secret value appears in compose config or logs"
+
+# CANONICAL STRUCTURAL DIGEST (no OIDs/timestamps/rolpassword)
+digest="$(psql_admin -tA <<'SQL' | LC_ALL=C sort | sha256sum | cut -d' ' -f1
+with r as (
+  select rolname,
+         concat(rolcanlogin::int,rolsuper::int,rolcreatedb::int,rolcreaterole::int,rolinherit::int,rolreplication::int,rolbypassrls::int) as attrs,
+         coalesce((select string_agg(m.rolname, ',' order by m.rolname)
+                     from pg_auth_members am join pg_roles m on m.oid=am.roleid
+                    where am.member=pr.oid), '') as memberof
+    from pg_roles pr
+   where rolname in ('noxund_owner','noxund_migrator','noxund_app','sg8_compute_writer')
+)
+select 'role:'||rolname||'|'||attrs||'|'||memberof from r
+union all
+select 'db:noxund|owner='||pg_get_userbyid(datdba)||'|enc='||pg_encoding_to_char(encoding)||'|collate='||datcollate||'|ctype='||datctype
+  from pg_database where datname='noxund'
+union all
+select 'schema:public|owner='||nspowner::regrole::text||'|public_create='||has_schema_privilege('public','public','CREATE')::text||'|app_usage='||has_schema_privilege('noxund_app','public','USAGE')::text
+  from pg_namespace where nspname='public'
+union all
+select 'schema:noxund_bootstrap|owner='||nspowner::regrole::text||'|public_usage='||has_schema_privilege('public','noxund_bootstrap','USAGE')::text
+  from pg_namespace where nspname='noxund_bootstrap'
+union all
+select 'dbpriv|public_connect='||has_database_privilege('public','noxund','CONNECT')::text
+     ||'|public_temp='||has_database_privilege('public','noxund','TEMP')::text
+     ||'|app_connect='||has_database_privilege('noxund_app','noxund','CONNECT')::text
+     ||'|app_temp='||has_database_privilege('noxund_app','noxund','TEMP')::text
+     ||'|migrator_connect='||has_database_privilege('noxund_migrator','noxund','CONNECT')::text
+     ||'|sg8_connect='||has_database_privilege('sg8_compute_writer','noxund','CONNECT')::text
+union all
+select 'marker:'||marker from noxund_bootstrap.marker
+union all
+select 'guc:password_encryption='||current_setting('password_encryption')||'|checksums='||current_setting('data_checksums')||'|tz='||current_setting('TimeZone')
+SQL
+)"
+echo "STRUCT_DIGEST=${digest}"
+
+echo "== verify-local: ${fails} failure(s) =="
+[ "${fails}" -eq 0 ] || exit 1

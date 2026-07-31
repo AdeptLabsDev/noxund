@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# =============================================================================
+# status-local — show service state, health and the loopback publish. Read-only.
+# =============================================================================
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
+assert_local_docker
+
+echo "project : ${COMPOSE_PROJECT_NAME}"
+echo "volume  : $(volume_name || echo '<none>')"
+echo "publish : $(configured_hostport || echo '<none>') (configured)$( runtime_hostport >/dev/null 2>&1 && echo " · runtime $(runtime_hostport)" )"
+cid="$(container_id)"
+if [ -z "${cid}" ]; then
+  echo "state   : DOWN"
+  exit 0
+fi
+echo "state   : $(docker inspect -f '{{.State.Status}} (health={{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}})' "${cid}")"
+dc exec -T "${SERVICE}" pg_isready -U postgres -d noxund -h /var/run/postgresql || true

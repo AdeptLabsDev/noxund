@@ -55,8 +55,17 @@ supabase/.temp
 logs
 .sentryclirc
 
-# --- Infra (local compose not versioned per project policy) ---
+# --- Infra / local Postgres (PG-EXIT / DEC-0028) ---
+# The reviewed, DIGEST-pinned local stack IS versioned as infra-as-code
+# (DEC-0028 supersedes the old "local compose not versioned" policy). Only
+# ad-hoc root docker-compose files and personal overrides stay out.
 docker-compose*.yml
+!infra/postgres/compose.local.yml
+compose.override.yml
+**/compose.override.yml
+# Local Postgres secrets (Docker Compose secrets) — NEVER commit real values.
+.local-secrets/
+infra/postgres/.local-secrets/
 
 # --- License (per project policy) ---
 LICENSE

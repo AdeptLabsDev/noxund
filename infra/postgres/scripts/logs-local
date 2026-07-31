@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# =============================================================================
+# logs-local — tail service logs. Passes through Postgres logs; by design the
+# server never logs passwords (log_statement=none; scram; secrets via files).
+# Usage: logs-local [--follow] [N]   (N = tail lines, default 200)
+# =============================================================================
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
+assert_local_docker
+
+follow=""; tail_n="200"
+for a in "$@"; do
+  case "${a}" in
+    -f|--follow) follow="--follow" ;;
+    ''|*[!0-9]*) : ;;
+    *) tail_n="${a}" ;;
+  esac
+done
+dc logs ${follow} --tail "${tail_n}" "${SERVICE}"

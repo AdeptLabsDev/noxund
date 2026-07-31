@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# =============================================================================
+# reset-local — DESTRUCTIVE: removes THIS Compose project's container + volume so
+# the next start-local re-inits from scratch. Guards:
+#   • requires the exact confirmation token RESET-NOXUND-LOCAL (argv[1]);
+#   • prints the project name + derived volume it will remove;
+#   • confirms the publish is loopback;
+#   • refuses on ANY sign of a remote host (PGHOST/DATABASE_URL/SUPABASE_* etc.);
+#   • removes ONLY this project's resources (dc down -v). NEVER `docker volume prune`.
+# =============================================================================
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
+
+# Strictly-local FIRST: a remote/ambiguous context aborts BEFORE any docker op,
+# even with a valid confirmation token — reset must touch nothing when remote.
+assert_local_docker
+
+TOKEN="${1:-}"
+if [ "${TOKEN}" != "RESET-NOXUND-LOCAL" ]; then
+  die "confirmation required — run: scripts/reset-local RESET-NOXUND-LOCAL (nothing removed)."
+fi
+
+# Refuse any indication of a remote target.
+for v in PGHOST DATABASE_URL SUPABASE_DB_HOST SUPABASE_DB_URL PGHOSTADDR; do
+  val="${!v:-}"
+  [ -z "${val}" ] && continue
+  case "${val}" in
+    127.0.0.1*|localhost*|"127.0.0.1"|"localhost") : ;;
+    *) die "refusing reset — env ${v}='${val}' indicates a NON-loopback/remote host." ;;
+  esac
+done
+
+HOSTPORT="$(assert_loopback)"            # aborts if publish is not 127.0.0.1
+VOL="$(volume_name || true)"
+
+echo "About to DESTROY local state for this project ONLY:"
+echo "  project : ${COMPOSE_PROJECT_NAME}"
+echo "  volume  : ${VOL:-<none — nothing to remove>}"
+echo "  publish : ${HOSTPORT} (loopback confirmed)"
+echo "Proceeding (token accepted)..."
+
+dc down -v --remove-orphans              # project-scoped; NEVER `docker volume prune`
+info "reset complete — project '${COMPOSE_PROJECT_NAME}' container + volume removed. Next start-local re-inits."

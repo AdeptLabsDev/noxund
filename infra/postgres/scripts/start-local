@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# =============================================================================
+# start-local — bring up the hermetic local Postgres, FAIL-CLOSED. Never repairs.
+# Preconditions (before the container is created):
+#   • strictly-local docker daemon (no remote/ambiguous context);
+#   • the 3 secret files exist, are REGULAR (not symlinks), non-empty, 0600, in a
+#     0700 dir;
+#   • the loopback port is free (unless our own service already owns it).
+# After `up`: wait for healthy (finite), prove the running image is the pinned
+# Compose image, then enforce the FULL shared bootstrap contract (roles/attrs/
+# memberships/owners/privs/settings/marker). Any divergence => hard fail, no
+# auto-repair.
+# =============================================================================
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
+
+assert_local_docker
+assert_secret_source_safe
+
+# loopback port free unless we already own it
+HOSTPORT="$(assert_loopback)"; HOST="${HOSTPORT%:*}"; PORT="${HOSTPORT##*:}"
+if [ -z "$(container_id)" ] && port_open "${HOST}" "${PORT}"; then
+  die "port ${HOST}:${PORT} is already in use by another process — start refused (volume untouched)."
+fi
+
+info "starting service '${SERVICE}' (project ${COMPOSE_PROJECT_NAME}) on ${HOST}:${PORT} ..."
+dc up -d
+
+cid="$(container_id)"; [ -n "${cid}" ] || die "container did not come up."
+deadline=$(( $(date +%s) + 120 ))
+while :; do
+  st="$(docker inspect -f '{{.State.Health.Status}}' "${cid}" 2>/dev/null || echo unknown)"
+  [ "${st}" = "healthy" ] && break
+  [ "$(date +%s)" -lt "${deadline}" ] || die "container not healthy within 120s (last=${st}). State preserved for inspection."
+  sleep 3
+done
+info "container healthy."
+
+# image derivation proof: the container runs the pinned Compose image (with @sha256 digest).
+want_img="$(compose_image)"; got_img="$(running_image)"
+[ -n "${want_img}" ] || die "cannot read pinned image from compose config."
+case "${want_img}" in *@sha256:*) : ;; *) die "compose image '${want_img}' is not digest-pinned — refusing." ;; esac
+[ "${got_img}" = "${want_img}" ] || die "running image '${got_img}' != pinned Compose image '${want_img}' — refusing."
+
+# FULL bootstrap contract (shared with verify-local). No auto-repair.
+if ! contract="$(check_catalog_contract)"; then
+  printf '%s\n' "${contract}" | grep '^CHKFAIL' >&2 || true
+  die "bootstrap contract VIOLATED (or incomplete/no marker) — refusing (no auto-repair). Use scripts/reset-local for a clean re-init."
+fi
+
+info "OK — healthy, image pinned, bootstrap contract satisfied (marker=${EXPECTED_MARKER}). Published loopback ${HOST}:${PORT}."
