@@ -1,0 +1,17 @@
+v1_migrate_exit      = 1   (0 => V1 guard passed => callback set current_user=noxund_owner, session_user=noxund_migrator on the migration connection)
+owner_is_NOLOGIN     = t
+migrator_is_NOINHERIT= t
+owner_not_superuser  = t
+migrator_not_super   = t
+migrator_minimal_priv= t   (no createdb/createrole/super/replication/bypassrls)
+history_owned_by_owner=    (=> the history-management connection also received the callback)
+spike_schema_owned    =   (=> the migration connection also received the callback)
+v1_row_success        = (no-history-table)
+no_extra_superuser    = t  (extra=0)
+-- root-cause audit --
+history_table_exists = f
+ migrator_direct_create_public | owner_create_public 
+-------------------------------+---------------------
+ f                             | t
+(1 row)
+

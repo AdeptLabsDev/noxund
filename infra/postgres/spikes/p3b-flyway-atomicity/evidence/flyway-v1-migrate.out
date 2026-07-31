@@ -1,0 +1,27 @@
+ Container noxund-p3b-postgres-1 Running 
+ Container noxund-p3b-postgres-1 Waiting 
+ Container noxund-p3b-postgres-1 Healthy 
+ Container noxund-p3b-flyway-run-6e2386760258 Creating 
+ Container noxund-p3b-flyway-run-6e2386760258 Created 
+P3B note: secret on 'v9fs' bind mount — perm bits are host-translated; relying on host ACL (0600/0700).
+Flyway OSS Edition 13.1.0 by Redgate
+
+See release notes here: https://help.red-gate.com/help/flyway-cli13/help_1.aspx?topic=release-notes-and-older-versions/release-notes-for-flyway-engine
+Database: ******** (PostgreSQL 15.18)
+Executing SQL callback: afterConnect - set noxund owner
+Schema history table "public"."flyway_schema_history" does not exist yet
+Successfully validated 2 migrations (execution time 00:00.014s)
+Creating Schema History table "public"."flyway_schema_history" ...
+ERROR: Failed to execute script 
+-------------------------
+SQL State  : 42501
+Error Code : 0
+Message    : ERROR: permission denied for schema public
+  Position: 14
+Location   :  ()
+Line       : 1
+Statement  : Run Flyway with -X option to see the actual statement causing the problem
+
+Caused by: org.postgresql.util.PSQLException: ERROR: permission denied for schema public
+  Position: 14
+

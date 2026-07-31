@@ -1,0 +1,6 @@
+Executing SQL callback: afterConnect - set noxund owner
+Schema history table "public"."flyway_schema_history" does not exist yet
+Creating Schema History table "public"."flyway_schema_history" ...
+SQL State  : 42501
+Message    : ERROR: permission denied for schema public
+Caused by: org.postgresql.util.PSQLException: ERROR: permission denied for schema public
