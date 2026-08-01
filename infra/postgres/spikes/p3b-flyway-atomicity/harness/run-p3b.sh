@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # =============================================================================
-# NOXUND — PG-EXIT-P3B — Flyway Community atomicity falsification (single run).
-# Deterministic by construction: the V2 history INSERT blocks on an advisory lock
-# the controller session already holds, so the kill window is not a race. Executes
-# EXACTLY ONE fatal test. Emits a verdict token and a full evidence bundle.
+# NOXUND — PG-EXIT-P3B2 — Flyway metadata-schema + atomicity falsification.
+# Option A (restricted contract): noxund_migrator may create/administer objects
+# ONLY in the control schema noxund_migration_meta (the ledger). It holds NO direct
+# DDL on public/spike/business schemas. The migration executor still runs as
+# noxund_owner (SET ROLE via afterConnect). The ledger lives at
+# noxund_migration_meta.flyway_schema_history.
 #
-# Phases: bring-up -> LP-0 (V1 + least-privilege proof) -> instrument -> hold lock
-#   -> V2 migrate blocks -> SIGKILL flyway only (PG stays up) -> inspect via an
-#   independent connection -> info/validate/fresh-migrate -> verdict.
+# Flow: bring-up -> capture control-schema grants -> LP-1 (V1 + revised contract
+# proof) -> instrument (trigger on the meta ledger) -> hold advisory lock -> V2
+# migrate blocks -> SIGKILL flyway only (PG stays up) -> inspect via an independent
+# connection -> info/validate/fresh-migrate -> verdict.
 #
-# NEVER: docker volume prune; touching noxund-local; connecting to any remote;
-# repair/clean/baseline/undo; manual edit of flyway_schema_history.
+# NEVER: docker volume prune; touch noxund-local; connect remote; repair/clean/
+# baseline/undo; manual edit of the ledger; grant beyond noxund_migration_meta.
 # =============================================================================
 set -euo pipefail
 
@@ -20,6 +23,8 @@ PROJECT="noxund-p3b"
 COMPOSE="docker compose -p ${PROJECT} -f ${HERE}/compose.spike.yml"
 EV="${HERE}/evidence"
 LOCK=902001
+META="noxund_migration_meta"
+HIST="noxund_migration_meta.flyway_schema_history"
 PG_PIN="postgres:15.18-bookworm@sha256:b0c5bab0fbba8e0c221f73b1dc6359ec35f8650074377e727299df248fc8ad51"
 FLYWAY_PIN="flyway/flyway:13.1.0@sha256:3cc7587dcb678b67ab822984197237f84dfc65e0b19b98c52ea84d6ef8be1f4a"
 
@@ -32,11 +37,11 @@ q(){ psql_su -tAc "$1" | tr -d '\r[:space:]'; }
 finish(){ echo "$1" > "${EV}/VERDICT.txt"; log "VERDICT: $1"; }
 
 # ---------------------------------------------------------------------------
-log "P3B start — project=${PROJECT}"
+log "P3B2 start — project=${PROJECT}"
 $COMPOSE down -v --remove-orphans >/dev/null 2>&1 || true
 bash "${HERE}/harness/gen-secrets.sh"
 
-# ---- 1. bring up postgres ----
+# ---- 1. bring up postgres (bootstrap also creates the control schema + grants) ----
 log "bringing up postgres (internal net, no ports)"
 $COMPOSE up -d postgres
 for i in $(seq 1 40); do
@@ -47,7 +52,6 @@ done
 [ "$st" = "healthy" ] || { finish "ESCALATE — postgres did not become healthy"; exit 3; }
 log "postgres healthy"
 
-# ---- image identity proof (running == pinned) ----
 PGC="$($COMPOSE ps -q postgres)"
 {
   echo "pinned  postgres : ${PG_PIN}"
@@ -56,85 +60,109 @@ PGC="$($COMPOSE ps -q postgres)"
   echo "flyway RepoDigest: $(docker image inspect flyway/flyway:13.1.0 --format '{{json .RepoDigests}}')"
 } > "${EV}/image-identity.txt"
 
-# ---- 2. LP-0: apply V1 only, then prove least-privilege ----
-log "LP-0: flyway migrate -target=1 (applies V1 + its fail-closed guard)"
+# ---- 1b. capture the EXACT control-schema grants (returned to the Lead) ----
+psql_su -c "\dn+ ${META}" > "${EV}/control-schema-grants.txt" 2>&1 || true
+{
+  echo "-- control schema owner + ACL --"
+  echo "owner                          = $(q "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname='${META}';")"
+  echo "raw nspacl                     = $(q "SELECT COALESCE(array_to_string(nspacl,'|'),'(none)') FROM pg_namespace WHERE nspname='${META}';")"
+  echo "migrator USAGE                 = $(q "SELECT has_schema_privilege('noxund_migrator','${META}','USAGE');")"
+  echo "migrator CREATE                = $(q "SELECT has_schema_privilege('noxund_migrator','${META}','CREATE');")"
+  echo "app      USAGE                 = $(q "SELECT has_schema_privilege('noxund_app','${META}','USAGE');")"
+  echo "app      CREATE                = $(q "SELECT has_schema_privilege('noxund_app','${META}','CREATE');")"
+  echo "sg8      USAGE                 = $(q "SELECT has_schema_privilege('sg8_compute_writer','${META}','USAGE');")"
+  echo "sg8      CREATE                = $(q "SELECT has_schema_privilege('sg8_compute_writer','${META}','CREATE');")"
+  echo "migrator CREATE on public      = $(q "SELECT has_schema_privilege('noxund_migrator','public','CREATE');")"
+  echo "migrator CREATE on spike?      = $(q "SELECT CASE WHEN to_regnamespace('spike') IS NULL THEN 'no-spike-yet' ELSE has_schema_privilege('noxund_migrator','spike','CREATE')::text END;")"
+} >> "${EV}/control-schema-grants.txt"
+cat "${EV}/control-schema-grants.txt"
+
+# ---- 2. LP-1: apply V1 only, then prove the revised least-privilege contract ----
+log "LP-1: flyway migrate -target=1 (metadata conn creates ledger; executor applies V1)"
 set +e
 $COMPOSE run --rm flyway migrate -target=1 > "${EV}/flyway-v1-migrate.out" 2>&1
 v1_exit=$?
 set -e
 log "V1 migrate exit=${v1_exit}"
 
-# LP-0 probes must NEVER abort the run: a failed/empty probe simply makes LP-0 fail
-# and the script proceeds to emit ESCALATE. (A missing flyway_schema_history — the
-# exact failure we may be proving — must not crash the harness on its own error.)
-set +e
-owner_nologin=$(q "SELECT NOT rolcanlogin FROM pg_roles WHERE rolname='noxund_owner';")
-mig_noinherit=$(q "SELECT NOT rolinherit  FROM pg_roles WHERE rolname='noxund_migrator';")
-owner_nosuper=$(q "SELECT NOT rolsuper    FROM pg_roles WHERE rolname='noxund_owner';")
-mig_nosuper=$(q   "SELECT NOT rolsuper    FROM pg_roles WHERE rolname='noxund_migrator';")
-mig_minimal=$(q   "SELECT NOT (rolcreatedb OR rolcreaterole OR rolsuper OR rolreplication OR rolbypassrls) FROM pg_roles WHERE rolname='noxund_migrator';")
-hist_present=$(q  "SELECT to_regclass('public.flyway_schema_history') IS NOT NULL;")
-hist_owner=$(q    "SELECT tableowner='noxund_owner' FROM pg_tables WHERE schemaname='public' AND tablename='flyway_schema_history';")
-spike_owner=$(q   "SELECT nspowner::regrole::text='noxund_owner' FROM pg_namespace WHERE nspname='spike';")
+set +e   # LP-1 probes must never abort the run; failed/empty => LP-1 fails => classified below.
+hist_present=$(q "SELECT to_regclass('${HIST}') IS NOT NULL;")
+hist_in_meta=$(q "SELECT count(*)>0 FROM pg_tables WHERE schemaname='${META}' AND tablename='flyway_schema_history';")
+hist_owner=$(q   "SELECT tableowner FROM pg_tables WHERE schemaname='${META}' AND tablename='flyway_schema_history';")
 if [ "$hist_present" = "t" ]; then
-  v1_success=$(q  "SELECT success FROM public.flyway_schema_history WHERE version='1';")
+  v1_success=$(q "SELECT success FROM ${HIST} WHERE version='1';")
 else
   v1_success="(no-history-table)"
 fi
-# no non-bootstrap superuser exists beyond the image bootstrap 'postgres'
-extra_super=$(q   "SELECT count(*) FROM pg_roles WHERE rolsuper AND rolname NOT IN ('postgres');")
+spike_owner=$(q  "SELECT CASE WHEN to_regnamespace('spike') IS NULL THEN '(no-spike)' ELSE pg_get_userbyid(nspowner)::text END FROM pg_namespace WHERE nspname='spike';")
+mig_no_pub=$(q   "SELECT NOT has_schema_privilege('noxund_migrator','public','CREATE');")
+mig_no_spike=$(q "SELECT CASE WHEN to_regnamespace('spike') IS NULL THEN true ELSE NOT has_schema_privilege('noxund_migrator','spike','CREATE') END;")
+mig_meta_create=$(q "SELECT has_schema_privilege('noxund_migrator','${META}','CREATE');")
+mig_meta_usage=$(q  "SELECT has_schema_privilege('noxund_migrator','${META}','USAGE');")
+app_no_meta=$(q  "SELECT NOT (has_schema_privilege('noxund_app','${META}','USAGE') OR has_schema_privilege('noxund_app','${META}','CREATE'));")
+sg8_no_meta=$(q  "SELECT NOT (has_schema_privilege('sg8_compute_writer','${META}','USAGE') OR has_schema_privilege('sg8_compute_writer','${META}','CREATE'));")
+if [ "$hist_present" = "t" ]; then
+  app_no_ledger=$(q "SELECT NOT (has_table_privilege('noxund_app','${HIST}','SELECT') OR has_table_privilege('noxund_app','${HIST}','INSERT'));")
+  sg8_no_ledger=$(q "SELECT NOT (has_table_privilege('sg8_compute_writer','${HIST}','SELECT') OR has_table_privilege('sg8_compute_writer','${HIST}','INSERT'));")
+else
+  app_no_ledger="(no-history-table)"; sg8_no_ledger="(no-history-table)"
+fi
+extra_super=$(q  "SELECT count(*) FROM pg_roles WHERE rolsuper AND rolname NOT IN ('postgres');")
+meta_owner_ok=$(q "SELECT pg_get_userbyid(nspowner)='noxund_owner' FROM pg_namespace WHERE nspname='${META}';")
+conf_createschemas_false=$(grep -qiE '^flyway\.createSchemas=false' "${HERE}/flyway/conf/flyway.conf" && echo t || echo f)
 set -e
 
 {
-  echo "v1_migrate_exit      = ${v1_exit}   (0 => V1 guard passed => callback set current_user=noxund_owner, session_user=noxund_migrator on the migration connection)"
-  echo "owner_is_NOLOGIN     = ${owner_nologin}"
-  echo "migrator_is_NOINHERIT= ${mig_noinherit}"
-  echo "owner_not_superuser  = ${owner_nosuper}"
-  echo "migrator_not_super   = ${mig_nosuper}"
-  echo "migrator_minimal_priv= ${mig_minimal}   (no createdb/createrole/super/replication/bypassrls)"
-  echo "history_owned_by_owner= ${hist_owner}   (=> the history-management connection also received the callback)"
-  echo "spike_schema_owned    = ${spike_owner}  (=> the migration connection also received the callback)"
-  echo "v1_row_success        = ${v1_success}"
-  echo "no_extra_superuser    = $([ "${extra_super}" = "0" ] && echo t || echo f)  (extra=${extra_super})"
-} > "${EV}/lp0-checks.out"
-cat "${EV}/lp0-checks.out"
+  echo "v1_migrate_exit           = ${v1_exit}   (0 => V1 applied => executor session_user=noxund_migrator, current_user=noxund_owner)"
+  echo "history_present           = ${hist_present}"
+  echo "history_in_meta_schema    = ${hist_in_meta}"
+  echo "history_owner             = ${hist_owner}   (expect noxund_migrator)"
+  echo "v1_row_success            = ${v1_success}"
+  echo "spike_schema_owner        = ${spike_owner}  (expect noxund_owner)"
+  echo "migrator_no_create_public = ${mig_no_pub}"
+  echo "migrator_no_create_spike  = ${mig_no_spike}"
+  echo "migrator_CREATE_meta      = ${mig_meta_create}"
+  echo "migrator_USAGE_meta       = ${mig_meta_usage}"
+  echo "app_no_meta_priv          = ${app_no_meta}"
+  echo "sg8_no_meta_priv          = ${sg8_no_meta}"
+  echo "app_no_ledger_access      = ${app_no_ledger}"
+  echo "sg8_no_ledger_access      = ${sg8_no_ledger}"
+  echo "no_extra_superuser        = $([ "${extra_super}" = "0" ] && echo t || echo f) (extra=${extra_super})"
+  echo "meta_owner_is_owner       = ${meta_owner_ok}   (bootstrap-created, not Flyway)"
+  echo "conf_createSchemas_false  = ${conf_createschemas_false}"
+} > "${EV}/lp1-checks.out"
+cat "${EV}/lp1-checks.out"
+grep -iE 'permission denied|SQL State|Schema History table|SET ROLE|Executing SQL callback|ERROR' "${EV}/flyway-v1-migrate.out" > "${EV}/lp1-rootcause-flyway.txt" 2>/dev/null || true
 
-# Root-cause capture (self-contained ESCALATE evidence for a callback/contract failure).
-hist_exists=$(q "SELECT to_regclass('public.flyway_schema_history') IS NOT NULL;")
-{
-  echo "-- root-cause audit --"
-  echo "history_table_exists = ${hist_exists}"
-} >> "${EV}/lp0-checks.out"
-psql_su -c "SELECT has_schema_privilege('noxund_migrator','public','CREATE') AS migrator_direct_create_public, has_schema_privilege('noxund_owner','public','CREATE') AS owner_create_public;" >> "${EV}/lp0-checks.out" 2>&1 || true
-grep -iE 'permission denied|SQL State|Schema History table|SET ROLE|afterConnect|Executing SQL callback' "${EV}/flyway-v1-migrate.out" > "${EV}/lp0-rootcause-flyway.txt" 2>/dev/null || true
-
-lp0_ok=t
-for v in "$v1_exit=0" "$owner_nologin=t" "$mig_noinherit=t" "$owner_nosuper=t" "$mig_nosuper=t" \
-         "$mig_minimal=t" "$hist_owner=t" "$spike_owner=t" "$v1_success=t" "$extra_super=0"; do
-  [ "${v%=*}" = "${v#*=}" ] || lp0_ok=f
+lp1_ok=t
+for v in "$v1_exit=0" "$hist_present=t" "$hist_in_meta=t" "$hist_owner=noxund_migrator" "$v1_success=t" \
+         "$spike_owner=noxund_owner" "$mig_no_pub=t" "$mig_no_spike=t" "$mig_meta_create=t" "$mig_meta_usage=t" \
+         "$app_no_meta=t" "$sg8_no_meta=t" "$app_no_ledger=t" "$sg8_no_ledger=t" "$extra_super=0" \
+         "$meta_owner_ok=t" "$conf_createschemas_false=t"; do
+  [ "${v%=*}" = "${v#*=}" ] || lp1_ok=f
 done
-if [ "$lp0_ok" != "t" ]; then
-  {
-    echo "# P3B ESCALATE — LEAST-PRIVILEGE CONTRACT NOT SUPPORTED"
-    echo
-    echo "The approved afterConnect callback (SET ROLE noxund_owner) does NOT sustain the"
-    echo "least-privilege identity on Flyway's schema-history (metadata) connection. Flyway"
-    echo "creates public.flyway_schema_history as noxund_migrator, which by contract holds no"
-    echo "direct CREATE on public -> 'permission denied for schema public' (SQLSTATE 42501)."
-    echo "Proven: owner_create_public=t, migrator_direct_create_public=f."
-    echo
-    echo "Honoring the contract forbids granting the migrator direct DDL privilege (no workaround),"
-    echo "so V1 is not applied, instrumentation is not installed, and the fatal V2 test is not reached."
-    echo "Per Bloco 2/3: no postgres identity, no trigger, no V2, no workaround, no auto-rerun."
-  } > "${EV}/ESCALATE-rootcause.md"
-  finish "ESCALATE — LEAST-PRIVILEGE CONTRACT NOT SUPPORTED"
-  log "LP-0 failed — NOT installing triggers, NOT running V2, no workaround (per Bloco 2)."
+
+if [ "$lp1_ok" != "t" ]; then
+  # Classify per the Lead: a permission-denied during a migration/ledger op means an
+  # application migration ran as migrator without SET ROLE, or the ledger write would
+  # need grants beyond noxund_migration_meta -> REJECT. Otherwise LP-1 unsupported -> ESCALATE.
+  if grep -qiE 'permission denied' "${EV}/flyway-v1-migrate.out"; then
+    verdict="REJECT FLYWAY"
+    cause="A migration/ledger operation needs privilege beyond noxund_migration_meta (migration ran as migrator without SET ROLE, or the ledger write requires grants outside the control schema). Extending grants is a REJECT condition, not a workaround."
+  else
+    verdict="ESCALATE — LP-1 CONTRACT NOT SUPPORTED"
+    cause="LP-1 not satisfied on the revised contract (see lp1-checks.out)."
+  fi
+  { echo "# P3B2 ${verdict}"; echo; echo "$cause"; echo;
+    echo "Per Bloco: no privilege expansion, no postgres identity, no fatal test, no auto-rerun."; } > "${EV}/LP1-FAIL-rootcause.md"
+  finish "$verdict"
+  log "LP-1 failed — NOT installing triggers, NOT running V2, no privilege expansion."
   exit 4
 fi
-log "LP-0 GREEN"
+log "LP-1 GREEN"
 
 # ---- 3. install fatal instrumentation (superuser; instrumentation only) ----
-log "installing instrumentation (event trigger + BEFORE INSERT block trigger)"
+log "installing instrumentation (event trigger + BEFORE INSERT block trigger on the meta ledger)"
 psql_su -f - < "${HERE}/harness/instrument.sql" > "${EV}/instrument.out" 2>&1
 
 # ---- 4. controller holds the advisory lock (background session) ----
@@ -175,7 +203,7 @@ for i in $(seq 1 120); do
   sleep 1
 done
 [ "$window" = "t" ] || { docker logs "$CID" > "${EV}/flyway-v2.log" 2>&1 || true; finish "ESCALATE — deterministic window not reached"; exit 5; }
-log "deterministic window reached (history INSERT blocked in-transaction)"
+log "deterministic window reached (V2 history INSERT blocked in-transaction)"
 
 # ---- parse PID/XID from the durable server log (survives the kill) ----
 LOGS=$($COMPOSE logs postgres 2>/dev/null)
@@ -206,17 +234,17 @@ if [ -n "${his_pid}" ]; then
 fi
 
 tbl=$(q     "SELECT to_regclass('spike.flyway_atomicity_gap_probe') IS NOT NULL;")
-hrow=$(q    "SELECT count(*) FROM public.flyway_schema_history WHERE version='2';")
-sfalse=$(q  "SELECT count(*) FROM public.flyway_schema_history WHERE success=false;")
+hrow=$(q    "SELECT count(*) FROM ${HIST} WHERE version='2';")
+sfalse=$(q  "SELECT count(*) FROM ${HIST} WHERE success=false;")
 prep=$(q    "SELECT count(*) FROM pg_prepared_xacts;")
 idle=$(q    "SELECT count(*) FROM pg_stat_activity WHERE state='idle in transaction';")
 orphan=$([ -n "${his_pid}" ] && q "SELECT count(*) FROM pg_locks WHERE pid=${his_pid};" || echo 0)
 adv_ungranted=$(q "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND NOT granted;")
 
-psql_su -c "TABLE public.flyway_schema_history;"                         > "${EV}/history-after-kill.txt" 2>&1 || true
-psql_su -c "SELECT locktype,granted,pid FROM pg_locks ORDER BY 1,3;"     > "${EV}/pg_locks-after-kill.txt" 2>&1 || true
+psql_su -c "TABLE ${HIST};"                                          > "${EV}/history-after-kill.txt" 2>&1 || true
+psql_su -c "SELECT locktype,granted,pid FROM pg_locks ORDER BY 1,3;"  > "${EV}/pg_locks-after-kill.txt" 2>&1 || true
 psql_su -c "SELECT pid,state,application_name,wait_event_type,wait_event FROM pg_stat_activity;" > "${EV}/pg_stat_activity-after-kill.txt" 2>&1 || true
-psql_su -c "TABLE pg_prepared_xacts;"                                    > "${EV}/pg_prepared_xacts.txt" 2>&1 || true
+psql_su -c "TABLE pg_prepared_xacts;"                                 > "${EV}/pg_prepared_xacts.txt" 2>&1 || true
 {
   echo "table_present_after_kill   = ${tbl}      (expect f)"
   echo "history_v2_rows_after_kill = ${hrow}     (expect 0)"
@@ -236,7 +264,7 @@ log "releasing controller + dropping instrumentation (no repair)"
 psql_su -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name='p3b_controller';" >/dev/null 2>&1 || true
 kill "${CONTROLLER_LOCAL_PID}" 2>/dev/null || true
 psql_su -c "DROP EVENT TRIGGER IF EXISTS p3b_v2_ddl;" >/dev/null 2>&1 || true
-psql_su -c "DROP TRIGGER IF EXISTS p3b_block_v2 ON public.flyway_schema_history;" >/dev/null 2>&1 || true
+psql_su -c "DROP TRIGGER IF EXISTS p3b_block_v2 ON ${HIST};" >/dev/null 2>&1 || true
 
 set +e
 $COMPOSE run --rm flyway info     > "${EV}/flyway-info.out" 2>&1;          info_exit=$?
@@ -246,8 +274,8 @@ set -e
 log "info_exit=${info_exit} validate_exit=${val_exit} fresh_migrate_exit=${fresh_exit}"
 
 tbl2=$(q  "SELECT to_regclass('spike.flyway_atomicity_gap_probe') IS NOT NULL;")
-hrow2=$(q "SELECT count(*) FROM public.flyway_schema_history WHERE version='2' AND success=true;")
-psql_su -c "TABLE public.flyway_schema_history;" > "${EV}/history-after-fresh-migrate.txt" 2>&1 || true
+hrow2=$(q "SELECT count(*) FROM ${HIST} WHERE version='2' AND success=true;")
+psql_su -c "TABLE ${HIST};" > "${EV}/history-after-fresh-migrate.txt" 2>&1 || true
 echo "after_fresh_migrate: table_present=${tbl2} (expect t) ; v2_success_rows=${hrow2} (expect >=1)" >> "${EV}/inspection.out"
 
 # ---- 10. verdict ----
@@ -261,4 +289,4 @@ if [ "$tbl" = "f" ] && [ "${hrow:-1}" -eq 0 ] \
   verdict="PASS ATOMICITY"
 fi
 finish "$verdict"
-log "P3B done. Evidence in ${EV}. (No teardown here — run harness/teardown.sh after review.)"
+log "P3B2 done. Evidence in ${EV}. (No teardown here — run harness/teardown.sh after review.)"

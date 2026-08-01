@@ -1,11 +1,17 @@
-# PG-EXIT-P3B — Flyway Community atomicity falsification (spike)
+# PG-EXIT-P3B / P3B2 — Flyway Community atomicity falsification (spike)
 
-**Unit:** PG-EXIT-P3B-EXECUTE · **Status:** single fatal test · **Authorized by:** Product Lead (P3B-DESIGN accepted with binding corrections)
+**Unit:** PG-EXIT-P3B-EXECUTE → **P3B2** (metadata-schema + atomicity falsification) · **Authorized by:** Product Lead
 **Base:** `main @ dfac2b43adf22e642ef1f8a078c5a3161bac8a77` · **Branch:** `spike/pg-exit-p3b-flyway-atomicity`
-**Predecessor:** [[DEC-0029]] closed OD-5 as **REJECT SQITCH** (joint DDL↔registry atomicity falsified). Flyway is a registered, **unchosen** successor candidate.
+**Predecessor:** [[DEC-0029]] closed OD-5 as **REJECT SQITCH**. Flyway is a registered, **unchosen** successor candidate.
 
 > A **PASS here authorizes only a future full evaluation — never adoption** (DEC-0029 §7).
 > This unit runs **only** the fatal atomicity test — not the full Flyway matrix.
+
+> **P3B2 update (Option A — restricted contract).** P3B ended `ESCALATE` because Flyway's `afterConnect`
+> `SET ROLE` was not in force on its **metadata** connection (couldn't create `public.flyway_schema_history`).
+> P3B2 moves the ledger to a dedicated control schema **`noxund_migration_meta`** where `noxund_migrator`
+> has **only** `USAGE, CREATE` (and **no** direct DDL on `public`/`spike`/business schemas). The gate is now
+> **LP-1**. See `RETURN.md` for the current verdict.
 
 ---
 
@@ -19,22 +25,24 @@ it is **PASS ATOMICITY**.
 
 ## Design (why it is deterministic, not a race)
 
-1. **Least-privilege identity.** Flyway connects as `noxund_migrator` (LOGIN, **NOINHERIT**, never
-   superuser). The **Flyway-13 correction (binding)**: no `flyway.initSql`; instead the SQL callback
-   `callbacks/afterConnect__set_noxund_owner.sql` runs `SET ROLE noxund_owner;` after every connect.
-   The callback has its **own boundary** — that it holds on **all** internal Flyway connections is
-   **not assumed**, it is **proven** by LP-0.
-2. **LP-0 (eliminatory).** Apply **V1** only. V1 carries a fail-closed guard
-   (`session_user=noxund_migrator`, `current_user=noxund_owner`). Then prove, from the catalog:
-   owner is NOLOGIN, migrator is NOINHERIT & minimal-privilege, no extra superuser, and
-   `public.flyway_schema_history` **and** the `spike` schema are **owned by `noxund_owner`** — the
-   latter two proving the callback reached both the history-management and migration connections.
-   **Any LP-0 failure ⇒ `ESCALATE — LEAST-PRIVILEGE CONTRACT NOT SUPPORTED`**: no `postgres`, no
-   trigger, no V2, no workaround.
+1. **Least-privilege identity (P3B2).** Flyway connects as `noxund_migrator` (LOGIN, **NOINHERIT**, never
+   superuser). Ledger lives in **`noxund_migration_meta`** (`defaultSchema`/`schemas`), where migrator has
+   `USAGE, CREATE` only; `createSchemas=false`. **Flyway-13 correction (binding)**: no `flyway.initSql`;
+   the SQL callback `callbacks/afterConnect__set_noxund_owner.sql` runs `SET ROLE noxund_owner;`. The
+   callback's boundary is **not assumed** — proven by LP-1. Business objects go in `spike` (owner-owned);
+   migrator gets **no** direct DDL on `public`/`spike`.
+2. **LP-1 (eliminatory).** Apply **V1** only. V1 carries a fail-closed guard
+   (`session_user=noxund_migrator`, `current_user=noxund_owner`). Then prove, from the catalog: the
+   ledger is created in `noxund_migration_meta` **owned by `noxund_migrator`** (metadata conn); **V1 ran
+   as `noxund_owner`** and its objects (`spike`) are **owner-owned** (executor conn got the callback);
+   migrator **cannot** create in `public`/`spike`, **only** in `noxund_migration_meta`; runtime roles
+   (`noxund_app`, `sg8_compute_writer`) have **no** ledger access; no extra superuser; `createSchemas=false`.
+   **Any LP-1 failure ⇒ `ESCALATE — LP-1 CONTRACT NOT SUPPORTED`**: no privilege expansion, no `postgres`,
+   no trigger, no V2, no workaround.
 3. **Instrumentation** (harness superuser; instrumentation only, never a migration):
    - an **event trigger** logs `PID/XID` of the **V2 `CREATE TABLE`** (fires inside V2's tx);
-   - a **BEFORE INSERT** trigger on `flyway_schema_history` logs `PID/XID` of the V2 history row,
-     then **blocks on an advisory lock the controller already holds** — a deterministic window.
+   - a **BEFORE INSERT** trigger on `noxund_migration_meta.flyway_schema_history` logs `PID/XID` of the V2
+     history row, then **blocks on an advisory lock the controller already holds** — a deterministic window.
    Both write via `RAISE LOG` (server log = durable, rollback-proof).
 4. **Fatal step.** Launch `flyway migrate` for V2 (detached). It executes the `CREATE TABLE`, then
    blocks at the history INSERT. Once the trigger log **and** the blocked backend are observed,

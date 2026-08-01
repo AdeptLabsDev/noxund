@@ -38,7 +38,7 @@ psql -v ON_ERROR_STOP=1 --no-password \
 do $$
 declare r text;
 begin
-  foreach r in array array['noxund_owner','noxund_migrator'] loop
+  foreach r in array array['noxund_owner','noxund_migrator','noxund_app','sg8_compute_writer'] loop
     if to_regrole(r) is not null then
       raise exception 'P3B bootstrap: role % already exists on first init — refusing to adopt/modify (fail-closed).', r;
     end if;
@@ -56,6 +56,13 @@ create role noxund_migrator
 -- Controlled membership: migrator may SET ROLE noxund_owner, but NOINHERIT means
 -- it holds NONE of owner's privileges until it explicitly does so (the callback).
 grant noxund_owner to noxund_migrator;
+
+-- Runtime roles — present ONLY so LP-1 can prove they hold NO ledger access.
+-- NOLOGIN here (the spike never authenticates them); privilege checks are login-agnostic.
+create role noxund_app
+  nologin nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls;
+create role sg8_compute_writer
+  nologin nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls;
 
 -- ---- database ownership + least-privilege ----
 alter database flyway_spike owner to noxund_owner;
@@ -76,6 +83,13 @@ create table noxund_bootstrap.marker (
 );
 alter table noxund_bootstrap.marker owner to noxund_owner;
 insert into noxund_bootstrap.marker (marker) values ('noxund-p3b:v1');
+
+-- ---- P3B2 control schema (DEC: Option A, restricted contract) ----
+-- noxund_migrator may create + administer objects ONLY here (the migration ledger).
+-- It gets NO direct DDL on public / spike / any application schema (verified by LP-1).
+create schema noxund_migration_meta authorization noxund_owner;
+revoke all on schema noxund_migration_meta from public;
+grant usage, create on schema noxund_migration_meta to noxund_migrator;
 SQL
 
 echo "P3B bootstrap complete: noxund_owner/noxund_migrator created, flyway_spike + public handed to noxund_owner."

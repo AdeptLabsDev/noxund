@@ -48,5 +48,5 @@ $$;
 -- grant EXECUTE to PUBLIC as belt-and-suspenders.
 GRANT EXECUTE ON FUNCTION public.p3b_block_on_v2_history() TO PUBLIC;
 
-CREATE TRIGGER p3b_block_v2 BEFORE INSERT ON public.flyway_schema_history
+CREATE TRIGGER p3b_block_v2 BEFORE INSERT ON noxund_migration_meta.flyway_schema_history
   FOR EACH ROW EXECUTE FUNCTION public.p3b_block_on_v2_history();
