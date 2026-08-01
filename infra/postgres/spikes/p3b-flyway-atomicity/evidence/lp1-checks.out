@@ -1,0 +1,17 @@
+v1_migrate_exit           = 1   (0 => V1 applied => executor session_user=noxund_migrator, current_user=noxund_owner)
+history_present           = t
+history_in_meta_schema    = t
+history_owner             = noxund_migrator   (expect noxund_migrator)
+v1_row_success            = 
+spike_schema_owner        =   (expect noxund_owner)
+migrator_no_create_public = t
+migrator_no_create_spike  = t
+migrator_CREATE_meta      = t
+migrator_USAGE_meta       = t
+app_no_meta_priv          = t
+sg8_no_meta_priv          = t
+app_no_ledger_access      = t
+sg8_no_ledger_access      = t
+no_extra_superuser        = t (extra=0)
+meta_owner_is_owner       = t   (bootstrap-created, not Flyway)
+conf_createSchemas_false  = t

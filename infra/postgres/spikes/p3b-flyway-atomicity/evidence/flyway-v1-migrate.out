@@ -1,27 +1,41 @@
  Container noxund-p3b-postgres-1 Running 
  Container noxund-p3b-postgres-1 Waiting 
  Container noxund-p3b-postgres-1 Healthy 
- Container noxund-p3b-flyway-run-6e2386760258 Creating 
- Container noxund-p3b-flyway-run-6e2386760258 Created 
+ Container noxund-p3b-flyway-run-6f866433fd78 Creating 
+ Container noxund-p3b-flyway-run-6f866433fd78 Created 
 P3B note: secret on 'v9fs' bind mount — perm bits are host-translated; relying on host ACL (0600/0700).
 Flyway OSS Edition 13.1.0 by Redgate
 
 See release notes here: https://help.red-gate.com/help/flyway-cli13/help_1.aspx?topic=release-notes-and-older-versions/release-notes-for-flyway-engine
 Database: ******** (PostgreSQL 15.18)
 Executing SQL callback: afterConnect - set noxund owner
-Schema history table "public"."flyway_schema_history" does not exist yet
-Successfully validated 2 migrations (execution time 00:00.014s)
-Creating Schema History table "public"."flyway_schema_history" ...
-ERROR: Failed to execute script 
--------------------------
-SQL State  : 42501
+Schema history table "noxund_migration_meta"."flyway_schema_history" does not exist yet
+Successfully validated 2 migrations (execution time 00:00.013s)
+Creating Schema History table "noxund_migration_meta"."flyway_schema_history" ...
+Executing SQL callback: afterConnect - set noxund owner
+Current version of schema "noxund_migration_meta": << Empty Schema >>
+Migrating schema "noxund_migration_meta" to version "1 - prepare spike"
+ERROR: Migration of schema "noxund_migration_meta" to version "1 - prepare spike" failed! Changes successfully rolled back.
+ERROR: Failed to execute script V1__prepare_spike.sql
+----------------------------------------------
+SQL State  : P0001
 Error Code : 0
-Message    : ERROR: permission denied for schema public
-  Position: 14
-Location   :  ()
-Line       : 1
+Message    : ERROR: P3B least-privilege contract violated: session_user=noxund_migrator, current_user=noxund_migrator
+  Where: PL/pgSQL function inline_code_block line 4 at RAISE
+Location   : /flyway/sql/V1__prepare_spike.sql (/flyway/sql/V1__prepare_spike.sql)
+Line       : 6
 Statement  : Run Flyway with -X option to see the actual statement causing the problem
 
-Caused by: org.postgresql.util.PSQLException: ERROR: permission denied for schema public
-  Position: 14
+Caused by: Failed to execute script V1__prepare_spike.sql
+----------------------------------------------
+SQL State  : P0001
+Error Code : 0
+Message    : ERROR: P3B least-privilege contract violated: session_user=noxund_migrator, current_user=noxund_migrator
+  Where: PL/pgSQL function inline_code_block line 4 at RAISE
+Location   : /flyway/sql/V1__prepare_spike.sql (/flyway/sql/V1__prepare_spike.sql)
+Line       : 6
+Statement  : Run Flyway with -X option to see the actual statement causing the problem
+
+Caused by: org.postgresql.util.PSQLException: ERROR: P3B least-privilege contract violated: session_user=noxund_migrator, current_user=noxund_migrator
+  Where: PL/pgSQL function inline_code_block line 4 at RAISE
 

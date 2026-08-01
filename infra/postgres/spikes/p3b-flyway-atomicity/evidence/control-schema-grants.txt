@@ -1,0 +1,18 @@
+                                   List of schemas
+         Name          |    Owner     |        Access privileges        | Description 
+-----------------------+--------------+---------------------------------+-------------
+ noxund_migration_meta | noxund_owner | noxund_owner=UC/noxund_owner   +| 
+                       |              | noxund_migrator=UC/noxund_owner | 
+(1 row)
+
+-- control schema owner + ACL --
+owner                          = noxund_owner
+raw nspacl                     = noxund_owner=UC/noxund_owner|noxund_migrator=UC/noxund_owner
+migrator USAGE                 = t
+migrator CREATE                = t
+app      USAGE                 = f
+app      CREATE                = f
+sg8      USAGE                 = f
+sg8      CREATE                = f
+migrator CREATE on public      = f
+migrator CREATE on spike?      = no-spike-yet
