@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -12,6 +12,7 @@ import {
   withDecision,
   decisionEntry,
   createStateStore,
+  createConsumptionLedger,
 } from "../src/core/project-state.ts";
 import { result } from "../src/core/result-schema.ts";
 
@@ -67,6 +68,47 @@ test("store persists and reloads from disk", () => {
 
     const reloaded = createStateStore({ filePath });
     assert.deepEqual(reloaded.getState().completed_tasks, ["t1"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── Consumption ledger (single-use, durable write-through) ─────────────────────
+
+test("ledger tryConsume: first consume true, replay false (single-use)", () => {
+  const ledger = createConsumptionLedger(); // in-memory
+  assert.equal(ledger.tryConsume("appr_1"), true);
+  assert.equal(ledger.tryConsume("appr_1"), false);
+  assert.equal(ledger.tryConsume("appr_2"), true);
+  assert.equal(ledger.size(), 2);
+  assert.equal(ledger.isConsumed("appr_1"), true);
+  assert.equal(ledger.isConsumed("appr_3"), false);
+});
+
+test("ledger is durable write-through: consumed id survives reload (restart model)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "noxund-ledger-"));
+  const filePath = join(dir, "ledger.json");
+  try {
+    const l1 = createConsumptionLedger({ filePath });
+    assert.equal(l1.tryConsume("appr_x"), true);
+    // File exists BEFORE any explicit save (write-through, not deferred).
+    assert.ok(existsSync(filePath));
+
+    // New ledger over the same file (simulated restart) still rejects the replay.
+    const l2 = createConsumptionLedger({ filePath });
+    assert.equal(l2.isConsumed("appr_x"), true);
+    assert.equal(l2.tryConsume("appr_x"), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ledger fails loudly on a corrupt file (no silent replay window)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "noxund-ledger-"));
+  const filePath = join(dir, "ledger.json");
+  try {
+    writeFileSync(filePath, "{ not json", "utf8");
+    assert.throws(() => createConsumptionLedger({ filePath }), /corrupt|unreadable/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

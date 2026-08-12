@@ -1,0 +1,51 @@
+[2026-08-01T01:21:14Z] P3B2 start — project=noxund-p3b
+P3B secrets ready in /c/Adeptlabs/noxund/infra/postgres/spikes/p3b-flyway-atomicity/.local-secrets (0600, gitignored).
+[2026-08-01T01:21:14Z] bringing up postgres (internal net, no ports)
+ Network noxund-p3b_spikenet Creating 
+ Network noxund-p3b_spikenet Created 
+ Volume noxund-p3b_pgdata Creating 
+ Volume noxund-p3b_pgdata Created 
+ Container noxund-p3b-postgres-1 Creating 
+ Container noxund-p3b-postgres-1 Created 
+ Container noxund-p3b-postgres-1 Starting 
+ Container noxund-p3b-postgres-1 Started 
+[2026-08-01T01:21:22Z] postgres healthy
+                                   List of schemas
+         Name          |    Owner     |        Access privileges        | Description 
+-----------------------+--------------+---------------------------------+-------------
+ noxund_migration_meta | noxund_owner | noxund_owner=UC/noxund_owner   +| 
+                       |              | noxund_migrator=UC/noxund_owner | 
+(1 row)
+
+-- control schema owner + ACL --
+owner                          = noxund_owner
+raw nspacl                     = noxund_owner=UC/noxund_owner|noxund_migrator=UC/noxund_owner
+migrator USAGE                 = t
+migrator CREATE                = t
+app      USAGE                 = f
+app      CREATE                = f
+sg8      USAGE                 = f
+sg8      CREATE                = f
+migrator CREATE on public      = f
+migrator CREATE on spike?      = no-spike-yet
+[2026-08-01T01:21:27Z] LP-1: flyway migrate -target=1 (metadata conn creates ledger; executor applies V1)
+[2026-08-01T01:21:30Z] V1 migrate exit=1
+v1_migrate_exit           = 1   (0 => V1 applied => executor session_user=noxund_migrator, current_user=noxund_owner)
+history_present           = t
+history_in_meta_schema    = t
+history_owner             = noxund_migrator   (expect noxund_migrator)
+v1_row_success            = 
+spike_schema_owner        =   (expect noxund_owner)
+migrator_no_create_public = t
+migrator_no_create_spike  = t
+migrator_CREATE_meta      = t
+migrator_USAGE_meta       = t
+app_no_meta_priv          = t
+sg8_no_meta_priv          = t
+app_no_ledger_access      = t
+sg8_no_ledger_access      = t
+no_extra_superuser        = t (extra=0)
+meta_owner_is_owner       = t   (bootstrap-created, not Flyway)
+conf_createSchemas_false  = t
+[2026-08-01T01:21:36Z] VERDICT: ESCALATE — LP-1 CONTRACT NOT SUPPORTED
+[2026-08-01T01:21:36Z] LP-1 failed — NOT installing triggers, NOT running V2, no privilege expansion.

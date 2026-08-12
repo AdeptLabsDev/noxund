@@ -141,7 +141,7 @@ Runtime artifacts land in `./.runtime/` (gitignored): the state snapshot
 ## Using it in code
 
 ```ts
-import { bootstrap, delegateTask, createTaskCommand, createApproval } from "@noxund/orchestrator";
+import { bootstrap, delegateTask, createTaskCommand, mintApproval } from "@noxund/orchestrator";
 
 const { orchestrator } = bootstrap();
 
@@ -159,18 +159,23 @@ run.result?.status;        // "completed"
 run.next;                  // { target_agent: "backend_agent", action: "create_api_contract", ... }
 orchestrator.getState();   // central project state, updated
 
-// 2. A sensitive task is auto-gated until a human approves.
-await orchestrator.delegate({
+// 2. A sensitive task requires a COMMAND-BOUND approval, minted for that exact task.
+const migrationTask = createTaskCommand({
   target_agent: "database_agent", action: "run_migration",
   payload: { migration: "add_report_snapshots" },
   success_criteria: ["apply"], reason: "schema",
-}); // → status "needs_review" (not executed)
+});
 
-await orchestrator.delegate(
-  { target_agent: "database_agent", action: "run_migration", payload: { migration: "add_report_snapshots" },
-    success_criteria: ["apply"], reason: "schema" },
-  { approval: createApproval("product-lead@noxund", "Reviewed; safe to apply.") },
-); // → executes
+await orchestrator.run(delegateTask(migrationTask));            // → "needs_review" (not executed)
+
+// approved_by is a CLAIMED identity only — command binding does NOT prove approver
+// authenticity. APPROVER-PROVENANCE-GAP is OPEN.
+const approval = mintApproval(migrationTask, {
+  approved_by: "product-lead@noxund",
+  ttl_ms: 60_000, now: new Date(), nonce: "readme-demo-1",
+  note: "Reviewed; safe to apply.",
+});
+await orchestrator.run(delegateTask(migrationTask), { approval }); // → executes
 ```
 
 ---
@@ -178,7 +183,10 @@ await orchestrator.delegate(
 ## Human-approval gate (security)
 
 Tasks are **never auto-executed** when the safety policy (`safety.ts`) flags them. A task is
-gated when *any* of the following holds, and then requires an explicit `Approval` to run:
+gated when *any* of the following holds, and then requires an explicit **command-bound**
+approval — minted via `mintApproval(task, opts)` for that *exact* command — to run.
+`approved_by` is a **claimed identity only**; command binding does not prove approver
+authenticity (APPROVER-PROVENANCE-GAP is OPEN). A task is gated when:
 
 - `requires_human_approval: true` is set on the task;
 - the **action** is one of the sensitive operations:

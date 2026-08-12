@@ -25,11 +25,13 @@ import { delegateTask } from "./decision-schema.ts";
 import type { CreateTaskInput } from "./task-schema.ts";
 import { createTaskCommand } from "./task-schema.ts";
 import type { AgentResult, NextRecommendation } from "./result-schema.ts";
-import type { Approval } from "./safety.ts";
+import type { ApprovalRecord } from "./safety.ts";
+import type { GateClock } from "./dispatcher.ts";
 import type { Logger } from "./logger.ts";
 import { nullLogger } from "./logger.ts";
-import type { ProjectState, ProjectStateStore } from "./project-state.ts";
+import type { ProjectState, ProjectStateStore, ConsumptionLedger } from "./project-state.ts";
 import {
+  createConsumptionLedger,
   decisionEntry,
   withBlockedTask,
   withCompletedTask,
@@ -54,9 +56,9 @@ export interface RunResult {
 
 export interface Orchestrator {
   /** Validate + (if applicable) dispatch a structured decision, updating state + logs. */
-  run(decision: OrchestratorDecision, options?: { approval?: Approval }): Promise<RunResult>;
+  run(decision: OrchestratorDecision, options?: { approval?: ApprovalRecord }): Promise<RunResult>;
   /** Convenience: build a delegate_task decision from input, then run it. */
-  delegate(input: CreateTaskInput, options?: { approval?: Approval }): Promise<RunResult>;
+  delegate(input: CreateTaskInput, options?: { approval?: ApprovalRecord }): Promise<RunResult>;
   getState(): ProjectState;
 }
 
@@ -66,12 +68,27 @@ export interface OrchestratorConfig {
   logger?: Logger;
   /** Inject a dispatcher (e.g. for tests); defaults to one over the registry. */
   dispatcher?: Dispatcher;
+  /**
+   * Durable single-use approval consumption ledger. Defaults to an in-memory ledger
+   * (or, when `ledgerFilePath` is set, a durable write-through ledger at that path).
+   * Only used by the default dispatcher; ignored if a `dispatcher` is injected.
+   */
+  ledger?: ConsumptionLedger;
+  /** Path for the durable consumption ledger when no explicit `ledger` is provided. */
+  ledgerFilePath?: string;
+  /** Injected gate-layer clock for approval expiry (default: real time). */
+  clock?: GateClock;
 }
 
 export function createOrchestrator(config: OrchestratorConfig): Orchestrator {
   const logger = config.logger ?? nullLogger();
   const { registry, state } = config;
-  const dispatcher = config.dispatcher ?? createDispatcher({ registry, logger });
+  // Build the consumption ledger over the store's durability domain and pass it +
+  // the gate clock to the default dispatcher. An injected dispatcher owns its own.
+  const ledger =
+    config.ledger ?? createConsumptionLedger({ filePath: config.ledgerFilePath });
+  const dispatcher =
+    config.dispatcher ?? createDispatcher({ registry, logger, ledger, clock: config.clock });
 
   function snapshot(): ProjectState {
     state.save();
@@ -80,7 +97,7 @@ export function createOrchestrator(config: OrchestratorConfig): Orchestrator {
 
   async function run(
     decision: OrchestratorDecision,
-    options: { approval?: Approval } = {},
+    options: { approval?: ApprovalRecord } = {},
   ): Promise<RunResult> {
     logger.info("decision.received", { decision_type: (decision as { decision_type?: string }).decision_type });
 
@@ -160,7 +177,7 @@ export function createOrchestrator(config: OrchestratorConfig): Orchestrator {
   function handleRequestApproval(
     decision: RequestHumanApprovalDecision,
     validation: DecisionValidation,
-    approval: Approval | undefined,
+    approval: ApprovalRecord | undefined,
   ): Promise<RunResult> {
     // request_human_approval is delegate_task with the gate forced on.
     return handleDelegate(delegateTask(decision.task), validation, approval, decision.reason);
@@ -169,7 +186,7 @@ export function createOrchestrator(config: OrchestratorConfig): Orchestrator {
   async function handleDelegate(
     decision: DelegateTaskDecision,
     validation: DecisionValidation,
-    approval: Approval | undefined,
+    approval: ApprovalRecord | undefined,
     approvalReason?: string,
   ): Promise<RunResult> {
     const task = decision.task;
@@ -222,7 +239,7 @@ export function createOrchestrator(config: OrchestratorConfig): Orchestrator {
 
   async function delegate(
     input: CreateTaskInput,
-    options: { approval?: Approval } = {},
+    options: { approval?: ApprovalRecord } = {},
   ): Promise<RunResult> {
     const task = createTaskCommand(input);
     return run(delegateTask(task), options);

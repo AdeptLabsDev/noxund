@@ -1,0 +1,4 @@
+INVOKE 2026-07-31T11:27:36.433304628Z argv=[--dbname user=noxund_migrator dbname=sqitch_spike host=noxund-p3a-pg --quiet --no-psqlrc --no-align --tuples-only --set ON_ERROR_STOP=1 --set registry=sqitch --file deploy/atomicity_gap_probe.sql]
+RESULT 2026-07-31T11:27:36.490287749Z rc=0
+INVOKE 2026-07-31T11:29:17.344532349Z argv=[--dbname user=noxund_migrator dbname=sqitch_spike host=noxund-p3a-pg --quiet --no-psqlrc --no-align --tuples-only --set ON_ERROR_STOP=1 --set registry=sqitch --file deploy/atomicity_gap_probe.sql]
+RESULT 2026-07-31T11:29:17.391694907Z rc=3

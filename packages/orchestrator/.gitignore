@@ -1,0 +1,3 @@
+# Local runtime artifacts produced by the orchestrator (state snapshots + JSONL logs).
+# These are reproducible from decisions/results and must never be committed.
+.runtime/

@@ -174,3 +174,108 @@ export function createStateStore(options: StateStoreOptions = {}): ProjectStateS
     load,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Consumption ledger — durable single-use record for command-bound approvals.
+//
+// This is the anti-replay substrate the dispatcher's single-use gate stands on. It is
+// SEPARATE from ProjectState (approval consumption is security state, not product
+// state) but lives in this authorized file to avoid a new unauthorized module.
+//
+// Durability contract: `tryConsume` is a SYNCHRONOUS test-and-set that WRITES THROUGH
+// to disk BEFORE it returns true (no deferred save). Consumed ids therefore survive a
+// process restart. Reload on construction rehydrates the set so a replay after restart
+// is still rejected.
+//
+// Atomicity scope: SINGLE-PROCESS ATOMICITY ONLY. The check-and-insert has no `await`
+// between reading membership and inserting, so within one Node process two concurrent
+// dispatches of the same approval cannot both win. This makes NO cross-process claim —
+// two processes over the same file could both consume (no OS-level file lock is taken).
+// ---------------------------------------------------------------------------
+
+export interface ConsumptionLedger {
+  /**
+   * Atomically claim an approval id for single use. Returns true on the FIRST consume
+   * (durably persisted before return); false if already consumed (replay). Synchronous:
+   * no await between the membership check and the insert.
+   */
+  tryConsume(approvalId: string): boolean;
+  /** Whether an id has already been consumed (diagnostics/tests). */
+  isConsumed(approvalId: string): boolean;
+  /** Count of consumed ids (diagnostics/tests). */
+  size(): number;
+  readonly filePath?: string;
+}
+
+interface LedgerFile {
+  version: 1;
+  consumed: string[];
+}
+
+export interface ConsumptionLedgerOptions {
+  /** When omitted, the ledger is in-memory only (useful for tests). */
+  filePath?: string;
+}
+
+/**
+ * Create a durable, write-through, single-use consumption ledger. If `filePath` is
+ * given, consumed ids are persisted synchronously on each successful consume and reloaded
+ * on construction (durable across restarts). If omitted, the ledger is in-memory only.
+ */
+export function createConsumptionLedger(
+  options: ConsumptionLedgerOptions = {},
+): ConsumptionLedger {
+  const filePath = options.filePath;
+  const consumed = new Set<string>();
+
+  // Rehydrate from disk so a post-restart replay is still rejected.
+  if (filePath && existsSync(filePath)) {
+    try {
+      const raw = readFileSync(filePath, "utf8");
+      const parsed = JSON.parse(raw) as LedgerFile;
+      if (parsed && Array.isArray(parsed.consumed)) {
+        for (const id of parsed.consumed) {
+          if (typeof id === "string") consumed.add(id);
+        }
+      }
+    } catch {
+      // A corrupt ledger must fail SAFE: treat as if everything is already consumed by
+      // refusing to proceed would be too aggressive, but silently trusting an empty set
+      // would enable replay. We rethrow so the operator sees it rather than silently
+      // losing anti-replay durability.
+      throw new Error(`consumption ledger at ${filePath} is unreadable/corrupt`);
+    }
+  }
+
+  function persist(): void {
+    if (!filePath) return;
+    mkdirSync(dirname(filePath), { recursive: true });
+    const payload: LedgerFile = { version: 1, consumed: [...consumed] };
+    // Synchronous write-through: durable BEFORE tryConsume returns.
+    writeFileSync(filePath, JSON.stringify(payload), "utf8");
+  }
+
+  return {
+    filePath,
+    tryConsume(approvalId: string): boolean {
+      // Synchronous test-and-set — no await between check and insert.
+      if (consumed.has(approvalId)) return false;
+      consumed.add(approvalId);
+      try {
+        persist();
+      } catch (e) {
+        // If the durable write fails, roll back the in-memory claim so we never report
+        // a consume that isn't durable (fail closed: caller sees false → no execution).
+        consumed.delete(approvalId);
+        throw e;
+      }
+      return true;
+    },
+    isConsumed(approvalId: string): boolean {
+      return consumed.has(approvalId);
+    },
+    size(): number {
+      return consumed.size;
+    },
+  };
+}

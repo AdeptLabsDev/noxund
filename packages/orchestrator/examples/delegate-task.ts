@@ -13,7 +13,7 @@ import {
   bootstrap,
   delegateTask,
   createTaskCommand,
-  createApproval,
+  mintApproval,
   type RunResult,
 } from "../src/index.ts";
 
@@ -105,20 +105,28 @@ async function main(): Promise<void> {
   show("AgentResult (gated)", runC.result);
   summarize(runC);
 
-  // ── Scenario D: same task WITH explicit human approval → executes ─────────────
-  section("D. Same sensitive task WITH human approval → executes");
-  const runD = await orchestrator.delegate(
-    {
-      task_id: "task_900",
-      target_agent: "database_agent",
-      action: "run_migration",
-      priority: "critical",
-      payload: { migration: "2026_06_add_report_snapshots" },
-      success_criteria: ["Apply migration", "Preserve raw immutability"],
-      reason: "Schema needs the report_snapshots table.",
-    },
-    { approval: createApproval("product-lead@noxund", "Reviewed migration plan; safe to apply.") },
-  );
+  // ── Scenario D: same sensitive task WITH a command-bound human approval → executes ──
+  section("D. Same sensitive task WITH a command-bound approval → executes");
+  // Build the EXACT command first — the approval is bound to THIS command, not minted independently.
+  const taskD = createTaskCommand({
+    task_id: "task_900",
+    target_agent: "database_agent",
+    action: "run_migration",
+    priority: "critical",
+    payload: { migration: "2026_06_add_report_snapshots" },
+    success_criteria: ["Apply migration", "Preserve raw immutability"],
+    reason: "Schema needs the report_snapshots table.",
+  });
+  // Mint an approval bound to that exact command. NOTE: approved_by is a CLAIMED identity only —
+  // command binding does NOT prove approver authenticity. APPROVER-PROVENANCE-GAP is OPEN.
+  const approvalD = mintApproval(taskD, {
+    approved_by: "product-lead@noxund",
+    ttl_ms: 60_000,
+    now: new Date(),
+    nonce: "demo-scenario-d",
+    note: "Reviewed migration plan; safe to apply.",
+  });
+  const runD = await orchestrator.run(delegateTask(taskD), { approval: approvalD });
   show("AgentResult (approved)", runD.result);
   summarize(runD);
 

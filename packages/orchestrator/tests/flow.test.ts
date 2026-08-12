@@ -6,14 +6,18 @@ import { createLogger, memorySink, type MemorySink } from "../src/core/logger.ts
 import { createDefaultRegistry } from "../src/agents/index.ts";
 import { delegateTask } from "../src/core/decision-schema.ts";
 import { createTaskCommand } from "../src/core/task-schema.ts";
-import { createApproval } from "../src/core/safety.ts";
+import { mintApproval } from "../src/core/safety.ts";
+
+const T0 = new Date("2026-01-01T00:00:00.000Z");
+const MIN = 60_000;
 
 function harness() {
   const registry = createDefaultRegistry();
   const state = createStateStore(); // in-memory
   const sink: MemorySink = memorySink();
   const logger = createLogger({ sinks: [sink] });
-  const orchestrator = createOrchestrator({ registry, state, logger });
+  // Fixed gate clock so approval expiry is deterministic.
+  const orchestrator = createOrchestrator({ registry, state, logger, clock: () => T0 });
   return { orchestrator, sink };
 }
 
@@ -67,7 +71,7 @@ test("invalid decision is blocked before any agent runs", async () => {
   assert.ok(sink.records.some((r) => r.event === "decision.invalid"));
 });
 
-test("sensitive task is gated, then runs once approved", async () => {
+test("sensitive task is gated, then runs once approved (command-bound)", async () => {
   const { orchestrator } = harness();
   const input = {
     task_id: "task_mig",
@@ -84,12 +88,39 @@ test("sensitive task is gated, then runs once approved", async () => {
   assert.equal(gated.gated, true);
   assert.deepEqual(gated.state.blocked_tasks, ["task_mig"]);
 
-  const approved = await orchestrator.delegate(input, {
-    approval: createApproval("lead@noxund", "reviewed"),
+  // Mint an approval bound to the EXACT command the orchestrator will build.
+  const boundTask = createTaskCommand(input);
+  const approval = mintApproval(boundTask, {
+    approved_by: "lead@noxund",
+    ttl_ms: 10 * MIN,
+    now: T0,
+    nonce: "flow1",
+    note: "reviewed",
   });
+
+  const approved = await orchestrator.delegate(input, { approval });
   assert.equal(approved.result?.status, "completed");
   assert.deepEqual(approved.state.completed_tasks, ["task_mig"]);
   assert.deepEqual(approved.state.blocked_tasks, []);
+});
+
+test("a legacy/unbound approval cannot release a gated task through the orchestrator", async () => {
+  const { orchestrator } = harness();
+  const input = {
+    task_id: "task_mig2",
+    target_agent: "database_agent",
+    action: "run_migration",
+    priority: "critical" as const,
+    payload: { migration: "m" },
+    success_criteria: ["apply"],
+    reason: "schema",
+  };
+  // Legacy truthiness token — no command binding.
+  const legacy = { approved_by: "lead@noxund", granted_at: T0.toISOString() } as never;
+  const run = await orchestrator.delegate(input, { approval: legacy });
+  assert.equal(run.result?.status, "needs_review");
+  assert.equal(run.gated, true);
+  assert.deepEqual(run.state.blocked_tasks, ["task_mig2"]);
 });
 
 test("no_action is recorded without dispatching", async () => {

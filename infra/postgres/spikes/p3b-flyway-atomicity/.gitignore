@@ -1,0 +1,6 @@
+# Runtime-generated secrets — NEVER committed. Created by harness/gen-secrets.sh
+# at 0600, consumed only via Compose secrets mounted at /run/secrets/*.
+.local-secrets/
+
+# Transient controller heredoc artifacts (if any land here).
+*.pid
