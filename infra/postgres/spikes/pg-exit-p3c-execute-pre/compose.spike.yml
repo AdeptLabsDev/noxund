@@ -1,0 +1,83 @@
+# =============================================================================
+# PG-EXIT-P3C-EXECUTE-PRE — disposable, isolated PostgreSQL 15.18 (spike only)
+# -----------------------------------------------------------------------------
+# IMPLEMENTED, NOT EXECUTED. This file DEFINES the future disposable environment.
+# It is never brought up in the implementation unit.
+#
+# Isolation contract (binding):
+#   * disposable & project-scoped (no container_name; volume is the logical
+#     `pgdata`, prefixed by COMPOSE_PROJECT_NAME=noxund-p3c-<pid> at runtime);
+#   * NO published database port (no `ports:` — unreachable from the host);
+#   * NO egress: attached only to an `internal: true` network;
+#   * isolated from noxund-local (different project name & volume) and Supabase;
+#   * NO production/remote credentials — ephemeral secrets generated at run time
+#     under ./.ephemeral (gitignored, 0600), mounted as Compose secrets;
+#   * destructible ONLY via project-scoped `down -v` (harness/teardown.sh);
+#     NEVER via `docker volume prune` / `docker system prune`.
+#
+# Image is pinned by the SAME digest as the accepted PG-EXIT-P2 contract.
+# =============================================================================
+
+services:
+  postgres:
+    # 15.18-bookworm pinned by the multi-arch INDEX digest (P2 contract).
+    # On linux/amd64 this resolves to manifest
+    # sha256:fafb7480959eeeb7f1e43b479e642ffef2aa0f067242a1954ab41f2d764e2786.
+    image: postgres:15.18-bookworm@sha256:b0c5bab0fbba8e0c221f73b1dc6359ec35f8650074377e727299df248fc8ad51
+    pull_policy: never
+    restart: "no"                     # deliberate; never self-start
+    # NO ports: — the DB is reachable ONLY over the internal Compose network.
+    networks:
+      - spike_internal
+    environment:
+      POSTGRES_DB: noxund_p3c_spike
+      POSTGRES_USER: postgres         # image bootstrap superuser — admin/break-glass ONLY
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8 --data-checksums --auth-host=scram-sha-256"
+      TZ: UTC
+      PGTZ: UTC
+    command:
+      - postgres
+      - -c
+      - timezone=UTC
+      - -c
+      - log_timezone=UTC
+      - -c
+      - password_encryption=scram-sha-256
+      - -c
+      - log_statement=none            # never log DDL literals
+      - -c
+      - listen_addresses=*            # only reachable on the internal network anyway
+    secrets:
+      - postgres_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d noxund_p3c_spike -h 127.0.0.1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # Intentionally no client service.
+  #
+  # PG-EXIT-P3C-EXECUTE-PRE-CORRECT-R1 found no already-approved immutable
+  # client image and no local hash-verified offline Psycopg dependency set.
+  # Reusing the PostgreSQL server image as a client was not runnable because it
+  # does not contain the required Python/Psycopg harness runtime. Adding a
+  # placeholder image, build context, runtime pip command, or mutable tag here
+  # would create a false executable path. A client service may be added only by
+  # PG-EXIT-P3C-EXECUTE-PRE-PROVISION after the Product Lead approves and
+  # locally provisions its exact digest and dependency closure.
+
+secrets:
+  postgres_password:
+    file: ./.ephemeral/postgres_password
+
+networks:
+  spike_internal:
+    # NO egress. internal:true prevents the default gateway from being attached.
+    internal: true
+
+volumes:
+  pgdata:                       # logical; actual = <COMPOSE_PROJECT_NAME>_pgdata

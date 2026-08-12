@@ -1,0 +1,11 @@
+# PROVISIONING HOLD — deliberately non-installable dependency notice.
+#
+# No approved offline wheelhouse and no complete hash-verified dependency
+# closure exist for this spike. A version-only psycopg[binary] requirement is
+# not a reproducible offline source and must not be installed at execution time.
+#
+# PG-EXIT-P3C-EXECUTE-PRE-PROVISION must replace this notice with a reviewed
+# lock that identifies the exact Python ABI/platform, every local wheel
+# filename, and every SHA-256. The executable gate must use only those
+# preinstalled artifacts or a previously built client image pinned by digest.
+# It must perform no pip or index access.

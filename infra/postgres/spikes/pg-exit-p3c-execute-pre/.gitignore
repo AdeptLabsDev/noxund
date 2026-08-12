@@ -1,0 +1,17 @@
+# Ephemeral runtime credentials — NEVER tracked (generated at execution time, 0600)
+.ephemeral/
+.spike-secrets/
+*.secret
+*.pgpass
+
+# Evidence output from a future run — not tracked (may contain environment specifics; scrubbed of secrets)
+evidence/
+
+# Local protocol traces
+*.pqtrace
+traces/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
