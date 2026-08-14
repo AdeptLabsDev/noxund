@@ -2,7 +2,19 @@
 
 Esta pasta define a **camada operacional de agentes** do MVP NOXUND Hotspot Artists Report.
 
-O único agente **implementado** nesta fase é o **Product Orchestrator Agent**. Os demais estão **especificados, mas não criados** — serão instanciados sob demanda, sempre coordenados pelo Orchestrator.
+### Modelo de estado operacional (três estados)
+
+A arquitetura real distingue **três** estados — um contrato existir **não** significa que o agente faça trabalho de produto:
+
+- **FORMAL CONTRACT** — existe um `.md` de contrato do agente em `docs/agents`.
+- **FOUNDATION RUNTIME HANDLER** — registrado como executor em `@noxund/orchestrator` que **valida a ação e devolve um plano/handoff**, mas **NÃO** faz trabalho de produto real e **NÃO** gera números.
+- **REAL PRODUCT EXECUTOR** — de fato executa trabalho de produto. **Nenhum existe ainda.**
+
+Estado atual:
+
+- Os **10 agentes preexistentes** (Product Orchestrator, Backend/Next API, Frontend, Data/AI Pipeline, Database, Security & Privacy, QA, DevOps/Infra, Marketing/GTM, Documentation) têm **FORMAL CONTRACT + FOUNDATION RUNTIME HANDLER** (nenhum REAL PRODUCT EXECUTOR).
+- O **Governance & Integrity Agent** e a capacidade DevOps **`apply_exact_remediation`** têm **FORMAL CONTRACT ONLY** e permanecem **`PROPOSED-NOT-OPERATIONAL`** (não wired como foundation runtime handler, não operacional) até aceite do Product Lead + um gate de wiring de runtime posterior e separado.
+- O **Orchestration Runtime Engineering Agent** tem `FORMAL CONTRACT = PROPOSED`, `FOUNDATION RUNTIME HANDLER = ABSENT`, `REAL RUNTIME ENGINEERING EXECUTOR = ABSENT` — estado **`PROPOSED-NOT-OPERATIONAL`** (`CONTRACT-PROPOSED / RUNTIME-NOT-WIRED / NOT-OPERATIONAL`); `SELF-WIRING = FORBIDDEN`; a ativação inicial em runtime exige um **gate de bootstrap separado do Product Lead**.
 
 > Princípio: agentes existem para **elevar a qualidade dentro do escopo travado**, nunca para expandir escopo.
 
@@ -36,6 +48,8 @@ O único agente **implementado** nesta fase é o **Product Orchestrator Agent**.
 | `devops-infra-agent.md` | Contrato do DevOps/Infra Agent. |
 | `marketing-gtm-agent.md` | Contrato do Marketing/GTM Agent. |
 | `documentation-agent.md` | Contrato do Documentation Agent. |
+| `governance-integrity-agent.md` | Contrato do Governance & Integrity Agent (revisor independente, `READ-ONLY BY DEFAULT`). `PROPOSED-NOT-OPERATIONAL`. |
+| `orchestration-runtime-engineering-agent.md` | Contrato do Orchestration Runtime Engineering Agent (implementação do control plane `@noxund/orchestrator`). `PROPOSED-NOT-OPERATIONAL` (`CONTRACT-PROPOSED / RUNTIME-NOT-WIRED / NOT-OPERATIONAL`). |
 | `handoff-template.md` | Modelo de handoff entre qualquer agente e o Orchestrator. |
 | `README.md` | Este catálogo. |
 
@@ -60,8 +74,14 @@ Cada agente recebe tarefas do Orchestrator com contexto + critério de aceite, e
 | **DevOps/Infra Agent** | Ambientes (local/staging/prod), Vercel, Supabase, Sentry, cron, jobs. | `02` §5, §11 | `devops-infra-agent.md` | Contrato |
 | **Marketing/GTM Agent** | Lista de produtores, ondas de convite, copy DM/email/landing honesta. | `05` | `marketing-gtm-agent.md` | Contrato |
 | **Documentation Agent** | Manter docs, context-index, decision log, READMEs atualizados. | todo `/context` | `documentation-agent.md` | Contrato |
+| **Governance & Integrity Agent** | Verificação independente de autorização×ações, escopo/caminhos exatos, preservação, hashes/manifestos, estado de Git, remediação; veredito PASS/HOLD/RED. `READ-ONLY BY DEFAULT`. | operações governadas + artefatos técnicos | `governance-integrity-agent.md` | Contrato (`PROPOSED-NOT-OPERATIONAL`) |
+| **Orchestration Runtime Engineering Agent** | Implementação do control plane `@noxund/orchestrator` (`packages/orchestrator/src/**`, `tests/**`): registração/handlers/dispatcher/validator/safety/approval-gate/binding e testes do runtime. Não é o Product Orchestrator; não decide produto. | runtime `@noxund/orchestrator` (`packages/orchestrator`) | `orchestration-runtime-engineering-agent.md` | Contrato (`PROPOSED-NOT-OPERATIONAL`) |
+
+> **Legenda de estado (coerente com o modelo de três estados acima).** `Ativo` / `Contrato` na coluna Status referem-se ao **contrato**. Os agentes com `Contrato` já possuem FORMAL CONTRACT + FOUNDATION RUNTIME HANDLER, mas **nenhum** é REAL PRODUCT EXECUTOR ainda. `Contrato (PROPOSED-NOT-OPERATIONAL)` = **FORMAL CONTRACT ONLY** (sem foundation runtime handler, não operacional) — vale para o **Governance & Integrity Agent** e para o **Orchestration Runtime Engineering Agent**. Para o Orchestration Runtime Engineering Agent, os três estados são: `FORMAL CONTRACT = PROPOSED`, `FOUNDATION RUNTIME HANDLER = ABSENT`, `REAL RUNTIME ENGINEERING EXECUTOR = ABSENT`; a ativação inicial exige gate de bootstrap separado do Product Lead (`SELF-WIRING = FORBIDDEN`).
 
 > Mapeamento de papéis humanos ↔ agentes segue o RACI em `06_Execution_RACI_Backlog.md`.
+
+> **DevOps — capacidade de remediação exata (`apply_exact_remediation`, `PROPOSED-NOT-OPERATIONAL`).** O contrato do DevOps/Infra Agent (`devops-infra-agent.md`) inclui uma capacidade **estreita** de remediação exata aprovada pelo Product Lead: mutação destrutiva com `requires_human_approval = true`, alvo sempre fornecido pela tarefa (nunca escolhido pelo agente), sem wildcard/recursão não autorizada/limpeza ampla, e handoff obrigatório ao `governance_integrity_agent` independente. A **fonte normativa** é o contrato do agente + `agent-registry.md` / `agent-boundaries.md` / `agent-review-matrix.md`; este README apenas cataloga.
 
 ---
 
@@ -78,7 +98,16 @@ Cada agente recebe tarefas do Orchestrator com contexto + critério de aceite, e
 
 ## Como adicionar um novo agente (futuro)
 
-1. Criar `docs/agents/<nome>-agent.md` seguindo a estrutura do Product Orchestrator (Role, Mission, Authority, Source of Truth, Non-Negotiables, Definition of Done, Escalation, Output Format).
-2. Registrar no catálogo acima.
-3. Registrar a criação no decision log.
-4. Definir as revisões cruzadas que esse agente dispara.
+Modelo vinculante **registry-first**, nesta ordem:
+
+1. capability gap estabelecido;
+2. autorização de provisioning task-scoped do Product Lead;
+3. Agent Definition / Configuration Gate separado;
+4. autor registrado e elegível;
+5. revisores independentes obrigatórios;
+6. aceite do Product Lead;
+7. fechamento em registry / boundaries / review-matrix;
+8. wiring de runtime separado, se necessário;
+9. o agente recém-criado **NÃO** pode executar a tarefa dependente durante seu próprio provisioning gate.
+
+Nenhuma permissão permanente (standing permission) é criada por este processo.
