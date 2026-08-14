@@ -1,3 +1,11 @@
+> **⚠️ ERRATA — o raciocínio de §0/§2 sobre a estritez do verify foi SUPERSEDIDO por [SEC-0027](SEC-0027-phase2-verify-parity-erratum.md) (2026-08-14), sob [DEC-0031](../product/decisions/DEC-0031-phase2-authority-reconciliation-dec0009-identity.md).**
+>
+> A premissa de que o `service_role` **retinha** os grants de DML foi **falsificada** pelo run gated `28126499334` (head `f1cc622d`, merge do PR #2, **pré-hotfix**): o `apply` passou e o job `verify` **falhou** com `permission denied for table rubric_versions` (`insufficient_privilege` / SQLSTATE `42501`). A estritez do verify da Fase 2 — aceitar **só** `restrict_violation` — foi, portanto, uma **regressão de paridade / falso-negativo**, não um endurecimento. Reparo já executado à época: PR **#3** / `a5e68b9`, seguido do run verde `28129447446` (**run distinto**, pós-hotfix).
+>
+> **Escopo exato da errata:** apenas a oração *"e é **mais estrito** que o da Fase 1"*, no **§0**, e a totalidade do **§2**. **A última frase do §0 — a reafirmação de que o veto da Fase 9 (RLS Policies, `SEC-0001` §0) permanece intacto — NÃO é superseded.** Os demais achados deste documento — SHA-pin, mascaramento da URL, `permissions: contents: read`, ausência de service-key (SEC-F19), `workflow_dispatch`-only + `APPLY-PHASE2` + required reviewers, ausência de secrets, ausência de tabela de marketplace, SEC-F18/SEC-F20 — permanecem **válidos**, e o gate `audit_secrets` (matrix #8) permanece **BAIXADO**.
+>
+> **Corpo abaixo mantido verbatim**, como registro do que era verdade em 2026-06-24. Leia o raciocínio afetado **através** do `SEC-0027`.
+
 # SEC-0008 — Security Audit (audit_secrets) · Pipeline de apply da Fase 2
 
 - **Task:** `task_phase2_security_audit_apply_pipeline` · **Action:** `audit_secrets` · **Agent:** `security_agent`
