@@ -1,3 +1,13 @@
+> **⚠️ NOTA DE ATRIBUIÇÃO (aditiva) — registrada por [SEC-0027](SEC-0027-phase2-verify-parity-erratum.md) sob [DEC-0031](../product/decisions/DEC-0031-phase2-authority-reconciliation-dec0009-identity.md) (2026-08-14).**
+>
+> As referências a "DEC-0009" no corpo abaixo (**§0**, **§0.1**, **§SEC-F21**) foram escritas em 2026-06-25 e denotavam o **registro local da Fase 2** então existente — hoje preservado apenas como proveniência em `42c595218c6a7ebaa958597aa8cc26b86925e1b5:docs/product/decisions/DEC-0009-phase2-versioning-completed.md`, fora de `main`.
+>
+> **Identidade corrente:** o número `DEC-0009` está vinculado ao fechamento da **Fase 3** ([DEC-0009-phase3-apply-completed.md](../product/decisions/DEC-0009-phase3-apply-completed.md)), que **não** trata do `SEC-0008`.
+>
+> **Leitura canônica:** evidência do run da Fase 2 → [DEC-0010](../product/decisions/DEC-0010-phase2-apply-completed.md) · correção do `SEC-0008` → [SEC-0027](SEC-0027-phase2-verify-parity-erratum.md) · origem histórica → o registro órfão, por SHA + caminho.
+>
+> **O mérito técnico deste documento não é tocado** — o achado bloqueante `SEC-F21` estava correto e foi resolvido antes do apply da Fase 3. **Corpo abaixo mantido verbatim**; nenhuma ocorrência de "DEC-0009" foi substituída.
+
 # SEC-0009 — Security Review (review_rls) · Fase 3 — Runs + Artists (DDL)
 
 - **Task:** `task_phase3_security_review_rls` · **Action:** `review_rls` · **Agent:** `security_agent`
