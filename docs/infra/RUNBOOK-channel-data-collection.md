@@ -1,5 +1,13 @@
 # RUNBOOK — Channel Data Collection (`channels.list → raw_youtube_channels`)
 
+> **⚠️ RETIRADO — 2026-08-17 (SUPABASE-CREDENTIAL-AND-REFERENCE-HYGIENE R1).**
+> O destino deste runbook — o projeto Supabase `pwbkplzyzmortwjjpcbg` — foi
+> **permanentemente deletado** (autoridade: [[DEC-0034]]), e os secrets/variables
+> `SUPABASE_*` dos Environments foram removidos. A coleta permanece **desarmada**
+> (sentinelas ausentes; [[DEC-0033]] §8 continua vinculante — qualquer re-arme exige
+> decisão explícita própria do Product Lead). Este runbook é preservado como **registro
+> histórico**; **nenhum procedimento abaixo é executável** contra o destino descrito.
+
 - **Track:** Passo 4 — coleta **gated** de Channel Data (DEC-0017 item 7)
 - **Owner operacional:** DevOps/Infra (`devops_agent`) · co-gates Security + Database + Data/AI
 - **Data:** 2026-07-01
