@@ -228,6 +228,8 @@ Usar stack híbrida, mas com cortes de MVP.
 - **Observabilidade:** Sentry primeiro; Datadog apenas se a operação crescer.
 - **Redis/Celery:** não bloqueia MVP. Entram se a automação do pipeline virar recorrente ou se jobs passarem a travar execução.
 
+> **Nota de superação (2026-08-17):** a escolha de Supabase para Auth/Banco/Cron acima foi posteriormente superada — o projeto Supabase foi retirado permanentemente e a saída de Supabase foi ratificada em [`DEC-0028`](../docs/product/decisions/DEC-0028-pg-exit-p1-supabase-removal-postgres-vanilla.md) e [`DEC-0034`](../docs/product/decisions/DEC-0034-legacy-supabase-dataset-retirement-and-p9-p8-resequencing.md). Esta decisão original é preservada como registro histórico; não é a stack atual.
+
 ---
 
 ## 13. Decisão sobre marketing

@@ -1,6 +1,8 @@
-# supabase — Database & Auth
+# supabase — Database & Auth (RETIRED — historical artifacts)
 
-**Status:** placeholder. Sem migrations ainda.
+> **RETAINED HISTORICAL / LEGACY DATABASE ARTIFACTS.** The Supabase project this directory targeted no longer exists — it was **permanently retired** (see [`DEC-0034`](../docs/product/decisions/DEC-0034-legacy-supabase-dataset-retirement-and-p9-p8-resequencing.md) and [`SUPABASE-LEGACY-STRUCTURAL-BRIEF-R0`](../docs/database/SUPABASE-LEGACY-STRUCTURAL-BRIEF-R0.md)). Nothing in this directory means Supabase remains the active platform. `migrations/` 0001–0006 are **historical applied schema evidence** (were live in production, now unreachable). 0008/0009 are **design-only and were never applied**. No production PostgreSQL successor is deployed yet.
+
+**Status:** historical / retired. Not an active development target.
 **Owner agents:** Database Agent, Security & Privacy Agent.
 
 ## O que viverá aqui (quando construído)
@@ -24,7 +26,7 @@
 
 ## Como será inicializado (futuro, com revisão)
 
-> Não rodar agora.
+> Não rodar agora. **Historicamente inaplicável agora:** o projeto Supabase alvo foi retirado permanentemente; estas instruções referem-se a um projeto que não existe mais.
 
 ```bash
 # requer Supabase CLI

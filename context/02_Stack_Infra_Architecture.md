@@ -2,6 +2,8 @@
 
 **Objetivo:** definir a stack técnica do MVP sem antecipar custo de marketplace.
 
+> **Nota de estado atual (2026-08-17):** este documento descreve a stack original aprovada, que incluía Supabase Postgres/Auth como banco/auth. O projeto Supabase foi **retirado permanentemente** (ver [`DEC-0034`](../docs/product/decisions/DEC-0034-legacy-supabase-dataset-retirement-and-p9-p8-resequencing.md)); Supabase **não é mais** a fonte de verdade atual do banco. Nenhum sucessor de PostgreSQL em produção está implantado ainda — isso permanece trabalho futuro. O restante deste documento é preservado como registro histórico da decisão de stack original.
+
 ---
 
 ## 1. Princípio de arquitetura
