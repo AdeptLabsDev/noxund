@@ -1,5 +1,14 @@
 # INFRA-0002 — `configure_env` + arm do Environment `youtube-collection` (SG-4)
 
+> **⚠️ RETIRADO — 2026-08-17 (SUPABASE-CREDENTIAL-AND-REFERENCE-HYGIENE R1).**
+> O projeto Supabase `pwbkplzyzmortwjjpcbg` foi **permanentemente deletado** pelo Product
+> Lead (deleção manual via Dashboard; autoridade: [[DEC-0034]]). O secret
+> `SUPABASE_DB_PASSWORD` e as variables `SUPABASE_DB_HOST`/`SUPABASE_DB_PORT`/
+> `SUPABASE_DB_USER` do Environment `youtube-collection` foram **removidos**;
+> **`YOUTUBE_API_KEY` foi retido** conforme [[DEC-0028]] §9 (definição de P8). Este
+> documento é preservado como **registro histórico** — **nenhuma instrução de conexão
+> abaixo é executável**: o pooler, o usuário e o banco descritos não existem mais.
+
 - **Task:** `task_devops_configure_env_youtube_collection` · **Action:** `configure_env` (SENSÍVEL/humano-gated)
 - **Owner agent:** `devops_agent` · **Co-assina:** Security (matrix #8)
 - **Data:** 2026-07-02

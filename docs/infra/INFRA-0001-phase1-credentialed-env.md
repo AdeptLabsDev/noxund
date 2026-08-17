@@ -1,5 +1,14 @@
 # INFRA-0001 — Ambiente credenciado para o apply da Fase 1 (CI)
 
+> **⚠️ RETIRADO — 2026-08-17 (SUPABASE-CREDENTIAL-AND-REFERENCE-HYGIENE R1).**
+> O projeto Supabase `pwbkplzyzmortwjjpcbg` foi **permanentemente deletado** pelo Product
+> Lead (deleção manual via Dashboard; autoridade: [[DEC-0034]]). Os secrets
+> `SUPABASE_ACCESS_TOKEN` e `SUPABASE_DB_PASSWORD` e as variables `SUPABASE_DB_HOST`/
+> `SUPABASE_DB_PORT`/`SUPABASE_DB_USER` do Environment `production-db` foram **removidos**.
+> Este documento é preservado como **registro histórico** do provisionamento legado —
+> **nenhuma instrução operacional abaixo é executável**: o endpoint, as credenciais e o
+> banco descritos não existem mais.
+
 - **Task:** `task_phase1_devops_configure_credentialed_env` · **Action:** `configure_env` (sensível/gated)
 - **Owner agent:** `devops_agent`
 - **Data:** 2026-06-21
