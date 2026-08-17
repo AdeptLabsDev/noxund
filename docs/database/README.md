@@ -4,6 +4,8 @@
 **Owner agent:** Database Agent · **Co-owner de RLS:** Security & Privacy Agent.
 **Fonte de verdade:** `context/04_Database_Event_Model.md` (modelo) + `context/03_Data_AI_Agents_Methodology.md` (métricas) + `context/02_Stack_Infra_Architecture.md` §8–§9 (raw/computed/segurança).
 
+> **Nota de estado atual (2026-08-17):** o projeto Supabase legado referenciado nesta proposta foi **retirado permanentemente** (ver [`DEC-0034`](../product/decisions/DEC-0034-legacy-supabase-dataset-retirement-and-p9-p8-resequencing.md)). As migrations históricas que chegaram a ser aplicadas contra ele estão preservadas em [`supabase/`](../../supabase/README.md). Nenhum sucessor de PostgreSQL em produção foi provisionado ainda.
+
 Esta pasta é **documentação de proposta**, não implementação. Nenhum SQL final, nenhuma policy RLS final, nenhuma conexão Supabase é criada aqui. O objetivo é fechar o modelo conceitual antes de escrever migrations.
 
 ---

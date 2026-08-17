@@ -38,11 +38,13 @@ Non-negotiables: **gen-AI never produces numbers**; no marketplace; no fake real
 
 - **Frontend / App:** Next.js + TypeScript + Tailwind CSS **v4** (App Router, `src/`). Design system: monochromatic, zero-accent, dark-first "dossier" — same engineering discipline as Vercel/Next.js, opposite tone (see [`docs/agents/frontend-agent.md`](./docs/agents/frontend-agent.md)).
 - **Core API:** Next.js Route Handlers / Server Actions (no separate Node API in the MVP).
-- **Auth:** Supabase Auth *(future — only env vars prepared now)*.
-- **Database:** Supabase Postgres *(future — no schema/migrations yet)*.
+- **Auth:** not yet implemented *(legacy plan named Supabase Auth; provider retired — see note below)*.
+- **Database:** legacy Supabase Postgres *(retired — historical schema only; see note below)*. No production successor deployed yet.
 - **Data Engine:** Python (`services/data-engine`) *(future — no real collection yet)*.
 - **Package manager:** pnpm (workspaces).
 - **Observability:** Sentry *(future)*.
+
+> **Database/auth note (2026-08-17):** the legacy Supabase project was real, had schema applied, and received production data — it has since been **permanently retired** (see [`DEC-0034`](./docs/product/decisions/DEC-0034-legacy-supabase-dataset-retirement-and-p9-p8-resequencing.md) and [`SUPABASE-LEGACY-STRUCTURAL-BRIEF-R0`](./docs/database/SUPABASE-LEGACY-STRUCTURAL-BRIEF-R0.md)). Supabase is **not** the current database/auth provider. No production PostgreSQL successor is deployed yet — that remains future work.
 
 Source of truth: [`context/02_Stack_Infra_Architecture.md`](./context/02_Stack_Infra_Architecture.md).
 
@@ -59,7 +61,7 @@ noxund/
   packages/
     shared/         # Shared TS types/contracts (minimal).
     orchestrator/   # Multi-agent control plane: structured decisions, validation, routing, state, logs.
-  supabase/         # Migrations + RLS (empty placeholder).
+  supabase/         # Retired legacy DB artifacts — historical migrations, not an active placeholder (see supabase/README.md).
   context/          # Product source of truth (do not move without re-indexing).
   docs/
     agents/         # Governance + agent contracts.
