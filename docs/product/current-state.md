@@ -19,11 +19,32 @@ Full scope and thresholds: [`01_MVP_Scope_PRD.md`](../../context/01_MVP_Scope_PR
 
 ---
 
-## B. Program phase
+## B. Two axes — do not conflate them
+
+NOXUND runs on **two distinct axes**. The A–F ladder is only the second, and it is **not** NOXUND's development lifecycle.
+
+### Axis 1 — product / engineering trajectory
+
+**State:** the substantive product-build work. It **predates** the A–F program, is substantial and **incomplete**. It is currently **interrupted / paused** so the improvement program can run — **not** replaced, cancelled or completed by it. Nothing about it is settled.
+
+**Plan, not present fact and not authorization:** it is to be **re-established from canonical repository truth, re-adjudicated as necessary, and resumed under Product-Lead GO**. The exact next post-improvement unit is **not decided**.
+
+Two orientation anchors only — not a lineage, not to be reconstructed here:
+
+- The **PG-EXIT plan P2–P10** is a **proposal — nothing executed; each gated docs/design→GO** (`DEC-0028` §9).
+- Successor-database work is unadopted: the P3C review-round variants `R10-R1` / `R10-R2` are **TECHNICAL-ADOPTION-UNDECIDED**. They and the P3C `POSTHOC-AUDIT-HOLD-REINSPECTION-REQUIRED` disposition are **defined by no canonical record on `main`**, named to withhold endorsement, never to assert current force (`DEC-0032` §5, §8; `DEC-0033` §8).
+
+Collection-track evidence is landed on `main`; this document neither enumerates nor grades it (§I).
+
+### Axis 2 — development-system improvement program (A–F)
+
+An **overlay** that improves the context, governance, agent, engineering and orchestration system used to develop NOXUND.
 
 - **A — Reality & Repository Hygiene:** **COMPLETE**
-- **B — Canonical Context V2:** **CURRENT PHASE** (B1 complete — §G)
+- **B — Canonical Context V2:** **CURRENT improvement phase** (B1 complete — §G)
 - **C · D · E · F:** **NOT STARTED**
+
+**F is the final currently-defined phase of this improvement program — not the final phase of NOXUND development.**
 
 **Unlanded identifiers.** Only Phases **A, B and C** are defined by landed records; **D, E and F are carried in the Product Lead's operating record and defined by no canonical record on `main`** — per `DEC-0033` §8, named to place them, never to confer standing.
 
@@ -69,7 +90,7 @@ Registry-active is **not** armed, and neither collection workflow is disabled: b
 **State:**
 - Product-Lead manual merge of **every** PR is current practice; no landed record generalizes it beyond the gates above.
 - `governance_integrity_agent` is **PROPOSED-NOT-OPERATIONAL / RUNTIME-NOT-WIRED**; it binds nothing.
-- Substantive `packages/orchestrator` work remains **Phase C**.
+- Substantive `packages/orchestrator` work remains **improvement Phase C**.
 - The Phase-B docs-only topology is **temporary**: task-scoped Author + distinct independent Reviewer + manual Product-Lead merge; it wires no agent and grants no standing permission.
 
 ---
@@ -88,7 +109,7 @@ Adjudicate from `DEC-0035`, not this summary. **At the verification base, no sta
 
 ---
 
-## G. Canonical Context V2 — unit state
+## G. Improvement Phase B — Canonical Context V2 unit state
 
 These `B*` labels are **Phase-B units**, **not** the `B1`/`B2`/`B3` Phase-A *blocker* labels of `PHASE-A-CLOSEOUT-R1` §1.
 
@@ -101,11 +122,13 @@ These `B*` labels are **Phase-B units**, **not** the `B1`/`B2`/`B3` Phase-A *blo
 
 Unlanded identifiers (§B): `DEC-0035` names B0, B1, B3 and B5; **B2, B4 and B6 are defined by no canonical record on `main`** (B2 stands on its authorizing GO). Phase B is no more complete than this.
 
+**Recorded for B3, not implemented:** a two-axis repository leaves B3 needing to separate **improvement-program routing** from **product/engineering-trajectory routing**, so the index does not treat A–F as NOXUND's only historical axis.
+
 ---
 
 ## H. Open and deferred headlines
 
-Headlines only, not an inventory. **Successor PostgreSQL architecture undecided**, **provisioning unexecuted**. **Agent-governance / runtime redesign is Phase C.** **Historical context normalization** remains Phase-B work where scoped. The `OD-*` namespace and its cross-series collisions are **not** inventoried here — owned by **B3**.
+Headlines only, not an inventory. **Successor PostgreSQL architecture undecided**, **provisioning unexecuted**. **Agent-governance / runtime redesign is improvement Phase C.** **Historical context normalization** remains improvement Phase-B work where scoped. **The product / engineering trajectory is paused and incomplete** (§B). The `OD-*` namespace and its cross-series collisions are **not** inventoried here — owned by **B3**.
 
 ---
 
