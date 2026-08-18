@@ -25,18 +25,15 @@ NOXUND runs on **two distinct axes**. The A–F ladder is only the second, and i
 
 ### Axis 1 — product / engineering trajectory
 
-**State:** the substantive product-build work. It **predates** the A–F program, is substantial and **incomplete**. It is currently **interrupted / paused** so the improvement program can run — **not** replaced, cancelled or completed by it. Nothing about it is settled.
+**State:** the substantive product-build work. It **predates** the A–F program, is substantial and **incomplete as a whole**. It is **not the current active execution focus** while improvement Phase B is current, and it was **not globally completed or superseded** by the improvement program. **Repository evidence does not establish the causal reason for the pivot**; any account of it is Product-Lead orientation, not repository fact. Unsettled and relevant here: **the exact resumption point and the next technical unit**.
 
 **Plan, not present fact and not authorization:** it is to be **re-established from canonical repository truth, re-adjudicated as necessary, and resumed under Product-Lead GO**. The exact next post-improvement unit is **not decided**.
 
-Two orientation anchors only — not a lineage, not to be reconstructed here:
-
-- The **PG-EXIT plan P2–P10** is a **proposal — nothing executed; each gated docs/design→GO** (`DEC-0028` §9).
-- Successor-database work is unadopted: the P3C review-round variants `R10-R1` / `R10-R2` are **TECHNICAL-ADOPTION-UNDECIDED**. They and the P3C `POSTHOC-AUDIT-HOLD-REINSPECTION-REQUIRED` disposition are **defined by no canonical record on `main`**, named to withhold endorsement, never to assert current force (`DEC-0032` §5, §8; `DEC-0033` §8).
+One orientation anchor — not a lineage, not to be reconstructed here: successor-database work is unadopted. The P3C review-round variants `R10-R1` / `R10-R2` are **TECHNICAL-ADOPTION-UNDECIDED**, and they and the P3C `POSTHOC-AUDIT-HOLD-REINSPECTION-REQUIRED` disposition are **defined by no canonical record on `main`**, named to withhold endorsement, never to assert current force (`DEC-0032` §5, §8; `DEC-0033` §8).
 
 Collection-track evidence is landed on `main`; this document neither enumerates nor grades it (§I).
 
-### Axis 2 — development-system improvement program (A–F)
+### Axis 2 — development-system improvement program (current model: A–F)
 
 An **overlay** that improves the context, governance, agent, engineering and orchestration system used to develop NOXUND.
 
@@ -46,7 +43,7 @@ An **overlay** that improves the context, governance, agent, engineering and orc
 
 **F is the final currently-defined phase of this improvement program — not the final phase of NOXUND development.**
 
-**Unlanded identifiers.** Only Phases **A, B and C** are defined by landed records; **D, E and F are carried in the Product Lead's operating record and defined by no canonical record on `main`** — per `DEC-0033` §8, named to place them, never to confer standing.
+**Provenance.** A–F is the **current Product-Lead improvement-program model**, not a landed ladder. Repository-landed records establish **A–C**; **D–F are Product-Lead-defined future program phases, not yet independently defined as landed phase records**, and the complete six-phase sequence is defined by no canonical record on `main`. Per `DEC-0033` §8, such identifiers are named to place them, never to confer standing.
 
 **State:** the next candidate unit after B2 is **B3 — Context Index** — roadmap sequence, not landed order (§G).
 
