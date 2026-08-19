@@ -1,0 +1,210 @@
+# NOXUND — Context Map
+
+**Authority class:** DESCRIPTIVE-CURRENT · **Lifecycle:** CURRENT · **Mutability:** EDITABLE
+**This is not a decision record; it creates no authority.** It is routing and indexing infrastructure: it reports where things live, what kind of thing each identifier names, and which *explicit* relations connect them. Ambiguity about classification, precedence or supersession is governed by [`DEC-0035`](decisions/DEC-0035-canonical-context-v2-authority-lifecycle-supersession-model.md).
+**Freshness.** Verified against canonical main `13d3777235f7fb8db701d76c6637197e45e72be3`, 2026-08-19. Current state is owned by [`current-state.md`](current-state.md) — this map routes to it and does not restate it or its freshness contract.
+
+**Principle — current truth cheap, history reachable.** Routing is not authorization. Naming a unit here places it; it never authorizes resuming it and settles no open technical question.
+
+**What this answers.** What is this identifier · what type of thing is it · which program or track owns it · is it current, historical, proposed or preserved · is it authority, current description, evidence or orientation · where is its canonical or preserved source · does another artifact supersede, narrow, extend, redirect to or depend on it · does its namespace collide · where do I go next.
+
+**What this is not.** Not a roadmap, not a historical narrative, not a replacement for `current-state.md`, not a per-file catalogue of the markdown artifacts under `docs/**`.
+
+---
+
+## 1. Context index — topic → destination
+
+| I need… | Go to | Class (per `DEC-0035` §9) |
+|---|---|---|
+| What is true right now; the two axes | [`docs/product/current-state.md`](current-state.md) | DESCRIPTIVE-CURRENT — freshness-stale, see note † |
+| What binds me; precedence; supersession semantics | [`DEC-0035`](decisions/DEC-0035-canonical-context-v2-authority-lifecycle-supersession-model.md) | INTERNAL-NORMATIVE |
+| Locked product scope, MVP definition, thresholds | `context/00_Product_Lead_Decision_Log.md`, `context/01_MVP_Scope_PRD.md` | mixed at clause level |
+| The `/context` package, file by file | [`docs/product/context-index.md`](context-index.md) | DESCRIPTIVE-CURRENT |
+| All decision records | `docs/product/decisions/**` | INTERNAL-NORMATIVE by default |
+| Improvement Phase A terminal state; deferred-work routing | [`PHASE-A-CLOSEOUT-R1`](../result/PHASE-A-CLOSEOUT-R1.md) | DESCRIPTIVE-CURRENT |
+| Improvement program A–F; Phase-B unit state | `current-state.md` §B, §G | DESCRIPTIVE-CURRENT |
+| Data model, migration ladder, RLS design | `docs/database/mvp-data-model.md`, `migration-plan.md`, `entity-relationship-notes.md`, `rls-review-notes.md` | EVIDENCE; Supabase-era clauses SUPERSEDED |
+| Per-phase DB apply/design evidence | `docs/database/HANDOFF-phase*`, `DATA-AI-REVIEW-*`, `DATA-AI-000*` | EVIDENCE |
+| Pipeline specs, rubric constants, determinism | `docs/data/DATA-*` | EVIDENCE; ratified clauses bind only via their ratifying DEC (`DEC-0035` §9.1) |
+| Channel-data collection track | `docs/data/DATA-COLLECT-002-*`, `docs/infra/RUNBOOK-channel-data-collection.md`, `docs/data/SG-6-*` | EVIDENCE |
+| Video-collection track | `docs/data/HANDOFF-data-collect-001-video-track.md`, `docs/data/SG-V*` | EVIDENCE |
+| Security reviews and findings | `docs/security/SEC-0001` … `SEC-0027` | EVIDENCE |
+| Backend consumption / authz contracts | `docs/backend/BE-0001`, `BE-0002` | EVIDENCE |
+| Environments, pipelines, hermetic verify | `docs/infra/INFRA-000*`, `docs/infra/HANDOFF-*` | EVIDENCE |
+| Agent contracts, boundaries, review matrix, conflict rules | `docs/agents/**` (start at `agent-registry.md`) | mixed — see `DEC-0035` §9 |
+| Legacy Supabase structural record | `docs/database/SUPABASE-LEGACY-STRUCTURAL-BRIEF-R0.md`, `supabase/README.md` | EVIDENCE / HISTORICAL |
+| PostgreSQL successor material | `infra/postgres/**`, `db/legacy-map.md` | **classification OPEN** — `DEC-0035` excludes `packages/**`, `apps/**`, `services/**`, `supabase/**` and `.github/**` from its model and names neither of these; this map does not extend that list |
+| Workflow registration and arming state | `.github/workflows/**`; read with `current-state.md` §D | DESCRIPTIVE-CURRENT for the state claim |
+| Monorepo layout and stack placement | `docs/foundation/monorepo-structure.md` | DESCRIPTIVE-CURRENT |
+| Scope admission; `OD-01`…`OD-07` | `docs/product/scope-guardrails.md` | **class not adjudicated** — flagged by `DEC-0035` §9; not adjudicated here |
+| Backlog and operating narrative | `docs/product/mvp-backlog.md`, `product-operating-system.md` | DESCRIPTIVE-CURRENT, stale (`DEC-0035` Annex A rows 6–7) |
+| Off-main preserved evidence | §5 below | EVIDENCE / HISTORICAL |
+| Identifier meaning; namespace collisions | §2 below | — |
+| Explicit relations between artifacts | §3 below | — |
+
+**† Freshness note on `current-state.md`.** It declares itself `STALE-UNTIL-REVERIFIED` once `origin/main` advances past the base SHA it names, and main has since advanced. **No fact in it is known-wrong:** the only intervening commits are B2's own authoring commits and their merge, and the only file they touch is that document itself. This is a freshness-metadata condition, not a content defect — it remains the current-truth destination.
+
+**Boundary with `context-index.md`.** [`docs/product/context-index.md`](context-index.md) remains the older, `/context`-scoped index: twelve per-file entries, in Portuguese, self-declared *"vivo"*, and a restatement of the `/context` source-of-truth hierarchy. **It is untouched by this map.** It stays the per-file reader for `context/**`; this map is repository-wide topic routing plus identifier and relation infrastructure. Where the two overlap, `DEC-0035` §9 governs classification.
+
+**Two adjudications `DEC-0035` routed here, both declined.** The `/context` blanket-versus-table ambiguity (§9 reading note) and the classification of `scope-guardrails.md` (Annex A row 12) are **recorded as OPEN and unadjudicated**. Deciding either would create classification authority this artifact disclaims in its header. They are carried forward rather than closed, and are flagged in §1 and §2 where they arise; assigning them a venue is a Product-Lead routing decision, not one this map can make.
+
+---
+
+## 2. Identifier registry
+
+One row per identifier **family**, not per file. Structural types: **PROGRAM · TRACK · PHASE · GATE · UNIT · DECISION · INVESTIGATION**, plus one type repository reality requires — **RECORD-SERIES**, a document-numbering or document-naming series that names artifacts rather than process steps (specs, handoffs). *Class default* is the family default; a landed per-file declaration always overrides it (`DEC-0035` §8 route 3).
+
+| Family / pattern | Type | Owning program or track | Class default | Typical lifecycle | Where defined / found | Disambiguation |
+|---|---|---|---|---|---|---|
+| `DEC-NNNN` | DECISION | cross-program | INTERNAL-NORMATIVE | CURRENT unless explicitly superseded | `docs/product/decisions/**` | `DEC-0001` is DRAFT/PROPOSED; `DEC-0003` mixed at clause level; `DEC-0028`/`DEC-0033` byte-frozen + PARTIALLY-SUPERSEDED; `DEC-0005`/`DEC-0021` SUPERSEDED (all per `DEC-0035` §9). **`DEC-0027` has no file on `main`** — historical, preserved only (§5). |
+| `DEC-NNNN-ADDENDUM-*` | DECISION | as its base record | INTERNAL-NORMATIVE, additive | CURRENT | `docs/product/decisions/` | A normative addendum to its base record, **not** an independent decision (`DEC-0035` §9). Two exist: `DEC-0024-ADDENDUM`, `DEC-0028-ADDENDUM`. |
+| `SEC-NNNN` | INVESTIGATION | cross-program | EVIDENCE | CURRENT as record | `docs/security/` | `SEC-0001`…`SEC-0027`. **Two files share `SEC-0023`.** Imperative wording binds nothing (`DEC-0035` §3.1); the `SEC-0001` §0 Fase-9 veto binds by the grant in `docs/agents/agent-conflict-resolution.md`. `SEC-0027` is the canonical seat of the Fase-2 verify-parity correction. |
+| `BE-000N` · `INFRA-000N` · `DATA-AI-000N` | INVESTIGATION | backend · infra · data/AI review tracks | EVIDENCE | CURRENT as record | `docs/backend/`, `docs/infra/`, `docs/database/` | Three independently numbered role-scoped review series — not one sequence, and not continuous with `SEC-NNNN`. |
+| `DATA-<TOPIC>-00N` | RECORD-SERIES | data engine | EVIDENCE | mixed at clause level | `docs/data/` | Topics: `AUDIT`, `CHANNEL`, `COLLECT`, `CONST`, `ENTITY`, `OPP`, `REPRO`, `SCORING`, `SG8`. The `-00N` suffix is per topic, not global. **`DATA-SG8-001` resolves on `main` to the design contract**; a historical file claimed the same identity and is DO-NOT-LAND (`DEC-0032` §7). |
+| `HANDOFF-*` | RECORD-SERIES | cross-track | EVIDENCE | CURRENT as record; operationally HISTORICAL | `docs/database/`, `docs/infra/`, `docs/data/`, `docs/backend/`, `docs/agents/handoffs/` | Named, not numbered. `docs/agents/handoff-template.md` is a format aid, not a handoff (`DEC-0035` §9). |
+| `Fase 1` … `Fase 9` | PHASE | database / migration program (Axis 1) | — (label) | mixed; see source | `docs/database/migration-plan.md` | **Portuguese `Fase N` = database migration phases only.** Migration `0007` (Fase 6) is PARKED; Fase 9 (RLS) sits under the standing `SEC-0001` §0 veto. Applied-state facts: `current-state.md` §C. Not the A–F program; not video-track `Fase A–D`. |
+| `Fase A` … `Fase D` | PHASE | video-collection track (`DATA-COLLECT-001`) (Axis 1) | — (label) | plan sequence; not carried to completion | `docs/data/HANDOFF-data-collect-001-video-track.md` §7 | Third distinct use of the word *Fase*. Unrelated to `Fase 1–9` and to improvement `Phase A–F`. |
+| `Phase A` … `Phase F` | PROGRAM / PHASE | development-system improvement program (Axis 2) | — (label) | A COMPLETE · B CURRENT · C–F NOT STARTED | `current-state.md` §B; A closed by `PHASE-A-CLOSEOUT-R1`; C named by `DEC-0032` §8 and `DEC-0035` §12 | **Two questions, two answers.** *Where is the current program model described?* → `current-state.md` §B (DESCRIPTIVE-CURRENT), which records the current Product-Lead A–F model — this is a valid destination for **D, E and F**. *Is there an independently landed record defining that phase?* → **A–C yes; D, E and F no.** The six-phase sequence is defined by no canonical record on `main`, and the labels are not landed authority. |
+| `B0` … `B6` | UNIT | improvement Phase B (Axis 2) | — (label) | B1, B2 landed; B3 = this map's unit; B4–B6 not implemented | `current-state.md` §G; `DEC-0035` names B0, B1, B3, B5 | **Collides with the Phase-A blocker labels `B1`/`B2`/`B3`** of `PHASE-A-CLOSEOUT-R1` §1 (Git drift · orphaned branch · active-voice docs) — different namespaces, flagged by `current-state.md` §G. B2, B4 and B6 are defined by no canonical record on `main`. |
+| `U1` · `U3` · `PHASE-A-EXIT-CHECK-R1` · `PHASE-A-REMAINING-WORK-CLOSEOUT-ASSESSMENT-R1` | UNIT | improvement Phase A (Axis 2) | — (label) | closed | `PHASE-A-CLOSEOUT-R1` header | **Collides with the SG-8 work-program `U*` labels** in the next row. |
+| `U1` · `U2` · `U3A-DECOUPLE` · `U3A-GRANTS` | UNIT | SG-8 reproducibility work program (Axis 1) | — (label) | see source records | `DEC-0023`, `DEC-0025`, `DEC-0026`, `DATA-SG8-001`, `docs/agents/handoffs/HANDOFF-U3A-GRANTS.md` | Data-engine units. Not the Phase-A `U1`/`U3`. |
+| `SG-0` … `SG-8` | GATE | channel-data collection track (`DATA-COLLECT-002`) (Axis 1) | — (label) | SG-1 and SG-2 green at registration; **SG-0 recorded *herdado* (inherited), not green**; SG-6 closeout landed; others per source | checklist sourced from `SEC-0019`, registered in `DEC-0018` | **`SG-8` carries two senses — see §4.** Per-gate status lives in the track's own records and is not restated here. **No `SG-9` exists.** |
+| `SG-V0` … `SG-V8` | GATE | video-collection track (`DATA-COLLECT-001`) (Axis 1) | — (label) | SG-V1/V3/V6/V7 records landed; others per source | `docs/data/HANDOFF-data-collect-001-video-track.md` §7 | **Deliberately separate namespace from `SG-N`** — the source states the `SG-V*` label exists *"para não colidir com a numeração do 002"*. Explicit non-conflation. |
+| `P5-REPRO-01` | GATE | data-engine reproducibility (Axis 1) | — (label) | recorded as blocking before first publish | `docs/data/DATA-REPRO-001-p5-repro-harness-spec.md`; registered as the `SG-8` slot in `DEC-0018` | A single gate identifier, not a ladder. **Not** PG-EXIT `P5`, **not** `Fase 5`. |
+| `P0` … `P10` (PG-EXIT) | PHASE | PG-EXIT program (Axis 1) | — (label) | **Every item P2–P10 is DEFINED** by the `DEC-0028` §9 plan table (*"proposal — nothing executed; each gated docs/design→GO"*). Per item: **P0/P1** closed by `DEC-0028` · **P2 DEFINED and IMPLEMENTED — landed local/dev only** · **P3** series adjudicated (next row) · **P4·P5·P6·P7·P8 DEFINED, nature *design/impl on GO*, no execution evidence on `main`** · **P9** not started · **P10** has not occurred | plan table at `DEC-0028` §9 (P2–P10); P0/P1 in the `DEC-0028` header | **Defined-but-not-executed is not UNKNOWN.** Per-item qualifiers below the table. Collides by shape with `P5-REPRO-01` and with `Fase N`. |
+| `P3A` · `P3B` · `P3B2` · `P3C` | UNIT | PG-EXIT P3 (migration-runner proof) (Axis 1) | — (label) | P3A → Sqitch rejected (`DEC-0029`); P3B/P3B2 → Flyway rejected (`DEC-0030`); **P3C = preserved evidence only** | `DEC-0029`, `DEC-0030`, `DEC-0032`; P3C material in §5 | Runner selection remains open: `DEC-0032` §5 authorizes nothing positively. |
+| `S1-PREP-R*` | UNIT | PG-EXIT P3C execute-pre (Axis 1) | — (label) | HISTORICAL / preserved only | preserved ref only (§5) | Eight revisions preserved, `R9` highest, `R6` absent. Never main-landed authority. |
+| `D-S1` · `D-S2` · `D-X1a` · `D-X1b` · `D-X2` | UNIT | Phase-A Unit-D containment chain (Axis 2) | — (label) | all closed | `DEC-0033` §4; `D-X1b` preserved evidence routed in §5 | Memorialized as **verified outcomes, not retroactive authorization**; `DEC-0033` §8: nothing re-armed. |
+| `OD-01` … `OD-07` | DECISION | product scope | class flagged, not adjudicated (`DEC-0035` §9) | OD-01/02/05 recorded resolved; OD-03/04/06/07 recorded open | `docs/product/scope-guardrails.md` | **Two-digit series.** `OD-06` (where decisions are recorded) remains formally OPEN — `DEC-0035` Annex A row 9. `OD-05` also appears in `docs/foundation/monorepo-structure.md`. |
+| `OD-1` … `OD-7` | DECISION | PG-EXIT | INTERNAL-NORMATIVE via `DEC-0028` | OD-1 decided (§4); OD-5 closed by `DEC-0029`; OD-2/3/4/6/7 open | `DEC-0028` §4 and §8 | **One-digit series — not the two-digit one.** `DEC-0032` §6 binds non-conflation for **one pair only** (historical `DEC-0027` §4 `OD-N` vs `DEC-0028` §8 `OD-N`) and names `DEC-0028` §8 as the current namespace where applicable. **It does not bind a general cross-series rule.** |
+| `OD-DB-01` … `OD-DB-08` | DECISION | database model | as its adjudicating record | `OD-DB-01/04/06/07` ratified by Data/AI; items conditioned on Security/Backend remain DRAFT/PROPOSED (`DEC-0035` §9) | raised in `docs/database/mvp-data-model.md`; adjudicated by `DEC-0003` | `OD-DB-07` is ratified in `docs/database/DATA-AI-REVIEW-mvp-data-model.md` and cited in `DEC-0003`'s status line, but is **not enumerated in `DEC-0003`'s own decision body**. |
+| `OD-A` … `OD-E` | DECISION | Supabase legacy structural inspection | EVIDENCE-borne open questions | see source | `docs/database/SUPABASE-LEGACY-STRUCTURAL-BRIEF-R0.md` | Letter series. Unrelated to every numeric `OD` family. |
+| `OD-V1` · `OD-V2` | DECISION | video-collection track | as its adjudicating record | `OD-V2` closed by `DEC-0020`; `OD-V1` recorded OPEN at the source | `docs/data/HANDOFF-data-collect-001-video-track.md`; `DEC-0020` | Video namespace. |
+| `OD-PROV-02` | DECISION | Fase-2 provenance gap (Axis 1) | as its ratifying record | opened in `DEC-0009`; **resolved by `DEC-0010`** | `DEC-0010` title and status line; apply evidence in `docs/database/HANDOFF-phase2-apply-closeout.md` | A sixth, standalone `OD` namespace. Route to the ratifying decision record, not to the handoff that evidences it. |
+| `checkpoint/*` · `spike/*` · `wip/*` · legacy branch refs | — (Git refs) | preserved evidence | EVIDENCE | HISTORICAL | §5 | **Preservation is not adoption** (`DEC-0035` §9). |
+
+**PG-EXIT per-item qualifiers.** Each is defined by `DEC-0028` §9; none of P4–P8 carries execution evidence, and none is authorized here.
+
+| Item | Weakest accurate status | Qualifier |
+|---|---|---|
+| **P2** | DEFINED · **IMPLEMENTED AND LANDED on `main`** — local/dev only | `infra/postgres/**`, 14 tracked files, landed via PR #67 merge `46198f5` (commits `86b3f03`, `2a1b052`). **Not production provisioning:** `PHASE-A-CLOSEOUT-R1` §2C records `infra/postgres` as local/dev plus design/spike material, **not a deployed production successor**. |
+| **P4** | DEFINED · *design/impl on GO* · no execution evidence | Port legacy `0001` → vanilla: `noxund_identity.users`, `is_admin()` via transaction-local actor, drop Supabase-role grants, Security re-review. |
+| **P5** | DEFINED · *design/impl on GO* · no execution evidence | Port legacy `0002`–`0006` → vanilla (mechanical: drop `anon`/`authenticated` grantees); verifies updated. **Not** `Fase 5`, **not** `P5-REPRO-01`. |
+| **P6** | DEFINED · *design/impl on GO* · no execution evidence | Rewrite the hermetic CI harness without the Supabase CLI, preserving loopback-only / no-secrets / SHA-pin / always-destroy. **The unit stands; its named mechanism does not** — §9 specifies *"Compose + Sqitch"*, and `DEC-0029` closed `OD-5` as **REJECT SQITCH**. Runner selection remains open (`DEC-0032` §5). |
+| **P7** | DEFINED · *design/impl on GO* · no execution evidence | Vanilla design of the SG-8 units (former `0008` ~intact; former `0009` rewritten per `OD-2`); *"Resolves PR #65's destination"*. **Depends on `OD-2`, still open** at `DEC-0028` §8. |
+| **P8** | DEFINED · *design/impl on GO* · no execution evidence | Retire obsolete env/secrets/vars; re-point Environments (`production-db`→self-hosted; `youtube-collection` keeps `YOUTUBE_API_KEY`). **Ordering constrained by later authority — see the `P8`→`P9` and `DEC-0034`→`DEC-0033` §5 rows in §3.** `PHASE-A-CLOSEOUT-R1` §4 routes its content (`SUPABASE_DB_URL`→`NOXUND_DB_URL`, workflow re-pointing) to future successor implementation. |
+
+**Nine distinct ladders, not one.** **Axis 1 (product / engineering):** `Fase 1–9` (DB) · `Fase A–D` (video) · `SG-0…SG-8` (channel data) · `SG-V0…SG-V8` (video) · `P5-REPRO-01` (repro gate) · PG-EXIT `P0…P10` · `P3A/P3B/P3B2/P3C`. **Axis 2 (development-system improvement):** Unit-D `D-S*`/`D-X*` · improvement `Phase A–F`. There is **no global lifecycle** and no single progress number.
+
+---
+
+## 3. Supersession and relation table
+
+**Explicit edges only.** A row is `EXPLICIT` when the *from* or *to* artifact states the relation in its own text. **Chronological adjacency is not a relation** (`DEC-0035` §4 P2); anything not stated is absent from this table rather than inferred into it. Where a stated relation does not map cleanly onto one token, the scope column carries the exact limit. `REDIRECTS-TO` rows are presented from the reader's side — *if you are reading X, also read Y for this scope* — and assert **no** supersession; the underlying statement always comes from the *to* artifact.
+
+| From | Relation | To | Scope | Source of the edge | Kind |
+|---|---|---|---|---|---|
+| `DEC-0007` | REDIRECTS-TO | `DEC-0008` | the consolidated `run_migration` gate board only — recorded closed, Fase 1 applied and verified | landed in-file marker in `DEC-0007` (*"FECHADO (2026-06-24) — ver DEC-0008"*) | EXPLICIT |
+| `DEC-0009` | REDIRECTS-TO | `DEC-0010` | resolution of `OD-PROV-02`, opened in `DEC-0009` | `DEC-0010` title and status line (*"Resolve a `OD-PROV-02` aberta na DEC-0009"*) | EXPLICIT |
+| `DEC-0017` | PARTIALLY-SUPERSEDES | `DATA-OPP-001` | the `raw_score`-based ranking-key proposal only (item 2, `OPP-03`) | `DEC-0017` item 2 (*"Supersede a proposta `raw_score`-based do `DATA-OPP-001`"*) | EXPLICIT |
+| `DEC-0017` | PARTIALLY-SUPERSEDES | `DATA-CHANNEL-001` | the set of four ordered gates only (item 5, `channel-filter-v1`) | `DEC-0017` item 5 (*"Supersede o conjunto de 4 gates ordenados"*) | EXPLICIT |
+| `DEC-0004` | EXTENDS | `context/02_Stack_Infra_Architecture.md` §7 | closes a **missing enumeration** in the API surface — the follow-up response-capture route; no scope expansion | `DEC-0004` title and §*Escopo* (*"Fecha enumeração faltante em `02_…` §7"*) | EXPLICIT |
+| `DEC-0015` | EXTENDS | `DEC-0014` | records `DEC-0014` closed by the entity-candidates apply, and the named `OPEN-DATA-ENTITY-001` item resolved in the live schema | `DEC-0015` item 4 (*"**DEC-0014 está fechada** por este apply"*) | EXPLICIT |
+| `DEC-0019` | EXTENDS | `DEC-0017` | closes the named open item *"self_channel micro-open"* only | `DEC-0019` item 1 (*"**Fecha** o item aberto … da DEC-0017"*) | EXPLICIT |
+| `DEC-0022` | PARTIALLY-SUPERSEDES | `DEC-0019` §2 | the classification of the Channel Filter's tolerance as **by-design** (and of the defensive hardening as optional **P2**) — item 3 *"remove e inverte"* that tolerant path, and item 4 names that classification as the *"ponto específico"* superseded. **Ingestion ownership of DC2-01 enforcement is NOT superseded** — item 1 expressly keeps it with the gated collection layer (*"Nada no DEC-0019 §2 quanto a ownership de ingestão é revogado"*). **Amends; expressly does not revoke** — `DEC-0019`'s body is not rewritten, and the decision hierarchy reads §2 *through* `DEC-0022` | `DEC-0022` title and status line (*"**Emenda** o DEC-0019 §2 (não o revoga)"*); `DEC-0022` item 4 | EXPLICIT |
+| `DEC-0023` | EXTENDS | `DATA-AUDIT-001` | closes the governance residue `OPEN-A/B/C` only; alters no version, hash or golden digest | `DEC-0023` title and status line (*"Fecha o resíduo de governança do `DATA-AUDIT-001` (OPEN-A/B/C)"*) | EXPLICIT |
+| `DEC-0023` §D-F | EXTENDS | `DATA-CHANNEL-001` · `DATA-OPP-001` · `DATA-CONST-001` · `DATA-SCORING-001` | authorizes **additive addenda and SUPERSEDED markers only**, each bound to an already-existing decision; introduces no new decision and never rewrites an original body | `DEC-0023` §D-F | EXPLICIT |
+| `DEC-0025` | PARTIALLY-SUPERSEDES | `DATA-SG8-001` | §5.3 and §R **in their LLM-specific parts**; `Q-3`/`Q-5` **in their provider/model parts** | `DEC-0025` header *Supera explicitamente* | EXPLICIT |
+| `DEC-0025` | PARTIALLY-SUPERSEDES | `DEC-0024` item 4 | *"Fronteira LLM (Q-3/§5.3) fora do digest"* — item 4 of `DEC-0024`'s **Decisão** list, **not** item 4 of its later hardening list (*"Default-deny reforçado"*) | `DEC-0025` header *Supera explicitamente* | EXPLICIT |
+| `DEC-0026` | NARROWS | `DEC-0025` §*Fronteira e não-goals* | unblocks that clause's non-authorization of migration `0009` **exclusively for `U3A-GRANTS`, design-only** — no apply, merge, Environment or secret | `DEC-0026` header *Relaciona* (*"esta decisão a **destrava** especificamente para U3A-GRANTS"*) | EXPLICIT |
+| `DEC-0028` | SUPERSEDES | `DEC-0005` | Auth = Supabase, whole record | `DEC-0028` header; §4 closing line | EXPLICIT |
+| `DEC-0028` | SUPERSEDES | `DEC-0021` | RO-1 Supabase auto-pause mitigation | `DEC-0028` header | EXPLICIT |
+| `DEC-0028` | PARTIALLY-SUPERSEDES | `context/02_Stack_Infra_Architecture.md` | Supabase-managed stack portions only | `DEC-0028` header (**only** — the in-file note at `context/02`:5 does not name `DEC-0028`) | EXPLICIT |
+| `DEC-0034` | PARTIALLY-SUPERSEDES | `context/02_Stack_Infra_Architecture.md` | the permanent Supabase retirement; the remainder is preserved as the historical stack record | landed in-file note at `context/02`:5, which names **`DEC-0034` only** | EXPLICIT |
+| `DEC-0028` + `DEC-0034` | PARTIALLY-SUPERSEDES | `context/00_Product_Lead_Decision_Log.md` | the Supabase Auth/DB/Cron choice only | landed in-file note in `context/00`; `DEC-0035` §9 | EXPLICIT |
+| `DEC-0028` | NARROWS | historical `DEC-0027` | neutralizes the **remote-apply intent** only | `DEC-0028` header | EXPLICIT |
+| `DEC-0028-ADDENDUM` | EXTENDS | `DEC-0028` | meaning of the two `DEC-0027` references inside the frozen body; introduces no new decision | addendum header | EXPLICIT |
+| `DEC-0024-ADDENDUM` | EXTENDS | `DEC-0024` | migration ordering policy; alters neither the decision nor its SQL artifacts | addendum header | EXPLICIT |
+| `DEC-0029` | EXTENDS | `DEC-0028` | §3 and §8; does not edit `DEC-0028` | `DEC-0029` header | EXPLICIT |
+| `DEC-0030` | EXTENDS | `DEC-0029` | §7 (successor candidates) | `DEC-0030` header | EXPLICIT |
+| `DEC-0030` | EXTENDS | `DEC-0028` | §3 and §8 | `DEC-0030` header | EXPLICIT |
+| `DEC-0032` | EXTENDS | `DEC-0028` · `DEC-0029` · `DEC-0030` | `DEC-0028` §3/§8; the two runner rejections | `DEC-0032` header | EXPLICIT |
+| `DEC-0032` | SUCCESSOR-OF | historical `DEC-0027` §3 | the **durable content of §3 only**; the §4 `OD-N` labels stay HISTORICAL | `DEC-0032` title, §1, §6, §7 | EXPLICIT |
+| `DEC-0033` | EXTENDS | `DEC-0028` | §6, §7 and §9; edits none of `DEC-0028`…`DEC-0032` | `DEC-0033` header | EXPLICIT |
+| PG-EXIT `P8` | DEPENDS-ON | PG-EXIT `P9` | binding precondition; **superseded by `DEC-0034` §4 only for the legacy Supabase retirement path**. P8 still requires its own GO (`DEC-0028` §9) | `DEC-0033` §5; `DEC-0034` §4 | EXPLICIT |
+| `DEC-0034` | PARTIALLY-SUPERSEDES | `DEC-0028` §10 | the *Security & Privacy* dataset-protection condition, **legacy dataset only**; §9's P9 export/restore limb withdrawn for that dataset | `DEC-0034` header; §4 table | EXPLICIT |
+| `DEC-0034` | PARTIALLY-SUPERSEDES | `DEC-0033` §5 (and §6 final ¶ by its own terms) | the P9-before-P8 precondition, **legacy Supabase retirement path only**; `DEC-0033` §8 undisturbed | `DEC-0034` header; §4 table | EXPLICIT |
+| `DEC-0035` | EXTENDS | `DEC-0032` §8 · `DEC-0022` §4 · `DEC-0023` §D-F · `DEC-0031` · `DEC-0034` §7 | Canonical Context V2 routing; additive-only doctrine; Phase-A boundary. **Edits no prior DEC** | `DEC-0035` header | EXPLICIT |
+| `DEC-0009` | REDIRECTS-TO | `DEC-0031` | the numbering-identity question only; `DEC-0031` expressly does not alter `DEC-0009` | `DEC-0031` header *Relaciona* / *Escopo*; `DEC-0035` Annex A row 3 | EXPLICIT |
+| `DEC-0010` | REDIRECTS-TO | `DEC-0031` | canonical Fase-2 authority; `DEC-0010` unaltered | `DEC-0031` header | EXPLICIT |
+| `SEC-0008` | REDIRECTS-TO | `SEC-0027` | Fase-2 verify-parity correction; `SEC-0008` corrected **additively**, body unchanged | `DEC-0031` header; `DEC-0035` §9 | EXPLICIT |
+| `SEC-0009` | REDIRECTS-TO | `DEC-0031` | attribution reinterpreted additively | `DEC-0031` header | EXPLICIT |
+| `SG-8` (gate slot) | REDIRECTS-TO | `P5-REPRO-01` | the gate slot's content is the repro harness, blocking before first publish | `DEC-0018` gate-checklist row | EXPLICIT |
+| `PHASE-A-CLOSEOUT-R1` §4 | REDIRECTS-TO | improvement Phase B · Phase C · future successor work | deferred sets, routed and not solved | `PHASE-A-CLOSEOUT-R1` §4 | EXPLICIT |
+| `current-state.md` | DEPENDS-ON | `DEC-0035` | classification, precedence and supersession semantics | `current-state.md` header, §F | EXPLICIT |
+| this map | DEPENDS-ON | `current-state.md` · `DEC-0035` | current-state facts; classification model | this document's header | EXPLICIT |
+
+**Extraction scope — a corrected positive claim, not a clean negative.** Edges were extracted by reading **both** header vocabularies this corpus actually uses: the English verbs (`Supersedes`, `Extends`, `Discharges`) **and** the Portuguese relational verbs (`Supera`, `Emenda`, `Revoga`, `Anula`, `Substitui`, `Fecha`, and `destrava` **only where its object is a document clause**).
+
+An earlier draft of this map asserted that `DEC-0001`…`DEC-0026` declare no edges. **That assertion was wrong**, because it rested on an English-only extraction. The `DEC-0004`, `DEC-0007`, `DEC-0009`, `DEC-0015`, `DEC-0017`, `DEC-0019`, `DEC-0022`, `DEC-0023`, `DEC-0025` and `DEC-0026` rows above are the Portuguese-declared edges it missed.
+
+Every row above was read in its source file — but **exhaustive absence across the early corpus is not claimed**. Treat a missing early-`DEC` edge as *not yet extracted*, never as *verified absent*.
+
+**What was deliberately not encoded.** `destrava` ("unblocks") occurs 21 times across `DEC-0003`…`DEC-0031`; in all but one it unblocks a **task or a gate**, not a document, and none of those is a relation. The single relational use is `DEC-0026`'s, encoded above. **No edge is manufactured here**, and `DEC-0035` declares that it edits no prior DEC. Byte-frozen records (`DEC-0028`, `DEC-0033`) cannot carry their own forward edges — this table is their external forward-reference surface (`DEC-0035` §3.3, §10).
+
+---
+
+## 4. Known-false-assumption guard
+
+Compact corrections to assumptions a fresh reader is likely to form.
+
+- **No `SG-9` definition exists.** The `SG-*` ladder ends at `SG-8`: outside this map's own guard text, `docs/` and `context/` carry no definition of, or reference to, an `SG-9`. A reader who meets the token is looking at an assumption, not at a record.
+- **`SG-8` names two different things, and the evidence classes differ.** Both are navigable; only the link between them is a reading.
+  - **(a) The gate slot** — `SG-8` in the channel-data checklist, content `P5-REPRO-01` pre-publish. **EXPLICIT**, sourced at the `DEC-0018` gate-checklist row (§2).
+  - **(b) The body of work carried under the SG-8 name** — `DATA-SG8-001`, `DEC-0024`/`0025`/`0026`, units `U1`/`U2`/`U3A-*`, migrations `0008`/`0009`. **Observable fact**: those artifacts exist and are named `sg8-*`.
+  - **(c) The transition between them is INFERRED** — the reading that the label *evolved* from (a) into (b). **No artifact declares any change of meaning**; `DATA-SG8-001` calls it *"o gate SG-8"* / *"gate de reprodutibilidade"* throughout. Treat the drift as **inferred historical usage, not established fact**.
+  - **`SG-8` was not terminally completed** in either sense.
+- **`P3C` and `S1-PREP-R*` exist only as preserved evidence** (§5). Neither was ever main-landed authority.
+- **No production successor PostgreSQL exists**, and **migration-runner selection remains open** — three mechanisms rejected, none adopted (`DEC-0032` §5). See `current-state.md` §C.
+- **Improvement Phase D/E/F are Product-Lead program definitions**, not independently landed phase records — A–C are landed. This is **not** "nothing to route to": the current A–F program model is described in `current-state.md` §B. What does not exist is an independently landed D, E or F defining record.
+- **Prepared / registered ≠ executed.** A plan-table row, a registered workflow, an authored migration and a named unit are each a preparation, never evidence of execution.
+- **Registry-active collection workflow ≠ armed.** `youtube-collection.yml` and `video-collection.yml` are registry-`active` and `workflow_dispatch`-only, yet **disarmed and fail-closed**: `.github/collection/` does not exist on `main`, and marker absence *is* the disarmed state (`current-state.md` §D).
+- **Naming is not authorization.** Every identifier in §2 is indexed so it can be found. Resuming any of them requires an explicit Product-Lead GO (`DEC-0035` §6).
+
+---
+
+## 5. Preserved evidence — routing only
+
+Off-`main` refs retained by design. **Every row is EVIDENCE / HISTORICAL. Preservation is not adoption** (`DEC-0035` §9): a preserved ref is citable by exact SHA and is **never** routed from as current state or current authority. The SHAs below are provenance, not the freshness base.
+
+| Ref | SHA | Files | What it preserves |
+|---|---|---|---|
+| `checkpoint/pg-exit-p3c-execute-pre-2026-08-11` | `4382c78` | 403 | PG-EXIT P3C execute-pre working state |
+| `checkpoint/phase-a-primary-2026-08-11` | `151fb46` | 353 | Pre-reconciliation primary checkout; carries the P3C design / execute-pre doc set |
+| `checkpoint/phase2-verify-hotfix-local-2026-08-11` | `42c5952` | 148 | Local Fase-2 verify hotfix state |
+| `checkpoint/phase5-computed-metrics-local-2026-08-11` | `7cdad73` | 233 | Local Fase-5 computed-metrics state |
+| `feat/sg8-r0-preflight-author-production-db` | `2d0fbcd` | 319 | SG-8 R0 remote-promotion preflight — **holds the historical `DEC-0027` record and the DO-NOT-LAND R0 report-format file** (`DEC-0032` §7) |
+| `spike/pg-exit-p3a-sqitch-atomicity` | `8b36bd1` | 344 | Sqitch atomicity falsification (→ `DEC-0029`) |
+| `spike/pg-exit-p3b-flyway-atomicity` | `e8c72f1` | 350 | Flyway least-privilege falsification (→ `DEC-0030`) |
+| `wip/phase6-producer-events-preservation` | `a1ec483` | 286 | Orphaned Fase-6 producer-events SQL; migration `0007` PARKED |
+| `origin/phase2/verify-hotfix` | `a5e68b9` | 147 | Fase-2 verify hotfix branch |
+| `origin/phase5/computed-metrics-apply` | `e84fbb6` | 179 | Fase-5 computed-metrics apply branch |
+| `AdeptLabsDev/noxund-unitd-x1b-run-30450421392-preservation` — external repository | `be83d45` | 11 | **D-X1b**: the Actions logs of run `30450421392`, preserved outside finite Actions retention. A **deliberately maintained preservation surface, not a transient location**: `PRIVATE` · `ARCHIVED` · not a fork · single root commit `be83d455…`, 0 parents · **owner-reversible**, never "immutable" (`DEC-0033` §4). Being private, **a fresh operator may not have access**; class stays EVIDENCE, and `DEC-0033` §8 bars converting it into an adoption |
+
+**Three preserved classes, per `DEC-0035` §9 — two routable, one not.** Git refs and the external preservation repository are listed above and are reachable by exact identifier. The third class, **the local stash entry, is deliberately not given a routing row**: a stash ordinal such as `stash@{0}` is **machine-local and mutable** — it exists only in the clone that created it and moves or vanishes on any later stash operation, so it is not a durable target a fresh operator can reach. The class is recorded here; no pointer is offered, and creating a preservation ref to fix that is outside this unit.
+
+`DEC-0033` §8 expressly forbids converting the D-X1b repository into an adoption or into any product, runtime, build or CI dependency.
+
+**Sentinel residue on preserved refs.** `DEC-0033` §7A records that 18 of 52 remote branches still contain `.github/collection/*.armed` while canonical `main` is clean, classifies this CLEANUP-CANDIDATE / NONBLOCKING, and notes that several of those branches are checkpoint or evidence surfaces. A preserved ref may therefore carry an arming marker that has no force.
+
+`DEC-0033` §7A states safety is fail-closed **three-deep**: (1) sentinel absence on canonical `main`; (2) the **`SEC-F18` main-ref guard** in both collection workflows, which aborts any dispatch whose ref is not `refs/heads/main` and does **not** depend on the Environment; (3) the **GitHub Environment branch policy** restricted to `main` plus a required Product-Lead reviewer. Layers 2 and 3 are what make a dispatch *from* a marker-carrying ref inert.
+
+**P3C preserved design set.** `infra/postgres/spikes/pg-exit-p3c-execute-pre/docs/` on `checkpoint/phase-a-primary-2026-08-11` — 15 files, of which 8 are `S1-PREP-R*` revisions (`R1`–`R5`, `R7`–`R9`; **`R9` highest, `R6` absent**). Preserved design material only.
+
+**Local-ref note.** The local branches `phase2/verify-hotfix` and `phase5/computed-metrics-apply` point at the corresponding `checkpoint/*` SHAs rather than the `origin/*` SHAs listed above; the `origin/*` values are the remote provenance.
+
+**Not routing targets.** Four archives (`context.zip`, `docs.zip`, `design/schema-color.zip`, `infra/postgres/spikes/pg-exit-p3c-execute-pre.rar`) are **absent from every ref**. They are named here only so their absence is not mistaken for a lookup failure. The governing discipline is landed and descriptive, not issued by this map: `PHASE-A-CLOSEOUT-R1` §2A records that known untracked archive residue was *"removed **without inspection**, by exact authorized path only."*
+
+---
+
+*Governed by [`DEC-0035`](decisions/DEC-0035-canonical-context-v2-authority-lifecycle-supersession-model.md). Current state is owned by [`current-state.md`](current-state.md). The `/context` package index remains [`context-index.md`](context-index.md), unmodified.*
