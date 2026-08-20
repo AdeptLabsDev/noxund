@@ -122,7 +122,9 @@ Unlanded identifiers (§B): `DEC-0035` names B0, B1, B3 and B5; **B2, B4 and B6 
 
 **Implemented by B3.** The two-axis separation this document required of the index — **improvement-program routing** kept distinct from **product/engineering-trajectory routing**, so the index does not treat A–F as NOXUND's only historical axis — is carried by [`context-map.md`](context-map.md) §2, which assigns every ladder it registers to Axis 1 or Axis 2.
 
-**B5 closed complete, and it left one question open — open is not incomplete.** The authority class of `docs/product/scope-guardrails.md` stands at **`HOLD — PRODUCT-LEAD ADJUDICATION REQUIRED`**: `DEC-0035` §9 withholds the `docs/product/*.md` default from that one file and states its class *"requires explicit B3 adjudication"*, and neither B3 nor B5 may supply one from a DESCRIPTIVE-CURRENT surface. It is **escalated, not deferred by omission**, it blocks no other unit, and it is **not** an unfinished part of B5's implementation (`context-map.md` §1).
+**B5 closed complete, and the one question it left open is now closed by decision — not by B5.** The authority class of `docs/product/scope-guardrails.md` stood at `HOLD — PRODUCT-LEAD ADJUDICATION REQUIRED`, which no DESCRIPTIVE-CURRENT surface may resolve. The Product Lead adjudicated it, and [`DEC-0036`](decisions/DEC-0036-scope-guardrails-authority-class-descriptive-current.md) landed the result: **`DESCRIPTIVE-CURRENT · CURRENT · EDITABLE`, carrying no INTERNAL-NORMATIVE authority of its own** — route to the governing source, not to the compilation (`context-map.md` §1). That record **discharges the `DEC-0035` §9 deferral by satisfaction; it supersedes nothing and edits no DEC.** It is a decision unit of its own, **not** a retroactive part of B5 and **not** a Phase-B unit label.
+
+*Verified for this paragraph only against `262c71907f24375196d13dc6901f64aa354acfad`, 2026-08-20 (`DEC-0036` unit) — the descendant merge of this document's declared base. No other claim in this document was reverified at that base.*
 
 ---
 

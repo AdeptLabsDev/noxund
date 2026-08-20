@@ -1,5 +1,8 @@
 # Scope Guardrails — NOXUND MVP
 
+**Authority class:** DESCRIPTIVE-CURRENT · **Lifecycle:** CURRENT · **Mutability:** EDITABLE — adjudicado pelo [`DEC-0036`](decisions/DEC-0036-scope-guardrails-authority-class-descriptive-current.md) (2026-08-20).
+**Este arquivo não é um registro de decisão e não carrega autoridade INTERNAL-NORMATIVE própria.** É uma **compilação** de regras cujas fontes estão declaradas abaixo. Uma regra vale pela fonte que a originou, nunca por estar copiada, resumida ou citada aqui — **cite e siga a fonte governante** (`DEC-0036` D3/D4). A linha *"Em dúvida, este arquivo + o decision log decidem"* logo abaixo é **redação imperativa dentro de um artefato descritivo e não confere autoridade a este arquivo** (`DEC-0035` §3.1); quem decide é o decision log e as demais fontes. Divergência entre esta compilação e uma fonte **não é conflito de autoridade**: é reconciliação `STALE-DESCRIPTIVE` (`DEC-0036` D4). O registro `OD-01`…`OD-07` abaixo acompanha esta classe (`DEC-0036` D6).
+
 **Mantido por:** Product Orchestrator Agent
 **Função:** régua binária de "entra / não entra". Em dúvida, este arquivo + o decision log decidem.
 
@@ -115,7 +118,7 @@ Parar e escalar (não decidir sozinho) quando houver:
 | ID | Tema | Estado | Encaminhamento |
 |---|---|---|---|
 | OD-01 | **Vertical:** Relatório Estratégico sugere Jersey Club/plugg; Product Lead travou Chicago Drill. | **Resolvida a favor de Chicago Drill** (`00_...` §3). Registrada por rastreabilidade. | Só reabrir via decisão do Product Lead. |
-| OD-02 | **Auth:** Supabase Auth vs Clerk. | **Resolvida → Supabase Auth** (DEC-0005, confirmada pelo Product Lead 2026-06-20). Coerente com LD-12 (stack) e SEC-D01 (`auth.users`/`auth.uid()`). | Fechada. |
+| OD-02 | **Auth:** Supabase Auth vs Clerk. | **Resolvida → Supabase Auth** (DEC-0005, confirmada pelo Product Lead 2026-06-20). Coerente com LD-12 (stack) e SEC-D01 (`auth.users`/`auth.uid()`). | Fechada. **Nota aditiva (`DEC-0036`, 2026-08-20) — histórico, não corrente:** a `DEC-0005` está **SUPERSEDED** pela `DEC-0028` (`DEC-0035` §9) e o Supabase foi **permanentemente aposentado** (`current-state.md` §C). A resolução ao lado é registro histórico preservado e **não descreve o estado atual**. O provedor de auth sucessor é a **`OD-6` da `DEC-0028` §8** (*future authentication provider and mechanism*), **em aberto** — série de um dígito, não confundir com esta `OD-02`. Esta nota **não reabre, não fecha e não escolhe provedor**. |
 | OD-03 | **Email provider:** Resend vs Postmark. | Em aberto. | Confirmar antes da Sprint 2 (follow-up). |
 | OD-04 | **Cron:** Vercel Cron vs Supabase Scheduled Functions. | Em aberto. | Confirmar antes da Sprint 2. |
 | OD-05 | **FastAPI:** script/worker vs serviço. | Script/worker Python no MVP. | Reavaliar só se virar serviço. |
