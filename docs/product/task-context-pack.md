@@ -4,7 +4,9 @@
 **This is not a decision record; it creates no authority.** It is a **format aid**, the class [`DEC-0035`](decisions/DEC-0035-canonical-context-v2-authority-lifecycle-supersession-model.md) §9 assigns to `docs/agents/handoff-template.md` (*"not a handoff — class: DESCRIPTIVE-CURRENT, a format aid"*). That template is the **return** format; this is the **supply** format.
 **Freshness.** Verified against canonical main `3a1c986570e1e7aa767c89a031b64a6a39c7009a`, 2026-08-19. Once `origin/main` advances past that SHA this document is `STALE-UNTIL-REVERIFIED` for its repository-state citations — **the SHA is provenance, not normative authority**, and `STALE ≠ WRONG`.
 
-**Every rule here about NOXUND authority is derived from a landed record and cited to it, and this artifact introduces no authority model beyond `DEC-0035`** — the sole exception being statements that define this format's own fields, which are definitional, inert and bind nothing, on the `handoff-template.md` format-aid precedent (`DEC-0035` §9). Current state is owned by [`current-state.md`](current-state.md); routing and identifier disambiguation by [`context-map.md`](context-map.md) — a pack **points first and quotes only what the task acts on**, never maintaining a copy of either. **What this is:** a template plus a repeatable selection method for assembling **minimum sufficient context** for one bounded task. **What it is not:** a universal prompt, a roadmap, a DEC inventory, a set of pre-built per-track packs, or any executable mechanism (§6).
+**Every rule here about NOXUND authority is derived from a landed record and cited to it, and this artifact introduces no authority model beyond `DEC-0035`.** Current state is owned by [`current-state.md`](current-state.md); routing and identifier disambiguation by [`context-map.md`](context-map.md) — a pack **points first and quotes only what the task acts on**, never maintaining a copy of either. **What this is:** a template plus a repeatable selection method for assembling **minimum sufficient context** for one bounded task. **What it is not:** a universal prompt, a roadmap, a DEC inventory, a set of pre-built per-track packs, or any executable mechanism (§6).
+
+**How to read obligation-shaped wording in this document.** This artifact is DESCRIPTIVE-CURRENT and **issues no obligation of its own**. Every sentence below that reads as mandatory falls into exactly one of three buckets, marked inline where it could be mistaken for a new rule. **[A] INHERITED** — a landed rule **restated and applied** here, with its authority source named; the obligation is that source's, and a reader follows the source, not this file. **[B] TEMPLATE STRUCTURE** — a property of this reusable format (*the template contains an Exclusions field*), describing the artifact itself and obliging no NOXUND task. **[C] DEFAULT / GUIDANCE** — a B4 heuristic for avoiding over- and under-context: a recommendation, never authority, and departing from it with reason is a judgment call, not a violation. B4 creates **no** new binding rule in any bucket; the format-aid precedent is `handoff-template.md` (`DEC-0035` §9).
 
 ---
 
@@ -14,17 +16,22 @@
 |---|---|---|---|---|
 | **Role / session bootstrap** | *Who am I, and what standing rules bind my behaviour?* | `docs/agents/<role>-agent.md`, `global-agent-rules.md`, `docs/agents/README.md` §*Regras gerais* | Standing behavioural obligation, INTERNAL-NORMATIVE **within its declared agent-behaviour scope** (`DEC-0035` §9) | Persists across tasks |
 | **Task Context Pack** (this format) | *What must this task know to reason correctly?* | Assembled per task from the sources below | **Zero.** DESCRIPTIVE-CURRENT creates no authority (`DEC-0035` §3.1) | One task |
-| **Task / execution writ** | *What is authorized now, what may mutate, what is prohibited, what must be returned?* | The explicit **Product-Lead GO** for the named unit | Execution permission, with the scope it names, expiring with that unit (`DEC-0035` §6) | One unit |
+| **Task / execution writ** | *What is authorized now, what may mutate, what is prohibited, what must be returned?* | A **document** — the task/unit brief that carries or references the authorization | **Nothing by virtue of being one.** Permission comes from the concrete Product-Lead **GO** it carries, and only where that GO is actually present and valid (`DEC-0035` §6) | One unit |
 
-**`writ` names an instrument that already exists.** It is a naming convention for the explicit Product-Lead GO of `DEC-0035` §6 — not a new instrument, not a new class, not a new gate. **A GO does not rewrite, supersede or discharge durable landed authority**; where durable authority must change, the landed-record mechanism must *also* be satisfied (`DEC-0035` §6). **Terminology collision, flagged not resolved:** the repository already uses *bootstrap* in a different sense — the separate Product-Lead **runtime-activation** gate (`docs/agents/agent-registry.md`: `INITIAL-RUNTIME-ACTIVATION = REQUIRES-SEPARATE-PRODUCT-LEAD-BOOTSTRAP-GATE`) — and `current-state.md` §F uses it for a minimum authority summary. **Role/session bootstrap in this document is neither of those.** Naming is not adjudicated here.
+**Three things, not one — the framework, the GO, and the writ.** `DEC-0035` §6 establishes **how** Product-Lead authorization operates: a GO authorizes the currently-scoped execution unit, expires with that unit, and does not rewrite, supersede or discharge durable landed authority (where durable authority must change, the landed-record mechanism must *also* be satisfied). **§6 is the framework. It authorizes no future task and confers permission on nothing.** The **GO** is the concrete, present, valid authorization for one concrete scoped unit — that alone carries execution permission. The **writ** is the *document* that carries or references that GO. **A document holds no execution authority by virtue of its type:**
 
-### 1.1 Why a pack cannot silently become a writ — five derived containments
+> `WRIT ≠ GO UNLESS THE CONCRETE PRODUCT-LEAD AUTHORIZATION IS ACTUALLY PRESENT AND VALID`
 
-1. **Class.** A pack is DESCRIPTIVE-CURRENT. DESCRIPTIVE-CURRENT **can never supersede, repeal or relax** INTERNAL-NORMATIVE (`DEC-0035` §4 P4), and creates no authority at all (§3.1).
-2. **Quotation.** Imperative wording on a non-normative surface **creates no standing obligation**; quoted "must" text carries only the authority of its cited source (`DEC-0035` §3.1, §4 P4). A pack therefore always names the source of any imperative it carries.
-3. **Routing.** `NEXT` / `READY` / `RECOMMENDED` **is not execution authorization** (`DEC-0035` §6); *naming is not authorization* (`context-map.md` §4). A pack places a unit; it never resumes one.
-4. **Structure.** Every pack carries field **§9 Authority boundary** verbatim, and field **§10** **names** its writ without ever containing the authorization. A pack missing either is malformed and must not be acted on — definitional to this format, binding nothing beyond it (`DEC-0035` §3.1, §9).
-5. **Fail-closed header.** A pack is a new context artifact and **must declare its authority class**; absent that declaration it fails closed as NON-AUTHORITATIVE until classified (`DEC-0035` §7). The rule is documentary — no validator exists or is created (`DEC-0035` §12; §6 below).
+B4 still coins no instrument: *writ* names a document class the repository already produces, and the authorizing instrument remains the Product-Lead GO of `DEC-0035` §6. **Terminology collision, flagged not resolved:** the repository already uses *bootstrap* in a different sense — the separate Product-Lead **runtime-activation** gate (`docs/agents/agent-registry.md`: `INITIAL-RUNTIME-ACTIVATION = REQUIRES-SEPARATE-PRODUCT-LEAD-BOOTSTRAP-GATE`) — and `current-state.md` §F uses it for a minimum authority summary. **Role/session bootstrap in this document is neither of those.** Naming is not adjudicated here.
+
+### 1.1 Why a pack cannot silently become a writ — six derived containments
+
+1. **Class** *[A — `DEC-0035` §3.1, §4 P4]*. A pack is DESCRIPTIVE-CURRENT. DESCRIPTIVE-CURRENT **can never supersede, repeal or relax** INTERNAL-NORMATIVE (`DEC-0035` §4 P4), and creates no authority at all (§3.1).
+2. **Quotation** *[A — `DEC-0035` §3.1, §4 P4]*. Imperative wording on a non-normative surface **creates no standing obligation**; quoted "must" text carries only the authority of its cited source (`DEC-0035` §3.1, §4 P4). A pack therefore always names the source of any imperative it carries.
+3. **Routing** *[A — `DEC-0035` §6]*. `NEXT` / `READY` / `RECOMMENDED` **is not execution authorization** (`DEC-0035` §6); *naming is not authorization* (`context-map.md` §4). A pack places a unit; it never resumes one.
+4. **Structure** *[B]*. The template contains a field **§9 Authority boundary**, carried verbatim, and a field **§10** that *names* a writ without containing its authorization. A document lacking either **is not a pack in this format** — a statement about what the format is, not an instruction about anyone's conduct.
+5. **Fail-closed header** *[A — `DEC-0035` §7, restated and applied]*. §7 requires a new context artifact that can carry classification metadata to declare its authority class, and fails it closed as NON-AUTHORITATIVE until classified. **That requirement is §7's; B4 restates and applies it, and does not issue it.** §7 is documentary — no validator exists or is created (`DEC-0035` §12; §6 below).
+6. **`WRIT ≠ GO`** *[A — `DEC-0035` §6: "These are **distinct instruments** and must not be substituted for one another"]*. A pack that references **an old writ, an unapproved writ, a writ carrying no valid Product-Lead GO, or a historical `NEXT`** grants **zero execution authority — as it does in every case**. A pack may name a writ **for routing**; it may never conclude that authorization exists from the presence of a document. Whether a valid GO exists is determined outside the pack, never inside it.
 
 ---
 
@@ -63,7 +70,7 @@ Exact ref + SHA. Labelled EVIDENCE / HISTORICAL · PRESERVED-NOT-ADOPTED.>
 
 ## 7. Open uncertainty / HOLD · orientation
 <Unknowns, authority conflicts, evidence limits. UNKNOWN is a valid value.
-Product-Lead orientation belongs here, labelled as orientation — never in §3.>
+Product-Lead orientation is held in this field, labelled as orientation; the template gives it no slot in §3.>
 
 ## 8. Exclusions
 <Adjacent context deliberately left out, one line each, with the reason.>
@@ -71,24 +78,26 @@ Product-Lead orientation belongs here, labelled as orientation — never in §3.
 ## 9. Authority boundary
 This pack supplies context only. It grants **zero execution authority**, creates no obligation, and
 authorizes no mutation, commit, push, PR, merge, provisioning, arming or run. Execution requires a
-separate, valid, Product-Lead-authorized writ (`DEC-0035` §6). Where this pack quotes imperative
-wording, that wording carries only the authority of its cited source (`DEC-0035` §3.1, §4 P4).
+concrete and valid Product-Lead GO for this unit, carried by a separate writ (`DEC-0035` §6).
+Where this pack quotes imperative wording, that wording carries only the authority of its
+cited source (`DEC-0035` §3.1, §4 P4).
 
-## 10. Writ
-<Named by reference only: which writ is required and where its authorization comes from.
-Never the authorization itself, and never evidence that one exists.>
+## 10. Writ — reference only
+<Name the writ this unit would run under, and where its authorization would come from.
+Naming a writ is **not** evidence that a valid Product-Lead GO exists: this field neither contains
+the authorization nor establishes it. If the GO's existence or validity is unknown, record UNKNOWN.>
 ```
 
 ### 2.1 Field rules
 
-- **§1 Axis is load-bearing, not decoration.** `context-map.md` §2 records **nine distinct ladders** and heavy identifier collision (`Fase 1–9` vs `Fase A–D` vs `Phase A–F`; `U1` in two namespaces; `P5` in three; six independent `OD-*` series). An unresolved axis is an **UNKNOWN**, never a guess.
-- **§2 freshness is a provenance concern, and `STALE ≠ WRONG`.** A source may be `STALE-UNTIL-REVERIFIED` and still fully accurate; reverification may conclude *no content change required* (`current-state.md` freshness contract). Flag the condition; do not discard the source, and never repair a source from inside a pack.
-- **§3 / §5 point first.** Always give the section pointer; **restate only the minimum that makes the routing actionable, never as a maintained copy.** A fuller copy of `current-state.md` or `context-map.md` ages independently — the **STALE-DESCRIPTIVE DEFECT** of `DEC-0035` §4 P4.
-- **§4 classifies at clause granularity**, carrying all three `DEC-0035` axes. **All five authority classes are admissible** — INTERNAL-NORMATIVE · **EXTERNAL-CONSTRAINT** · DESCRIPTIVE-CURRENT · EVIDENCE · NON-AUTHORITATIVE (`DEC-0035` §3.1). *Prompt:* does the task touch a provider, platform or vendor constraint NOXUND must respect but cannot internally repeal — the YouTube-dependent collection track being the live case? **No landed EXTERNAL-CONSTRAINT artifact exists on `main` at this base**, so the class must be **representable, never pre-populated**. A file is never promoted because one of its clauses was ratified elsewhere (§9.1, §11), and **chronology supersedes nothing absent an explicit edge** (§4 P2).
-- **§6 `PRESERVED ≠ ADOPTED`; `HISTORICAL EVIDENCE ≠ CURRENT AUTHORITY`** (`DEC-0035` §9; `DEC-0033` §8). Route only to durable identifiers — never to machine-local mutable ones such as a stash ordinal, for the reason `context-map.md` §5 already gives.
-- **§7 unknown is allowed. Never manufacture certainty to fill a field.** Two CURRENT INTERNAL-NORMATIVE authorities in genuine conflict with no explicit edge → **`HOLD — AUTHORITY-CONFLICT`**, both readings stated, escalated; the winner is never inferred (`DEC-0035` §4 P3). **P5 branch:** an internal record that appears to grant what an EXTERNAL-CONSTRAINT forbids is likewise a **P3-class escalation to the Product Lead, never a self-executed override** (`DEC-0035` §4 P5).
-- **Memory may assist recall, orientation and routing — and nothing more** (`DEC-0035` §5). It is **NON-AUTHORITATIVE**: a pack may never source current Git state, repository state, durable authority, supersession or exact historical status from it. Every material claim is independently established from the repository, and on conflict **the repository wins**.
-- **Product-Lead orientation is admissible as orientation, labelled as such** — never as repository fact. `current-state.md` §B applies exactly this discipline to the Axis-1 pivot.
+- **§1 Axis is load-bearing, not decoration** *[C]*. `context-map.md` §2 records **nine distinct ladders** and heavy identifier collision (`Fase 1–9` vs `Fase A–D` vs `Phase A–F`; `U1` in two namespaces; `P5` in three; six independent `OD-*` series). An unresolved axis is recorded as **UNKNOWN** rather than guessed — the same discipline `DEC-0035` §4 P3 applies to authority conflicts.
+- **§2 freshness is a provenance concern, and `STALE ≠ WRONG`** *[A/C]*. A source may be `STALE-UNTIL-REVERIFIED` and still fully accurate; reverification may conclude *no content change required* (`current-state.md` freshness contract). Flag the condition and keep the source *[C]*. **Repairing a descriptive source is reserved to an authorized unit** — *[A]*, `DEC-0035` §4 P4 and §10; a pack therefore flags and routes, and repairs nothing.
+- **§3 / §5 point first** *[C]*. Give the section pointer, and restate only the minimum that makes the routing actionable rather than maintaining a copy. **Grounded, not issued:** a fuller copy ages independently into the **STALE-DESCRIPTIVE DEFECT** `DEC-0035` §4 P4 names.
+- **§4 classifies at clause granularity** *[A — `DEC-0035` §3.1, §9.1, §11]*, carrying all three `DEC-0035` axes. **All five authority classes are admissible** — INTERNAL-NORMATIVE · **EXTERNAL-CONSTRAINT** · DESCRIPTIVE-CURRENT · EVIDENCE · NON-AUTHORITATIVE (`DEC-0035` §3.1). *Prompt:* does the task touch a provider, platform or vendor constraint NOXUND must respect but cannot internally repeal — the YouTube-dependent collection track being the live case? **No landed EXTERNAL-CONSTRAINT artifact exists on `main` at this base**, so the class is **representable, never pre-populated** *[B]*. A file is never promoted because one of its clauses was ratified elsewhere (§9.1, §11), and **chronology supersedes nothing absent an explicit edge** (§4 P2).
+- **§6 `PRESERVED ≠ ADOPTED`; `HISTORICAL EVIDENCE ≠ CURRENT AUTHORITY`** *[A — `DEC-0035` §9; `DEC-0033` §8]*. Routing to durable identifiers rather than machine-local mutable ones such as a stash ordinal is a **[C] default**: its rationale comes from `context-map.md` §5, itself DESCRIPTIVE-CURRENT, so it is a reasoned default and **not** inherited authority.
+- **§7 unknown is allowed; the field is not filled by manufacturing certainty** *[C]*. **[A]** Two CURRENT INTERNAL-NORMATIVE authorities in genuine conflict with no explicit edge → **`HOLD — AUTHORITY-CONFLICT`**, both readings stated, escalated; the winner is never inferred (`DEC-0035` §4 P3). **[A] P5 branch:** an internal record that appears to grant what an EXTERNAL-CONSTRAINT forbids is likewise a **P3-class escalation to the Product Lead, never a self-executed override** (`DEC-0035` §4 P5).
+- **Memory may assist recall, orientation and routing — and nothing more** *[A — `DEC-0035` §5]*. It is **NON-AUTHORITATIVE**: a pack may never source current Git state, repository state, durable authority, supersession or exact historical status from it. Every material claim is independently established from the repository, and on conflict **the repository wins**.
+- **Product-Lead orientation is admissible as orientation, labelled as such** *[A — `DEC-0035` §3.1, §5]* — never as repository fact. `current-state.md` §B applies exactly this discipline to the Axis-1 pivot.
 
 ---
 
@@ -102,14 +111,14 @@ Never the authorization itself, and never evidence that one exists.>
 **S6 — Surface uncertainty.** Unknowns, conflicts, evidence limits, unresolved HOLDs.
 **S7 — Stop expanding.** Apply the compression test, then stop.
 
-**Compression test — two directions, both mandatory.**
+**Compression test — apply it in both directions** *[C — a B4 default for calibrating scope, not a landed rule]*.
 
 - **Cut:** *if this source were removed, could the task still be performed safely and correctly?* If yes, **cut it**.
 - **Gap:** *is any required source missing only because the pack was optimised for brevity?* If yes, the pack is **under-contextualised** — restore it.
 
 The target is **minimum sufficient context, not minimum bytes.** A pack that passes the cut test and fails the gap test is not lean; it is defective.
 
-### 3.1 The two failure modes
+### 3.1 The two failure modes *[C]*
 
 **UNDER-CONTEXT** — omits load-bearing current state, a governing authority, a collision or routing warning, material history, an unresolved HOLD, or a known uncertainty. *Symptom:* the task proceeds confidently on a false assumption; `context-map.md` §4 is the catalogue of those assumptions. **This is the dangerous mode, because an under-contextualised pack looks lean.**
 
@@ -117,11 +126,11 @@ The target is **minimum sufficient context, not minimum bytes.** A pack that pas
 
 ### 3.2 Anti-growth mechanism
 
-1. **One task, one pack; packs are disposable.** They are not maintained as standing documents. Precedent, as a format convention: `handoff-template.md` §*Notas de uso* — *"Um handoff por tarefa. Tarefas grandes devem ser quebradas antes, não resumidas depois."*
-2. **No standing or pre-built per-track packs**, and **cite by link, quoting only what the task acts on** — never a maintained copy of `current-state.md` or `context-map.md`. A pre-built pack ages into exactly the giant stale bootstrap this format exists to replace.
-3. **Ceiling.** The §4 example is the reference size. Anything materially larger is over-context until every added source has passed the cut test individually.
-4. **Exclusions (§8) are a required field of this format**, not an optional one — definitional, binding nothing beyond the format (`DEC-0035` §9). Growth must then argue against an explicit prior decision instead of accumulating quietly.
-5. **Split rule.** If a pack cannot be assembled at roughly the size of the §4 example, the **task** is too broad — split the task, not the pack.
+1. **Default: one task, one pack, and packs are disposable** *[C]* — not maintained as standing documents. Format precedent, not authority: `handoff-template.md` §*Notas de uso* — *"Um handoff por tarefa. Tarefas grandes devem ser quebradas antes, não resumidas depois."*
+2. **Default: no standing or pre-built per-track packs** *[C]*, and cite by link, quoting only what the task acts on rather than maintaining a copy of `current-state.md` or `context-map.md`. Rationale: a pre-built or copied pack ages into exactly the giant stale bootstrap this format exists to replace.
+3. **Size calibration, not a limit** *[C]*. The §4 example is a useful reference for scale, and a pack growing well past it is worth re-testing source by source. **No numeric or absolute pack-size ceiling is created here, and landed authority establishes none — minimum sufficient context governs, not size.** A larger pack whose every source passes the cut test is **not** thereby defective; a smaller one that fails the gap test is.
+4. **The template contains an Exclusions field (§8)** *[B]*. Recording what was left out gives later growth something explicit to argue against, rather than letting it accumulate unremarked *[C]*.
+5. **Split default** *[C]*. If a pack cannot be assembled at roughly the size of the §4 example, that is a signal the **task** is too broad; the usual remedy is splitting the task rather than the pack.
 
 ---
 
@@ -181,7 +190,7 @@ improvement Phase A–F unit history — different axis · the full `OD-*` inven
 ## 9. Authority boundary
 <verbatim, per §2 of the format>
 
-## 10. Writ
+## 10. Writ — reference only
 **Required and not present.** No PG-EXIT unit is authorized by this pack. Authorization for any successor-database
 unit comes only from an explicit Product-Lead GO naming that unit (`DEC-0035` §6). This pack neither contains
 such a GO nor evidences one.
@@ -196,7 +205,7 @@ Demonstration of the mechanism, **not** execution of any of these tasks.
 | Case | Axis | Included beyond the mandatory header | Deliberately excluded | The one trap |
 |---|---|---|---|---|
 | **A — routine Phase-B docs task** | 2 | `current-state.md` §B, §G · `DEC-0035` §3, §4, §7, §9 (`docs/product/*.md` row), §14 topology · `context-map.md` §1 and its §2 `B0…B6` row | Every Axis-1 track and ladder · all preserved refs · PG-EXIT · collection · agent runtime | `current-state.md` §B, §G and §I still read *"B3 is **not authorized**"* / *"B3 context index — **NOT YET IMPLEMENTED**"* / *"not yet landed"* while B3 has landed. That is a **STALE-DESCRIPTIVE DEFECT** (`DEC-0035` §4 P4): flag it in field §2, act on the landed reality, and **do not repair it from inside a pack** — see §6. **Smallest of the four packs.** |
-| **B — future PostgreSQL successor task** | 1 | §4 above, in full | Frontend · GTM · SG and video ladders · Axis-2 unit history · non-PG `OD-*` series | Treating a historical PG-EXIT `NEXT`, *"required next gate"* or *"recommended"* label — in memory or inside preserved P3C material — as current authorization. It is not (`DEC-0035` §6; `context-map.md` §4 *Naming is not authorization*). |
+| **B — future PostgreSQL successor task** | 1 | §4 above, in full | Frontend · GTM · SG and video ladders · Axis-2 unit history · non-PG `OD-*` series | Treating a historical PG-EXIT `NEXT`, *"required next gate"* or *"recommended"* label — in memory or inside preserved P3C material — **or an old or unapproved writ naming a PG-EXIT unit** — as current authorization. None of them is: a writ carries permission only where a concrete, valid Product-Lead GO is actually present (`DEC-0035` §6; §1.1 containment 6; `context-map.md` §4 *Naming is not authorization*). |
 | **C — historical P3C / `S1-PREP-R*` investigation** | 1 (historical) | `context-map.md` §5 preserved rows and the P3C preserved design-set note (`checkpoint/phase-a-primary-2026-08-11`; 15 files; `S1-PREP-R1`–`R5`, `R7`–`R9`, **`R6` absent**) · §2 rows `P3A/P3B/P3B2/P3C` and `S1-PREP-R*` · `DEC-0029` / `DEC-0030` / `DEC-0032` §5 for what was concluded | Current-state §A, §D, §E · improvement-program history · anything needed to *adopt* a runner rather than to *read* what was falsified | Letting preserved material read as current design or as authority. `PRESERVED ≠ ADOPTED`; `HISTORICAL EVIDENCE ≠ CURRENT AUTHORITY` (`DEC-0035` §9; `DEC-0033` §8). Also: the four archives named in `context-map.md` §5 are absent from every ref and are **not** inspection targets. **Deepest history of the four; almost no current-truth slice.** |
 | **D — future Phase-C agent-governance task** | 2 (not started) | `current-state.md` §E · `DEC-0032` §8 (`packages/orchestrator` **DEFER-PHASE-C**) · `DEC-0035` §12 Phase-C boundary and its §11 worked case · `PHASE-A-CLOSEOUT-R1` §4 Phase-C row · `docs/agents/README.md` (INTERNAL-NORMATIVE *Regras gerais* plus the *vinculante* registry-first provisioning gate; DESCRIPTIVE-CURRENT three-state model) · `context-map.md` §1 agents row | All Axis-1 tracks · DB and PG-EXIT · collection · preserved refs | **Locating Phase-C context and then designing Phase C.** A pack locates; it decides nothing. Phase C is NOT STARTED and needs its own GO. Note also the known stale `orchestration-runtime.md` `Status: implementado` line (`DEC-0035` §11, Annex A row 8) — flag, do not repair. |
 
