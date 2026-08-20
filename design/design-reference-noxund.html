@@ -25,6 +25,12 @@ body,h1,h2,h3,h4,p,figure,blockquote,dl,dd,ul,ol{margin:0}
 ul,ol{padding:0;list-style:none}
 img,svg{display:block;max-width:100%}
 button,input,select,textarea{font:inherit;color:inherit}
+/* 700 is declared deliberately six times in this sheet, always on a mono
+   micro-mark under 16px: the accepted chip, the HOT tag, the three state
+   glyphs, and two uppercase annotation labels. What it must never do is arrive
+   by accident on body prose through the UA default for <strong>, which is the
+   one place nothing chose it. Pinned to the 600 ceiling instead. */
+strong{font-weight:600}
 table{border-collapse:collapse;border-spacing:0}
 
 /* --- LANDED TOKENS ------------------------------------------------------- */
@@ -90,6 +96,9 @@ body{
   box-shadow:0 0 0 2px var(--void),0 0 0 4px var(--text-primary);
   border-radius:var(--r1);
 }
+
+/* The forced-colors focus fallback is NOT here: it lives in the last block of
+   this sheet, because it has to outrank two later outline:none rules. */
 
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{
@@ -176,6 +185,7 @@ body{
 .chip--open::before{content:"—";font-weight:700}
 .chip--conflict{border:1px solid var(--text-primary);border-left-width:4px;color:var(--text-primary)}
 .chip--landed{border:1px solid var(--alpha-300);color:var(--text-muted)}
+.chip--decided{border:1px solid var(--alpha-400);border-bottom-width:3px;padding-bottom:3px;color:var(--text-primary)}
 
 /* --- SPECIMEN BLOCK ------------------------------------------------------
    Every demonstration is framed identically: a mono caption strip naming the
@@ -203,14 +213,14 @@ body{
    never as this sheet's own page chrome. */
 .viewport{border:1px solid var(--alpha-200);border-radius:var(--r2);overflow:hidden;background:var(--void)}
 .viewport__bar{
-  display:flex;align-items:center;gap:var(--s3);padding:8px var(--s4);
+  display:flex;align-items:center;gap:var(--s3);padding:var(--s2) var(--s4);
   border-bottom:1px solid var(--alpha-200);
   font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);
 }
 
 /* Definition rows used across sections */
 .deflist{display:grid;gap:0}
-.deflist__row{display:grid;grid-template-columns:minmax(120px,180px) 1fr;gap:var(--s6);padding:12px 0;border-top:1px solid var(--alpha-200)}
+.deflist__row{display:grid;grid-template-columns:minmax(120px,180px) 1fr;gap:var(--s6);padding:var(--s3) 0;border-top:1px solid var(--alpha-200)}
 .deflist__row:first-child{border-top:0}
 .deflist__k{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);padding-top:2px}
 .deflist__v{min-width:0}
@@ -230,6 +240,37 @@ body{
 }
 
 /* ======= SECTION-SCOPED STYLES ARE APPENDED BELOW BY LATER STAGES ======== */
+/* --- SCRIM · LANDED APPROVED PATTERN (frontend-agent.md, atmosphere A) -----
+   A gradient from the ground to transparent, laid over the edge of a real
+   scroll boundary so content that continues dissolves into the page instead of
+   being guillotined by the frame. It is functional, not atmospheric: it appears
+   only where content actually continues past the edge, and never as decoration.
+
+   Two rules are mandatory and are why it is safe to lay over live content:
+     pointer-events:none   it must never intercept a click or a drag
+     aria-hidden="true"    it is a rendering of an edge, not content
+
+   The frame carries a container so each application can be gated on the exact
+   width at which its own content starts to overflow. The scrim is a sibling of
+   the scroller, never a child of it, or it would scroll away with the content. */
+.scrimf{position:relative;container:scrimf / inline-size}
+.scrimf>.scrim{position:absolute;z-index:2;pointer-events:none;display:none}
+.scrim--l,.scrim--r{top:0;bottom:0;width:var(--scrim,30px)}
+.scrim--t,.scrim--b{left:0;right:0;height:var(--scrim,30px)}
+.scrim--l{left:0;background:linear-gradient(to right,var(--void),transparent)}
+.scrim--r{right:0;background:linear-gradient(to left,var(--void),transparent)}
+.scrim--t{top:0;background:linear-gradient(to bottom,var(--void),transparent)}
+.scrim--b{bottom:0;background:linear-gradient(to top,var(--void),transparent)}
+/* Each threshold is the min-width of the content that frame wraps: below it the
+   content overflows and the scrim is true; at or above it there is nothing to
+   fade, and drawing one would be decoration over live type. */
+/* the report table reflows to stacked cards at 820px, so it only ever scrolls
+   sideways in the band between that reflow and its own 880px minimum */
+@container scrimf (min-width:821px) and (max-width:879px){ .scrimf--report>.scrim{display:block} }
+.scrimf--report{--scrim:24px}
+/* the specimen in B2b: a real scroll box, always overflowing, always true */
+.scrimf--demo>.scrim{display:block}
+
 /* @stage2 */
 /* ===========================================================================
    SECTION B — FOUNDATIONS
@@ -237,7 +278,9 @@ body{
    frame. Zero saturation, zero box-shadow, depth from --alpha-* only.
    =========================================================================== */
 
-.b-pair{display:grid;gap:var(--s6);grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));margin-bottom:var(--s6)}
+/* same breakpoint as .c-pair: below this the two specimens stack rather than
+   squeezing their caption bars into half a column */
+.b-pair{display:grid;gap:var(--s6);grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));margin-bottom:var(--s6)}
 .b-pair>.spec{margin-bottom:0}
 .b-scroll{overflow-x:auto;overscroll-behavior-x:contain}
 
@@ -261,7 +304,7 @@ body{
 .b-alpha{display:grid;gap:10px;align-content:start}
 .b-demo{
   min-height:98px;background:var(--void);border:1px solid var(--alpha-200);
-  border-radius:var(--r1);display:grid;align-content:center;gap:8px;padding:var(--s3);
+  border-radius:var(--r1);display:grid;align-content:center;gap:var(--s2);padding:var(--s3);
 }
 .b-row{padding:7px 10px;border-radius:var(--r1);font-family:var(--font-mono);font-size:11px;line-height:14px;color:var(--text-muted)}
 .b-row--hover{background:var(--alpha-100);color:var(--text-primary)}
@@ -327,7 +370,7 @@ body{
 .b-btn{
   display:inline-flex;align-items:center;justify-content:center;
   font-family:var(--font-sans);font-size:14px;line-height:20px;font-weight:600;letter-spacing:-0.28px;
-  padding:9px 16px;border:1px solid var(--alpha-300);background:transparent;color:var(--text-primary);
+  padding:9px var(--s4);border:1px solid var(--alpha-300);background:transparent;color:var(--text-primary);
   border-radius:var(--r1);cursor:pointer;
   transition:background-color 150ms var(--ease-decided),border-color 150ms var(--ease-decided);
 }
@@ -436,20 +479,20 @@ body{
 .c-cta{
   margin-top:clamp(24px,2.6vw,32px);
   display:inline-flex;align-items:center;justify-content:center;
-  padding:12px 22px;border:0;border-radius:var(--r1);cursor:pointer;
+  padding:var(--s3) 22px;border:0;border-radius:var(--r1);cursor:pointer;
   background:var(--text-primary);color:var(--void);
   font-family:var(--font-sans);font-size:14px;line-height:20px;font-weight:600;letter-spacing:-0.14px;
   transition:transform 180ms var(--ease-decided);
 }
 .c-cta:hover{transform:translateY(-1px)}
 .c-cta:active{transform:translateY(0)}
-.c-accessside{display:grid;gap:8px;padding-bottom:6px}
+.c-accessside{display:grid;gap:var(--s2);padding-bottom:6px}
 .c-accessside span{font-family:var(--font-mono);font-size:11px;line-height:17px;letter-spacing:.06em;color:var(--text-muted)}
 
 /* legend attached under the frame */
 .c-legend{
   margin-top:-1px;border:1px solid var(--alpha-200);border-top:0;border-radius:0 0 var(--r2) var(--r2);
-  background:var(--surface-100);padding:12px var(--s4);
+  background:var(--surface-100);padding:var(--s3) var(--s4);
   display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px var(--s3);align-items:start;
 }
 .c-legendrow{display:contents}
@@ -495,7 +538,7 @@ body{
   font-family:var(--font-mono);font-size:11px;line-height:17px;color:var(--text-muted);
 }
 .d-anno--top{border-bottom:1px solid var(--alpha-200)}
-.d-anno--inline{border-left:2px solid var(--alpha-300);padding:8px 12px;margin-top:var(--s3)}
+.d-anno--inline{border-left:2px solid var(--alpha-300);padding:var(--s2) var(--s3);margin-top:var(--s3)}
 .d-anno--inset{margin:0 clamp(16px,2.4vw,28px) clamp(16px,2vw,22px)}
 .d-anno b{font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--text-primary)}
 .d-anno p{flex:1 1 320px;max-width:92ch}
@@ -529,7 +572,7 @@ body{
 }
 .d-metak{font-family:var(--font-mono);font-size:9px;line-height:13px;letter-spacing:.2em;text-transform:uppercase;color:var(--text-muted)}
 .d-metav{
-  margin-top:4px;font-family:var(--font-mono);font-size:12px;line-height:18px;color:var(--text-primary);
+  margin-top:var(--s1);font-family:var(--font-mono);font-size:12px;line-height:18px;color:var(--text-primary);
   font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;overflow-wrap:anywhere;
 }
 .d-metav .u{color:var(--text-muted)}
@@ -583,7 +626,7 @@ body{
 .d-table th.d-num{text-align:right}
 .d-table th .e-info{margin-left:6px}
 .d-table td{
-  padding:12px clamp(10px,1.1vw,14px);vertical-align:middle;
+  padding:var(--s3) clamp(10px,1.1vw,14px);vertical-align:middle;
   border-bottom:1px solid var(--alpha-200);
   font-family:var(--font-mono);font-size:13px;line-height:18px;color:var(--text-primary);
   font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
@@ -628,7 +671,7 @@ body{
   transition:text-decoration-color 150ms var(--ease-decided);
 }
 .d-ev:hover{text-decoration-color:var(--text-primary)}
-.d-evm{color:var(--surface-600);margin-left:4px}
+.d-evm{color:var(--surface-600);margin-left:var(--s1)}
 .d-ev:hover .d-evm{color:var(--text-primary)}
 
 /* Absence and withholding. 0 is a measurement and keeps full ink; absences
@@ -656,13 +699,13 @@ body{
 .d-dk{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted)}
 .d-dv{font-family:var(--font-mono);font-size:11px;line-height:17px;color:var(--text-muted)}
 .d-dv b{color:var(--text-primary);font-weight:400}
-.d-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px var(--s3);margin-top:2px}
+.d-acts{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2) var(--s3);margin-top:2px}
 .d-actsq{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);margin-right:2px}
 
 /* footnotes — every mark used above is spelled out */
 .d-notes{display:grid;gap:5px;padding:14px clamp(16px,2.4vw,28px) 0}
 .d-note{
-  display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;
+  display:grid;grid-template-columns:18px minmax(0,1fr);gap:var(--s2);
   font-family:var(--font-mono);font-size:11px;line-height:17px;color:var(--text-muted);max-width:104ch;
 }
 .d-note .m{color:var(--text-muted)}
@@ -675,7 +718,7 @@ body{
   display:grid;grid-template-columns:repeat(auto-fit,minmax(min(216px,100%),1fr));gap:14px var(--s6);
 }
 .d-provk{font-family:var(--font-mono);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--text-muted)}
-.d-provv{margin-top:4px;font-family:var(--font-mono);font-size:11px;line-height:17px;color:var(--text-muted)}
+.d-provv{margin-top:var(--s1);font-family:var(--font-mono);font-size:11px;line-height:17px;color:var(--text-muted)}
 .d-provv b{color:var(--text-primary);font-weight:400}
 
 /* report toggle */
@@ -688,7 +731,7 @@ body{
 /* legend under the frame — same construction as the Section C legend */
 .d-legend{
   margin-top:-1px;border:1px solid var(--alpha-200);border-top:0;border-radius:0 0 var(--r2) var(--r2);
-  background:var(--surface-100);padding:12px var(--s4);
+  background:var(--surface-100);padding:var(--s3) var(--s4);
   display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px var(--s3);align-items:start;
 }
 .d-legendrow{display:contents}
@@ -719,7 +762,7 @@ body{
     font-family:var(--font-mono);font-size:9px;line-height:17px;letter-spacing:.18em;
     text-transform:uppercase;color:var(--text-muted);
   }
-  .d-table td.d-c-tag{padding:0 0 8px}
+  .d-table td.d-c-tag{padding:0 0 var(--s2)}
   .d-table td.d-c-tag--none{display:none}
   .d-trace>td{padding:0}
   .d-tracein{padding:13px 2px 15px}
@@ -746,21 +789,21 @@ body{
 /* the narrow proof frame */
 .d-narrow{width:100%;max-width:376px;margin-inline:auto;border:1px solid var(--alpha-200);border-radius:var(--r1);background:var(--void);overflow:hidden}
 .d-narrowbar{
-  padding:7px 12px;border-bottom:1px solid var(--alpha-200);
+  padding:7px var(--s3);border-bottom:1px solid var(--alpha-200);
   font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);
 }
-.d-narrow .d-tablewrap{padding:0 12px}
+.d-narrow .d-tablewrap{padding:0 var(--s3)}
 
 /* small demonstration tables used inside .spec blocks */
 .d-mini{width:100%;border-collapse:separate;border-spacing:0}
 .d-mini th{
-  background:var(--surface-200);text-align:left;padding:8px 12px;
+  background:var(--surface-200);text-align:left;padding:var(--s2) var(--s3);
   border-bottom:1px solid var(--alpha-300);
   font-family:var(--font-sans);font-size:10px;font-weight:600;letter-spacing:.15em;text-transform:uppercase;color:var(--text-muted);
 }
 .d-mini th.d-num{text-align:right}
 .d-mini td{
-  padding:11px 12px;border-bottom:1px solid var(--alpha-200);
+  padding:11px var(--s3);border-bottom:1px solid var(--alpha-200);
   font-family:var(--font-mono);font-size:13px;color:var(--text-primary);
   font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
 }
@@ -796,7 +839,7 @@ body{
 
 /* --- controls -------------------------------------------------------------*/
 .e-btn{
-  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  display:inline-flex;align-items:center;justify-content:center;gap:var(--s2);
   font-family:var(--font-sans);font-size:13px;line-height:18px;font-weight:600;letter-spacing:-0.13px;
   padding:9px 15px;border:1px solid var(--alpha-300);border-radius:var(--r1);
   background:transparent;color:var(--text-primary);cursor:pointer;
@@ -858,7 +901,7 @@ body{
 .e-info:hover{border-color:var(--text-primary);color:var(--text-primary)}
 .e-tipbox{
   border:1px solid var(--alpha-300);background:var(--surface-200);border-radius:var(--r1);
-  padding:10px 12px;max-width:46ch;
+  padding:10px var(--s3);max-width:46ch;
   font-family:var(--font-mono);font-size:11px;line-height:17px;color:var(--text-muted);
 }
 .e-tipbox b{color:var(--text-primary);font-weight:400}
@@ -868,13 +911,13 @@ body{
 
 /* --- provenance tags ------------------------------------------------------*/
 .e-ptag{
-  display:inline-flex;align-items:center;gap:6px;padding:4px 8px;
+  display:inline-flex;align-items:center;gap:6px;padding:var(--s1) var(--s2);
   border:1px solid var(--alpha-200);border-left:2px solid var(--alpha-600);border-radius:var(--r1);
   font-family:var(--font-mono);font-size:10px;line-height:14px;letter-spacing:.1em;text-transform:uppercase;
   color:var(--text-muted);white-space:nowrap;
 }
 .e-ptag b{color:var(--text-primary);font-weight:400;letter-spacing:.04em;text-transform:none}
-.e-tagrow{display:flex;flex-wrap:wrap;gap:8px}
+.e-tagrow{display:flex;flex-wrap:wrap;gap:var(--s2)}
 
 /* --- component bench ------------------------------------------------------*/
 .e-row{display:grid;grid-template-columns:136px minmax(0,1fr);gap:var(--s4);align-items:center;padding:13px 0;border-top:1px solid var(--alpha-200)}
@@ -894,7 +937,7 @@ body{
    never in :root, so it cannot be inherited by anything outside this box. */
 .e-quar{border:1px solid var(--alpha-300);border-radius:var(--r1);background:var(--void);overflow:hidden}
 .e-quarband{
-  display:flex;flex-wrap:wrap;align-items:center;gap:8px var(--s3);padding:8px 12px;
+  display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2) var(--s3);padding:var(--s2) var(--s3);
   border-bottom:1px solid var(--alpha-300);
   background:repeating-linear-gradient(135deg,var(--alpha-100) 0 7px,transparent 7px 15px);
   font-family:var(--font-mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted);
@@ -902,7 +945,7 @@ body{
 .e-quarbody{padding:var(--s4);display:grid;gap:var(--s4);grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr))}
 .e-quarcell{display:grid;gap:11px;align-content:start;padding:var(--s4);border:1px solid var(--alpha-200);border-radius:var(--r1)}
 .e-quartext{
-  padding:12px;border-top:1px solid var(--alpha-300);
+  padding:var(--s3);border-top:1px solid var(--alpha-300);
   font-family:var(--font-mono);font-size:11px;line-height:18px;color:var(--text-muted);
 }
 .e-quartext b{color:var(--text-muted);font-weight:400}
@@ -930,7 +973,7 @@ body{
 .f-matrix{display:grid;gap:0;min-width:0}
 .f-mrow{
   display:grid;grid-template-columns:minmax(0,146px) minmax(0,182px) minmax(0,1fr);
-  gap:var(--s3) var(--s4);padding:12px 0;border-top:1px solid var(--alpha-200);align-items:baseline;
+  gap:var(--s3) var(--s4);padding:var(--s3) 0;border-top:1px solid var(--alpha-200);align-items:baseline;
 }
 .f-mrow--head{border-top:0;padding:0 0 9px}
 .f-mh{font-family:var(--font-sans);font-size:10px;line-height:14px;font-weight:600;letter-spacing:.15em;text-transform:uppercase;color:var(--text-muted)}
@@ -967,8 +1010,8 @@ body{
 
 /* --- motion: the two motions that actually exist, live --------------------*/
 .f-mot{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:var(--s4)}
-.f-motrow{padding:9px 11px;border-radius:var(--r1);font-family:var(--font-mono);font-size:12px;line-height:18px;color:var(--text-primary);
-  transition:background-color 150ms var(--ease-decided)}
+/* a row container only: the Title inside it is a .d-t like every other */
+.f-motrow{padding:9px 11px;border-radius:var(--r1);transition:background-color 150ms var(--ease-decided)}
 .f-motrow:hover{background:var(--alpha-100)}
 
 .f-mh--num{text-align:right}
@@ -1013,7 +1056,7 @@ body{
 .g-pane--m{padding:clamp(20px,2.6vw,32px) clamp(18px,2.4vw,28px);gap:clamp(16px,2vw,24px);justify-items:start;border-right:1px solid var(--alpha-200)}
 /* the console takes its structure from rules: tight padding, hairlines inside */
 .g-pane--p{padding:13px 15px;gap:11px;justify-items:start}
-.g-pane--p .g-panek{padding-bottom:8px;border-bottom:1px solid var(--alpha-200);width:100%}
+.g-pane--p .g-panek{padding-bottom:var(--s2);border-bottom:1px solid var(--alpha-200);width:100%}
 .g-fill{width:100%}
 
 /* the alignment-spine diagram */
@@ -1024,12 +1067,12 @@ body{
 .g-spine--p::after{content:"";position:absolute;right:0;top:0;bottom:0;width:1px;background:var(--alpha-600)}
 .g-spi{font-family:var(--font-mono);font-size:10px;line-height:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
 .g-spband{
-  background:var(--surface-200);border-bottom:1px solid var(--alpha-300);padding:5px 8px;
+  background:var(--surface-200);border-bottom:1px solid var(--alpha-300);padding:5px var(--s2);
   font-family:var(--font-mono);font-size:9px;line-height:14px;letter-spacing:.18em;text-transform:uppercase;color:var(--text-muted);
 }
 .g-sprow{
   display:flex;align-items:baseline;justify-content:space-between;gap:var(--s4);
-  padding:7px 8px;border-bottom:1px solid var(--alpha-200);
+  padding:7px var(--s2);border-bottom:1px solid var(--alpha-200);
 }
 .g-sprow b{font-family:var(--font-sans);font-size:12px;line-height:18px;font-weight:600;letter-spacing:-0.24px;color:var(--text-primary)}
 .g-spn{font-family:var(--font-mono);font-size:12px;line-height:18px;color:var(--text-primary);font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
@@ -1047,6 +1090,61 @@ body{
   .g-pane--m{border-right:0;border-bottom:1px solid var(--alpha-200)}
 }
 .g-prose{max-width:82ch;margin-bottom:var(--s4)}
+
+/* @stage6 */
+/* ---------------------------------------------------------------------------
+   STAGE 6 — correction pass. B2b's scroll boxes are real: their content
+   genuinely overflows, so the fade drawn over them is a true edge and not a
+   staged one. The scrim component itself is declared with the other landed
+   patterns near the top of this sheet.
+   --------------------------------------------------------------------------- */
+.b-sdemo{--scrim:26px;border:1px solid var(--alpha-200);border-radius:var(--r1);background:var(--void)}
+.b-sscroll{height:126px;overflow-y:auto;overscroll-behavior-y:contain;padding:var(--s3) 13px;display:grid;gap:7px;align-content:start}
+/* column-reverse makes the browser open the box at the far end, so the top
+   fade lies over content that really does continue above it */
+.b-sscroll--rev{display:flex;flex-direction:column-reverse;justify-content:flex-start}
+.b-sline{font-family:var(--font-mono);font-size:11px;line-height:17px;color:var(--text-muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* X-7 — a full stop, not a finale. The quietest block in the file. */
+.endplate{padding:var(--s16) 0 var(--s24)}
+.endplate__in{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:var(--s8) var(--s10);align-items:start}
+.endplate__l{display:grid;gap:var(--s3);max-width:64ch}
+.endplate__t{font-family:var(--font-mono);font-size:12px;line-height:20px;color:var(--text-muted)}
+.endplate__r{display:grid;align-content:start}
+.endplate__row{display:grid;grid-template-columns:minmax(0,88px) minmax(0,1fr);gap:var(--s4);padding:var(--s2) 0;border-top:1px solid var(--alpha-200)}
+.endplate__row:first-child{border-top:0}
+.endplate__k{font-family:var(--font-mono);font-size:9px;line-height:16px;letter-spacing:.2em;text-transform:uppercase;color:var(--text-muted)}
+.endplate__v{font-family:var(--font-mono);font-size:11px;line-height:16px;color:var(--text-primary);overflow-wrap:anywhere}
+.endplate__foot{padding-top:var(--s4)}
+
+/* ===========================================================================
+   FORCED COLOURS — THE FOCUS FALLBACK. THIS BLOCK MUST STAY LAST.
+   Under forced-colors the UA discards box-shadow, and the double ring is this
+   system's only focus indicator. An outline is the substitute, in the
+   platform's own Highlight keyword rather than a value of ours, because in that
+   mode the reader's palette is the authority. Scoped to that mode alone, so no
+   hue enters the normal render.
+
+   Two rules elsewhere in this sheet suppress the outline at higher specificity
+   and later in the cascade:
+     .d-table tbody tr:focus{outline:none}   (0,2,2)  the ten focusable report rows
+     .e-input:focus{outline:none; ...}       (0,2,0)  the access-request field
+   A bare :focus-visible is (0,1,0) and loses to both, so each is restated here
+   at its own weight. A pseudo-class weighs exactly as a class, which is why
+   :focus-visible ties :focus and wins on source order — and why this block has
+   to be the last thing in the file. Move it up and the two controls that matter
+   most silently lose their focus indicator again.
+   =========================================================================== */
+@media (forced-colors: active){
+  :focus-visible,
+  .is-focus,
+  .d-forcefocus,
+  .d-table tbody tr:focus-visible,
+  .e-input:focus-visible{
+    outline:3px solid Highlight;
+    outline-offset:2px;
+  }
+}
 
 </style>
 </head>
@@ -1142,6 +1240,10 @@ body{
                   <div class="deflist__v t-b14 pretty">Already binding in the repository — transcribed here, not invented.</div>
                 </div>
                 <div class="deflist__row">
+                  <div class="deflist__k"><span class="chip chip--decided">Decision recorded</span></div>
+                  <div class="deflist__v t-b14 pretty">A choice this reference made and is disclosing, so that an absence is not mistaken for an oversight. Not an open question, not a conflict, and not binding on anything outside this file.</div>
+                </div>
+                <div class="deflist__row">
                   <div class="deflist__k"><span class="chip chip--proposed">Proposed</span></div>
                   <div class="deflist__v t-b14 pretty">A candidate drawn so it can be judged. Carries no authority. Do not implement from this file.</div>
                 </div>
@@ -1203,6 +1305,53 @@ body{
           </div>
         </div>
 
+        <!-- DECISIONS RECORDED -->
+        <div class="spec">
+          <div class="spec__cap">
+            <span class="name">DECISIONS RECORDED, NOT OPEN</span>
+            <span class="sep">/</span><span>landed patterns this reference chose for and against</span>
+            <span class="chip chip--decided">Decision recorded</span>
+          </div>
+          <div class="spec__body">
+            <div class="deflist">
+              <div class="deflist__row">
+                <div class="deflist__k">Technical grid &middot; not exercised</div>
+                <div class="deflist__v t-b14 pretty">
+                  <span class="mono">frontend-agent.md</span> carries an approved atmosphere technique for a technical
+                  grid &mdash; a repeating gradient under a radial mask. It is landed, it is permitted, and
+                  <strong>this artifact deliberately does not use it.</strong> That is a decision rather than an omission.
+                  The accepted structural intent for this unit excludes decorative technical-grid backgrounds from the
+                  default NOXUND visual language, and one of this reference's binding success criteria is that marketing
+                  carries no decorative technical-grid background. Landed authority <em>permits</em> the pattern; it does
+                  not require it, and declining a permitted option is not a deviation from it.
+                  <br><span class="dim">Not forbidden, and not forbidden in future: the pattern stays available, and a
+                  later surface may adopt it where there is a specific functional or compositional reason. That case
+                  would be argued then, on its own merits, and this entry is not a precedent against it.</span>
+                </div>
+              </div>
+              <div class="deflist__row">
+                <div class="deflist__k">Scrim &middot; exercised</div>
+                <div class="deflist__v t-b14 pretty">
+                  The approved fade-to-ground scrim from the same section <strong>is</strong> used. It is a functional
+                  device rather than atmosphere &mdash; it exists only where content genuinely continues past a scroll
+                  boundary &mdash; so the exclusion above does not reach it.
+                  Drawn as specimen <strong>B2b</strong> and applied to the one horizontal scroll boundary in this file
+                  that is not a type specimen: the report table in <strong>D1</strong>, gated by a container query to the
+                  band where it can actually scroll.
+                  <br><span class="dim">Deliberately not applied over the type specimens in B3 and B3b, nor to the index
+                  rail, nor to the page itself. B2b carries the rule and the reasons.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="spec__note">
+            This register exists because an unexplained absence reads as an oversight. A reference that logs the
+            timestamp family and the line count of landing microcopy as open questions cannot be silent about two
+            approved patterns it had the option to use. Both entries above are decisions of <em>this artifact</em>; neither
+            amends landed authority, and neither is a Product-Lead ruling.
+          </div>
+        </div>
+
         <div class="spec">
           <div class="spec__cap"><span class="name">OPEN ITEMS CARRIED, NOT ANSWERED</span><span class="chip chip--open">Open</span></div>
           <div class="spec__body">
@@ -1211,6 +1360,7 @@ body{
               <div class="deflist__row"><div class="deflist__k">OPEN-A · Mark provenance</div><div class="deflist__v t-b14 pretty">Licence, authorship and master provenance of the mark are unestablished. The master at <span class="mono">design/logo-noxund/nexari-NBG.svg</span> is used with its geometry unchanged; only <span class="mono">fill</span> is inherited so it is visible on a dark ground.</div></div>
               <div class="deflist__row"><div class="deflist__k">SPIKE-F1 · Tabular figures</div><div class="deflist__v t-b14 pretty">Unverified. No font binary is present and this artifact may not fetch one.</div></div>
               <div class="deflist__row"><div class="deflist__k">OPEN-H · Landing microcopy</div><div class="deflist__v t-b14 pretty">The numbered mono column on the marketing surface is explored, not fixed. Line count, ordering and wording are all still open; what Section C proposes is the register and the position, not that copy. Registered here because the C legend refers to it.</div></div>
+              <div class="deflist__row"><div class="deflist__k">OPEN-J · Display italic</div><div class="deflist__v t-b14 pretty">A companion to <span class="mono">SPIKE-F1</span>, and equally unverified. The hero's closing phrase is set in italic and the gesture is chipped Proposed in the Section C legend, but whether Geist Sans ships a true italic &mdash; or only a synthesised oblique, or neither &mdash; is no better established than its tabular figures. With no binary present, what renders on this page is the local fallback's italic. The <em>gesture</em> can be judged from this file; the letterforms cannot.</div></div>
               <div class="deflist__row"><div class="deflist__k">OPEN-G · Proof exposure</div><div class="deflist__v t-b14 pretty">How much report evidence the closed landing may expose is a Product decision. Section C shows methodology, not gated value.</div></div>
               <div class="deflist__row"><div class="deflist__k">OPEN-I · Timestamp family</div><div class="deflist__v t-b14 pretty">No final rule manufactured. Timestamps appear in the mono provenance voice and are flagged as unsettled.</div></div>
             </div>
@@ -1357,6 +1507,81 @@ body{
           <div class="spec__note">
             Depth is produced by white at low opacity over the ground, never by a new solid grey and never by a
             shadow. The only <span class="mono">box-shadow</span> permitted anywhere in the system is the focus ring in B8.
+          </div>
+        </div>
+
+        <!-- ---------- B2b · THE SCRIM ---------- -->
+        <div class="spec">
+          <div class="spec__cap">
+            <span class="name">B2b &middot; THE SCRIM</span>
+            <span class="sep">/</span><span>an edge that continues, not an edge that stops</span>
+            <span class="chip chip--landed">Landed</span>
+          </div>
+          <div class="spec__body spec__body--void">
+            <div class="b-two">
+
+              <div class="b-alpha">
+                <div class="scrimf scrimf--demo b-sdemo">
+                  <div class="b-sscroll">
+                    <span class="b-sline">Kairo Vee Type Beat &middot; 94</span>
+                    <span class="b-sline">Sivan Trece Type Beat &middot; 91</span>
+                    <span class="b-sline">Marlo Denk Type Beat &middot; 89</span>
+                    <span class="b-sline">Kade Brume Type Beat &middot; 88</span>
+                    <span class="b-sline">Dree Valis Type Beat &middot; 86</span>
+                    <span class="b-sline">Nako Steppa Type Beat &middot; 85</span>
+                    <span class="b-sline">Yuma Crest Type Beat &middot; 84</span>
+                  </div>
+                  <span class="scrim scrim--b" aria-hidden="true"></span>
+                </div>
+                <div class="b-ameta">
+                  <span class="b-afn">One edge &mdash; content continues below</span>
+                  <span class="b-atok">linear-gradient(to top, var(--void), transparent)</span>
+                  <span class="b-aval">A real scroll box. Scroll it: the last line dissolves into the ground and is never guillotined by the frame.</span>
+                </div>
+              </div>
+
+              <div class="b-alpha">
+                <div class="scrimf scrimf--demo b-sdemo">
+                  <div class="b-sscroll b-sscroll--rev">
+                    <span class="b-sline">Yuma Crest Type Beat &middot; 84</span>
+                    <span class="b-sline">Nako Steppa Type Beat &middot; 85</span>
+                    <span class="b-sline">Dree Valis Type Beat &middot; 86</span>
+                    <span class="b-sline">Kade Brume Type Beat &middot; 88</span>
+                    <span class="b-sline">Marlo Denk Type Beat &middot; 89</span>
+                    <span class="b-sline">Sivan Trece Type Beat &middot; 91</span>
+                    <span class="b-sline">Kairo Vee Type Beat &middot; 94</span>
+                  </div>
+                  <span class="scrim scrim--t" aria-hidden="true"></span>
+                </div>
+                <div class="b-ameta">
+                  <span class="b-afn">The other edge &mdash; content continues above</span>
+                  <span class="b-atok">linear-gradient(to bottom, var(--void), transparent)</span>
+                  <span class="b-aval">The same box opened at its far end. Scroll back up and the fade retires as the first line arrives.</span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+          <div class="spec__note">
+            A landed approved pattern: a gradient from the ground to transparent, laid over the edge of a scroll
+            boundary so that content which continues <em>dissolves</em> instead of being cut off.
+            <span class="mono">pointer-events:none</span> and <span class="mono">aria-hidden="true"</span> are mandatory,
+            and it is a sibling of the scroller, never a child.
+            <br><br>
+            <strong>Where it may be applied.</strong> The scrim is a reading device for continuous content, and is
+            <em>not permitted over a specimen under inspection</em> &mdash; a type specimen is measured glyph by glyph,
+            so nothing may sit over it. That is why the ladder in <strong>B3</strong> and the step in <strong>B3b</strong>
+            scroll unscrimmed although both overflow: an earlier draft of this file faded the
+            <span class="mono">N</span> of <em>Noxund</em>, the one glyph <strong>C-3</strong> turns on. Applied once
+            here &mdash; the report table in <strong>D1</strong>, gated by a container query to the band where it can
+            actually scroll, over cell padding rather than a letterform. The boxes above are the demonstration.
+            <br><br>
+            <strong>Axis.</strong> The landed description is vertical, drawn above. The one application runs on the
+            inline axis because that boundary is horizontal: the same gradient rotated, not a second pattern.
+            <br><br>
+            <strong>Not applied.</strong> The index rail is the only vertical scroller here and is excluded &mdash; its
+            foot is pinned by <span class="mono">margin-top:auto</span>, so a fade would cover the governance chip. Nor
+            the page itself, which is not a framed scroll region. Registered as a recorded decision in Section <strong>A</strong>.
           </div>
         </div>
 
@@ -1582,7 +1807,7 @@ body{
           <div class="spec">
             <div class="spec__cap">
               <span class="name">B6 · SPACING RHYTHM</span>
-              <span class="sep">/</span><span>4px base</span>
+              <span class="sep">/</span><span>layout scale</span>
               <span class="chip chip--proposed">Proposed</span>
             </div>
             <div class="spec__body">
@@ -1599,8 +1824,29 @@ body{
               </div>
             </div>
             <div class="spec__note">
-              No spacing scale is landed. This 4px rhythm is a proposal drawn so it can be accepted or replaced.
-              The bars are literal — each is exactly the width it names.
+              No spacing scale is landed; this one is a proposal, drawn so it can be accepted or replaced. It is also
+              <strong>a rule about layout, not about everything</strong>, and an earlier version of this note did not say
+              so &mdash; which left the specification contradicting the file it describes.
+              <br><br>
+              <strong>The scale governs layout.</strong> Section padding, the interval between bands, the gap between
+              specimens, the inset of a panel, the rhythm of a column: those are the steps above, and they are written as
+              tokens. The invariant, and it is the checkable one: <em>no raw pixel value remains as a step in any padding,
+              margin or gap of this file that a token would have expressed exactly.</em> Anything still written in raw
+              pixels is off the scale deliberately.
+              <br><br>
+              <strong>Below the step, the scale stops.</strong> Component internals are tuned optically and sit off the
+              grid on purpose &mdash; the gap between a mark and its label, a control's vertical padding, the space
+              between two list items. They run from 1px to 22px, including a few negative values where an element has to
+              overlap a hairline, and they are neither oversights nor candidates for rounding: a 4px grid imposed on a
+              13px line box buys discipline by spending legibility.
+              <br><br>
+              A number of intervals are <span class="mono">clamp()</span> ranges rather than steps &mdash; mostly on the
+              marketing surface, where the interval is itself responsive. Their endpoints are bounds, not steps, so they
+              are left as literal values even where an endpoint happens to equal a token.
+              <br><br>
+              The rule to carry forward: <strong>use the scale for anything that positions one component relative to
+              another; tune freely inside a component.</strong> The bars above are literal &mdash; each is exactly the
+              width it names.
             </div>
           </div>
 
@@ -1764,7 +2010,7 @@ body{
           <div class="c-legend">
             <div class="c-legendrow">
               <span class="chip chip--proposed">Proposed</span>
-              <p><strong>Display italic.</strong> The closing phrase of the hero statement is set in italic and dropped to muted. <span class="mono">display-italic</span> is a proposed role, not a landed one — the gesture appears exactly once on the surface.</p>
+              <p><strong>Display italic.</strong> The closing phrase of the hero statement is set in italic and dropped to muted. <span class="mono">display-italic</span> is a proposed role, not a landed one — the gesture appears exactly once on the surface. Its prerequisite is unverified and registered as <strong>OPEN-J</strong>: no Geist binary is present, so the italic you are looking at is the fallback face.</p>
             </div>
             <div class="c-legendrow">
               <span class="chip chip--open">Open · OPEN-H</span>
@@ -1966,6 +2212,7 @@ body{
               <div class="d-tear" aria-hidden="true"></div>
 
               <!-- ===== the record ===== -->
+              <div class="scrimf scrimf--report">
               <div class="d-tablewrap">
                 <table class="d-table" role="table">
                   <caption class="d-sr">Hotspot Artists Report, report 1 of 2. Ten artists, synthetic specimen data. Rows are focusable and open a derivation trace.</caption>
@@ -2125,6 +2372,9 @@ body{
 
                   </tbody>
                 </table>
+              </div>
+              <span class="scrim scrim--l" aria-hidden="true"></span>
+              <span class="scrim scrim--r" aria-hidden="true"></span>
               </div>
 
               <!-- ===== footnotes: every mark above is spelled out ===== -->
@@ -2535,7 +2785,7 @@ body{
           <div class="spec">
             <div class="spec__cap">
               <span class="name">E2 &middot; FIELD &amp; LABEL</span>
-              <span class="sep">/</span><span>the access request, the only form</span>
+              <span class="sep">/</span><span>the only form</span>
               <span class="chip chip--proposed">Proposed</span>
             </div>
             <div class="spec__body spec__body--void">
@@ -2944,8 +3194,30 @@ body{
             border change &mdash; a border change is a 1px event and this is a 4px one.
             <br><br>
             These five are drawn statically so all five grounds can be compared at once; <strong>F2</strong> is where the
-            same ring is live. One gap is recorded in <strong>F8</strong>: under <span class="mono">forced-colors</span>
-            this ring disappears, and the system currently has no fallback for that.
+            same ring is live.
+            <br><br>
+            <strong>Forced colours.</strong> A <span class="mono">box-shadow</span> is discarded under
+            <span class="mono">forced-colors: active</span>, which would leave this system with no focus indicator at
+            all. That is a certain failure rather than an unverified one, so the fallback is part of the contract:
+            an <span class="mono">outline</span> in the platform's own <span class="mono">Highlight</span> system colour
+            rather than a value of ours, because in that mode the reader's palette is the authority and not this
+            system's. It is scoped to that mode alone, so no hue enters the normal render.
+            <br><br>
+            <strong>The fallback has to win a cascade to be worth anything.</strong> Two rules later in this sheet
+            suppress the outline at higher specificity &mdash;
+            <span class="mono">.d-table tbody tr:focus{outline:none}</span> at <span class="mono">(0,2,2)</span>, which
+            governs the ten focusable report rows, and <span class="mono">.e-input:focus{outline:none}</span> at
+            <span class="mono">(0,2,0)</span>, which governs the access field. A bare
+            <span class="mono">:focus-visible</span> is <span class="mono">(0,1,0)</span> and loses to both, so each is
+            restated in the fallback at its own weight, and the whole block is placed <em>last</em> in the sheet: a
+            pseudo-class weighs exactly as a class, so <span class="mono">:focus-visible</span> ties
+            <span class="mono">:focus</span> and wins on source order. An earlier draft of this file declared the
+            fallback near the top and the product's two most important controls silently kept no focus indicator at all.
+            <br><br>
+            <strong>What this is and is not.</strong> The cascade was verified by forcing the media condition on in a
+            copy of this file and reading the computed outline of every focusable element, which is evidence about the
+            cascade and nothing more. It is <em>not</em> observation in a real high-contrast environment: none was
+            available here, and Windows High Contrast Mode has still not been tested.
           </div>
         </div>
 
@@ -3084,7 +3356,7 @@ body{
             <div class="f-mot">
               <div class="e-cell f-motcell">
                 <span class="e-cellk">Fill, 150ms &mdash; hover a row</span>
-                <div class="f-motstack"><div class="f-motrow">Kairo Vee Type Beat</div><div class="f-motrow">Kade Brume Type Beat</div></div>
+                <div class="f-motstack"><div class="f-motrow"><span class="d-t">Kairo Vee Type Beat</span></div><div class="f-motrow"><span class="d-t">Kade Brume Type Beat</span></div></div>
               </div>
               <div class="e-cell">
                 <span class="e-cellk">Lift 1px, 180ms &mdash; hover the button</span>
@@ -3212,7 +3484,6 @@ body{
               <li><b>No screen reader was run.</b> The ARIA roles carried through the container-query reflow, the <span class="mono">aria-expanded</span> on report rows, the off-screen captions and the <span class="mono">aria-describedby</span> wiring are all reasoned from the specification, not tested with NVDA, JAWS or VoiceOver. Table semantics under <span class="mono">display:block</span> are the highest-risk item on this list.</li>
               <li><b>No automated checker was run.</b> No axe, no Lighthouse, no contrast tooling. Every ratio in <strong>F7</strong> is hand arithmetic on the declared token values, and hand arithmetic is exactly as reliable as whoever did it.</li>
               <li><b>Hairlines do not meet 3:1.</b> <span class="mono">--alpha-200</span> on the void measures <span class="mono">1.22:1</span>, and the unfilled Competition segment at <span class="mono">--alpha-300</span> measures <span class="mono">1.38:1</span>. Section D calls its hairlines load-bearing, so this is a real finding rather than a technicality. Raising them would change the tone of the whole console, which makes it a Product-Lead decision and not one this artifact should take.</li>
-              <li><b>Forced colours will break the ring.</b> Under <span class="mono">@media (forced-colors: active)</span> a <span class="mono">box-shadow</span> is discarded, and the focus indicator goes with it. There is no fallback in this file, and Windows High Contrast Mode was not tested.</li>
               <li><b>Two targets are undersized.</b> The tooltip trigger is 14&times;14 CSS px and the withheld mark is inline text, both below the 24&times;24 minimum of WCAG 2.2 SC 2.5.8. Neither was redesigned here, because both belong to a component set that is still Proposed.</li>
               <li><b>Zoom and reflow were not checked.</b> The layout was verified at 390, 834, 1280 and 1440 CSS px at 100%. SC 1.4.4 text resize to 200% and SC 1.4.10 reflow at 320px were not exercised.</li>
               <li><b>Neither typeface is present.</b> No Geist Sans or Space Mono binary exists in this repository and network fetch is forbidden, so every specimen renders in a local fallback. Any judgement that depends on letterforms &mdash; including <span class="mono">SPIKE-F1</span>, the tabular-figure question underneath conflict <strong>C-1</strong> &mdash; cannot be made from this render, and the ratios above assume a stem weight the real faces may not have.</li>
@@ -3519,6 +3790,31 @@ body{
 
       </div>
     </section>
+
+    <!-- ============ END PLATE ============ -->
+    <div class="endplate">
+      <div class="wrap">
+        <div class="endplate__in">
+          <div class="endplate__l">
+            <span class="eyebrow">End of reference</span>
+            <p class="endplate__t pretty">
+              Seven sections, one file, and no authority. Nothing here becomes canonical by having been drawn, and
+              nothing here supersedes a DEC record, <span class="mono">frontend-agent.md</span>, or a Product-Lead
+              ruling. Three conflicts &mdash; <strong>C-1</strong>, <strong>C-2</strong> and <strong>C-3</strong> &mdash;
+              are registered and deliberately left unresolved, because resolving them is not this artifact's to do.
+              What is finished is the drawing. What happens next is a judgement.
+            </p>
+          </div>
+          <div class="endplate__r">
+            <div class="endplate__row"><span class="endplate__k">Unit</span><span class="endplate__v">NOXUND-DESIGN-REFERENCE-HTML-R1</span></div>
+            <div class="endplate__row"><span class="endplate__k">Status</span><span class="endplate__v">Reference artifact &middot; not normative authority</span></div>
+            <div class="endplate__row"><span class="endplate__k">Carries</span><span class="endplate__v">3 conflicts &middot; 7 open items &middot; 2 recorded decisions</span></div>
+            <div class="endplate__row"><span class="endplate__k">Next</span><span class="endplate__v">Product-Lead visual adjudication</span></div>
+            <div class="endplate__foot"><span class="chip chip--open">Not normative authority</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
 
   </main>
 </div>
