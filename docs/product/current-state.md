@@ -3,7 +3,7 @@
 **Authority class:** DESCRIPTIVE-CURRENT · **Lifecycle:** CURRENT · **Mutability:** EDITABLE
 **This is not a decision record; it creates no authority.** It does two things: report current reality and route to authority. Ambiguity about classification, precedence or supersession is governed by `DEC-0035` (§I).
 
-**Freshness contract.** LAST VERIFIED AGAINST CANONICAL MAIN = `a11bd169702e1539432ebf8ac140b296ba5fe29b`, verification date **2026-08-17**. If `origin/main` advances past that SHA, this document is **STALE-UNTIL-REVERIFIED** for current-state purposes — which does **not** mean every merge changes its content: reverification may conclude **NO CONTENT CHANGE REQUIRED**, updating only this metadata under an authorized maintenance unit. **The SHA is freshness provenance, not normative authority.**
+**Freshness contract.** LAST VERIFIED AGAINST CANONICAL MAIN = `fae24ba7551a5d9469e7b1d62aa175a1ebf7a90c`, verification date **2026-08-20** (B5 reverification). If `origin/main` advances past that SHA, this document is **STALE-UNTIL-REVERIFIED** for current-state purposes — which does **not** mean every merge changes its content: reverification may conclude **NO CONTENT CHANGE REQUIRED**, updating only this metadata under an authorized maintenance unit. **The SHA is freshness provenance, not normative authority**, and **`STALE ≠ WRONG`**. B5 re-read §A–§F at that base and repaired only the Phase-B unit state (§B, §G, §H, §I): between B2's `a11bd169…` base and this one, the only files that changed are the three Phase-B artifacts themselves, so no claim here about any other file was disturbed. **The SHA records the base actually verified; the §B / §G unit state records what the B5 merge itself makes true.** That merge advances `main` past this SHA and so recreates the staleness condition on landing — inherent to the contract, **not a defect**.
 
 **Reading convention.** `State:` = factually true now. `Authority:` = what a landed normative record requires. Never merged; a fact is never rewritten to fit a rule.
 
@@ -38,16 +38,16 @@ Collection-track evidence is landed on `main`; this document neither enumerates 
 An **overlay** that improves the context, governance, agent, engineering and orchestration system used to develop NOXUND.
 
 - **A — Reality & Repository Hygiene:** **COMPLETE**
-- **B — Canonical Context V2:** **CURRENT improvement phase** (B1 complete — §G)
+- **B — Canonical Context V2:** **CURRENT improvement phase** (B1–B5 complete; B6 not started — §G)
 - **C · D · E · F:** **NOT STARTED**
 
 **F is the final currently-defined phase of this improvement program — not the final phase of NOXUND development.**
 
 **Provenance.** A–F is the **current Product-Lead improvement-program model**, not a landed ladder. Repository-landed records establish **A–C**; **D–F are Product-Lead-defined future program phases, not yet independently defined as landed phase records**, and the complete six-phase sequence is defined by no canonical record on `main`. Per `DEC-0033` §8, such identifiers are named to place them, never to confer standing.
 
-**State:** the next candidate unit after B2 is **B3 — Context Index** — roadmap sequence, not landed order (§G).
+**State:** the next candidate unit after B5 is **B6 — Phase-B closeout** — roadmap sequence, not landed order (§G).
 
-**Authority:** B3 is **not authorized**; it requires its own explicit Product-Lead GO.
+**Authority:** B6 is **not authorized** and has **not started**; it requires its own explicit Product-Lead GO. **Phase B is not closed** — closeout is B6's work, not B5's.
 
 ---
 
@@ -110,22 +110,27 @@ Adjudicate from `DEC-0035`, not this summary. **At the verification base, no sta
 
 These `B*` labels are **Phase-B units**, **not** the `B1`/`B2`/`B3` Phase-A *blocker* labels of `PHASE-A-CLOSEOUT-R1` §1.
 
+- **B0** foundation assessment — an **unlanded in-session assessment** accepted by the Product Lead; **no file exists on `main`** and none should be searched for (`DEC-0035` header)
 - **B1** authority / lifecycle / supersession model — **LANDED** (`DEC-0035`)
 - **B2** compact current state — **this artifact**
-- **B3** context index — **NOT YET IMPLEMENTED**
-- **B4** task context pack — **NOT YET IMPLEMENTED**
-- **B5** bounded reconciliation — **NOT YET EXECUTED**
-- **B6** closeout — **NOT STARTED**
+- **B3** context index — **LANDED** ([`context-map.md`](context-map.md))
+- **B4** task context pack — **LANDED** ([`task-context-pack.md`](task-context-pack.md))
+- **B5** bounded context reconciliation — **COMPLETE on the merge that lands this revision**; it reconciled §B, §G, §H and §I here and the stale routing claims in `context-map.md`
+- **B6** closeout — **NOT STARTED**, not authorized
 
-Unlanded identifiers (§B): `DEC-0035` names B0, B1, B3 and B5; **B2, B4 and B6 are defined by no canonical record on `main`** (B2 stands on its authorizing GO). Phase B is no more complete than this.
+Unlanded identifiers (§B): `DEC-0035` names B0, B1, B3 and B5; **B2, B4 and B6 are defined by no canonical record on `main`** — `task-context-pack.md` is the artifact B4 produced, not a record defining the unit — and B2, B4 and B5 each stood on their own authorizing GO. Phase B is no more complete than this.
 
-**Recorded for B3, not implemented:** a two-axis repository leaves B3 needing to separate **improvement-program routing** from **product/engineering-trajectory routing**, so the index does not treat A–F as NOXUND's only historical axis.
+**Implemented by B3.** The two-axis separation this document required of the index — **improvement-program routing** kept distinct from **product/engineering-trajectory routing**, so the index does not treat A–F as NOXUND's only historical axis — is carried by [`context-map.md`](context-map.md) §2, which assigns every ladder it registers to Axis 1 or Axis 2.
+
+**B5 closed complete, and it left one question open — open is not incomplete.** The authority class of `docs/product/scope-guardrails.md` stands at **`HOLD — PRODUCT-LEAD ADJUDICATION REQUIRED`**: `DEC-0035` §9 withholds the `docs/product/*.md` default from that one file and states its class *"requires explicit B3 adjudication"*, and neither B3 nor B5 may supply one from a DESCRIPTIVE-CURRENT surface. It is **escalated, not deferred by omission**, it blocks no other unit, and it is **not** an unfinished part of B5's implementation (`context-map.md` §1).
 
 ---
 
 ## H. Open and deferred headlines
 
-Headlines only, not an inventory. **Successor PostgreSQL architecture undecided**, **provisioning unexecuted**. **Agent-governance / runtime redesign is improvement Phase C.** **Historical context normalization** remains improvement Phase-B work where scoped. **The product / engineering trajectory is paused and incomplete** (§B). The `OD-*` namespace and its cross-series collisions are **not** inventoried here — owned by **B3**.
+Headlines only, not an inventory. **Successor PostgreSQL architecture undecided**, **provisioning unexecuted**. **Agent-governance / runtime redesign is improvement Phase C.** **Historical context normalization** remains improvement Phase-B work where scoped — B5 was a *bounded* reconciliation, not a corpus-wide normalization. **The product / engineering trajectory is paused and incomplete** (§B). The `OD-*` namespace and its cross-series collisions are **not** inventoried here — B3 inventoried the six families in [`context-map.md`](context-map.md) §2; the open `OD-*` items themselves stay open and close only by Product-Lead decision.
+
+**What B5 pruned, so pruned is not mistaken for overlooked.** `DEC-0035` Annex A rows 1–11 and its §11 step 4 routing of `docs/agents/orchestration-runtime.md`'s stale `Status: implementado` line were **considered and deliberately left out** of this bounded unit as historical normalization: Annex A is expressly *"NOT normative"* and *"creates NO obligation to edit any file listed below"*, and permits B5 to *"add to or prune this list"*. They remain **routed and not solved** — the `orchestration-runtime.md` warning is live in `task-context-pack.md` §5 case D.
 
 ---
 
@@ -136,4 +141,5 @@ Headlines only, not an inventory. **Successor PostgreSQL architecture undecided*
 - Decision records → `docs/product/decisions/**`
 - Agent governance and contracts → `docs/agents/**`
 - Locked product scope → [`context/01_MVP_Scope_PRD.md`](../../context/01_MVP_Scope_PRD.md)
-- Topic-level routing → **B3 context index, not yet landed**
+- Topic-level routing; identifier disambiguation and namespace collisions; explicit relations; preserved evidence → [`context-map.md`](context-map.md)
+- Assembling minimum sufficient context for one bounded task → [`task-context-pack.md`](task-context-pack.md) — a format aid; it grants no execution authority
