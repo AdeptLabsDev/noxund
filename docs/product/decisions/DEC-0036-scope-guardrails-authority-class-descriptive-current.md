@@ -144,6 +144,8 @@ Each is given its durable identity below — **stable path + stable named sectio
 | `:384` | §*Agent Interaction Model*, **opening paragraph**, closing sentence: *"Catálogo em `docs/agents/README.md`."* | `:386` |
 | `:790` | §*Output Format* › §*Decision sequencing*, **the closing line beneath that subsection's `Regras:` list**: *"Protocolo completo: `docs/agents/agent-onboarding-orchestration.md`."* | `:804` |
 
+**The drift is cumulative, and the arithmetic is stated so this note reconciles on its own terms.** `C2`'s `+2` is not the whole of it: [[DEC-0040]] §7 discloses that `C4` added a further `+12` below `:686`, so **`:128` and `:384` moved by `+2` while `:790` moved by `+14`** — which is why the third row reads `:804` and not `:802`. **No third edit is implied and no further drift is introduced**; the two shifts are simply not the same size, and a reader checking the table against `+2` alone would otherwise be right to think it wrong.
+
 **A reader who has never seen the historical line positions can establish all three from the section name and the quotation alone.** That is the test D15 sets, and meeting it is what closes the debt.
 
 ### How the record reads from here

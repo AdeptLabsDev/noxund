@@ -78,7 +78,7 @@ jobs:
             *) echo "::error::Expected Python 3.11.x, got ${ver}."; exit 1 ;;
           esac
 
-      - name: Run the checker suite — require exactly 39/39 (fail-closed count)
+      - name: Run the checker suite — require exactly 40/40 (fail-closed count)
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: |
@@ -96,12 +96,12 @@ jobs:
             echo "::error::governance checker tests FAILED (unittest exit ${status})."
             exit 1
           fi
-          if ! grep -qE '^Ran 39 tests in ' <<<"$out"; then
+          if ! grep -qE '^Ran 40 tests in ' <<<"$out"; then
             ran="$(grep -oE '^Ran [0-9]+ tests' <<<"$out" || true)"
-            echo "::error::expected exactly 39 tests, got '${ran:-<none>}' (discovery regression)."
+            echo "::error::expected exactly 40 tests, got '${ran:-<none>}' (discovery regression)."
             exit 1
           fi
-          echo "39/39 OK."
+          echo "40/40 OK."
 
   reference-durability:
     name: Reference durability · prospective check on added/changed lines

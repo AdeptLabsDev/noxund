@@ -159,6 +159,45 @@ class TestFalsePositiveGuards(unittest.TestCase):
     def test_prose_without_locators_is_clean(self):
         self.assertEqual(kinds("`DEC-0037` D5 fixes `AUTHOR != REVIEWER`."), [])
 
+    def test_the_no_path_guard_removes_only_the_no_path_class(self):
+        """The path-token requirement is far weaker than it reads.
+
+        It buys exactly one thing: a line with no path token is never
+        scanned.  It does NOT make the colon form safe against clock times,
+        ratios or versions.  On a line that names a file - which is most
+        lines on a governed surface - every one of these IS flagged.
+
+        Asserted as ACTUAL BEHAVIOUR, not as desired behaviour.  This pins a
+        disclosed false-positive class (DEC-0041 §13) so that it cannot be
+        described as excluded, and so that any future change to detection
+        semantics has to break this test deliberately rather than quietly.
+        """
+        flagged = {
+            "version": "`docs/product/current-state.md` pins the local stack "
+                       "to postgres:15 for parity.",
+            "clock": "Per `docs/result/PHASE-B-CLOSEOUT-R1.md` the run started "
+                     "09:45 and ended 11:20.",
+            "tally": "In `docs/agents/agent-review-matrix.md` the vote was 4:0 "
+                     "in favour.",
+            "ratio": "See `docs/product/context-map.md` for the 3:1 ratio and "
+                     "the 2:1 fallback.",
+        }
+        for name, text in flagged.items():
+            with self.subTest(name):
+                self.assertEqual(
+                    set(kinds(text)), {rd.KIND_BARE},
+                    "%s: expected the disclosed false positive, not silence" % name,
+                )
+
+        # The exact counts, so the class is measured rather than gestured at.
+        self.assertEqual(len(kinds(flagged["clock"])), 2)   # :45 and :20
+        self.assertEqual(len(kinds(flagged["ratio"])), 2)   # :1 and :1
+        self.assertEqual(len(kinds(flagged["version"])), 1)  # :15
+        self.assertEqual(len(kinds(flagged["tally"])), 1)    # :0
+
+        # The one case the guard genuinely does remove: no path token at all.
+        self.assertEqual(kinds("The run started at 14:30 and finished 16:05."), [])
+
 
 class TestHonestLimits(unittest.TestCase):
     """What this control does NOT do.  These tests exist to prevent the

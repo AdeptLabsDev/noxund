@@ -205,9 +205,20 @@ def find_locator_runs(text):
         path token is required on the same line.  This matters: DEC-0036 D2's
         escalated enumeration names its file in the *preceding* paragraph.
       * COLON form (`:565`).  A path token must appear earlier on the line.
-        Without one there is nothing for the locator to be a locator *into*,
-        and the requirement is what excludes clock times, ratios and stray
-        numerals from ever being read as citations.
+        Without one there is nothing for the locator to be a locator *into*.
+
+        STATED PRECISELY, BECAUSE THE WEAKER CLAIM IS THE TRUE ONE: this
+        requirement removes the NO-PATH class only.  It does NOT make the
+        colon form safe against clock times, ratios, versions or any other
+        colon-number.  On a line that happens to name a file - which is most
+        lines on a governed surface - `postgres:15`, `09:45`, `4:0` and `3:1`
+        ARE read as locator runs and ARE flagged.  The guard buys exactly one
+        thing: a line with no path token at all is never scanned.
+
+        This is a KNOWN FALSE-POSITIVE CLASS, disclosed at DEC-0041 section
+        13 and pinned by TestFalsePositiveGuards, not a defect to be silently
+        widened away.  Narrowing it would mean changing detection semantics,
+        which is a separate authorized decision - not a docstring edit.
 
     MENTION versus USE.  A locator run lying entirely inside a verbatim
     quotation is being *quoted*, not *made* - DEC-0040 section 7 quotes

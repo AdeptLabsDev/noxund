@@ -15,7 +15,7 @@
 
 ## 1. Status
 
-**ACTIVE — binding and prospective**, effective on the Product Lead's manual merge (§17). It authorizes no unit, wires no agent, provisions no principal and changes no GitHub setting. It lands one deterministic control, one completed repair, and five adjudicated refusals.
+**ACTIVE — binding and prospective**, effective on the Product Lead's manual merge (§16). It authorizes no unit, wires no agent, provisions no principal and changes no GitHub setting. It lands one deterministic control, one completed repair, and five adjudicated refusals.
 
 ---
 
@@ -150,7 +150,7 @@ After this record, the following bind by authority and review alone. **The list 
 
 ### D12 — Effective on landing
 
-Binding and prospective from the Product Lead's manual merge (§17). It re-examines no earlier unit and confers nothing backwards.
+Binding and prospective from the Product Lead's manual merge (§16). It re-examines no earlier unit and confers nothing backwards.
 
 ---
 
@@ -237,7 +237,7 @@ Six candidates from [[DEC-0040]] §9 and one from [[DEC-0039]] §8, all adjudica
 
 **Thirteen findings across the whole corpus is small enough that no cleanup is implied, and none is authorized.** `C5` is not historical normalization. **If this ever became noisy, the correct response is to narrow the governed scope — never to add exceptions.**
 
-**Testing.** Thirty-nine `unittest` cases: the malformed shapes that must fail, the durable shapes that must pass, both enumeration boundaries at two and three, mention-versus-use, false-positive guards, diff parsing and line numbering, governed-scope membership, the CLI exit codes, and the current corpus. **Four cases assert what the control does *not* detect** — drift, anchor semantics, load-bearingness, and a meaningless token accepted as an anchor — so that the limits at D4 are enforced by the suite rather than only by this prose.
+**Testing.** Forty `unittest` cases: the malformed shapes that must fail, the durable shapes that must pass, both enumeration boundaries at two and three, mention-versus-use, false-positive guards, diff parsing and line numbering, governed-scope membership, the CLI exit codes, and the current corpus. **Four cases assert what the control does *not* detect** — drift, anchor semantics, load-bearingness, and a meaningless token accepted as an anchor — and **a fifth pins the false positives it *does* produce** on colon-numbers that are not locators at all (§13 item 5), asserting the actual behaviour rather than the desired one. **The limits at D4 are therefore enforced by the suite, not only by this prose**, and a future change to detection semantics has to break a test deliberately rather than quietly.
 
 ---
 
@@ -255,7 +255,7 @@ One workflow is added: `.github/workflows/governance-checks.yml`. **It is the fi
 
 ## 10. Boundaries
 
-**Phase D — not this record.** Documentation-quality standards, general testing policy and code-quality policy are Phase D. The thirty-nine tests here validate `C5`'s own implementation and **create no repository-wide testing policy**. The `docs/product/decisions/**` header-classification check that [[DEC-0035]] §12 already routes, and which [[DEC-0039]] §8 lists as its own candidate, is **observed as adjacent and deliberately not implemented**: it was not among the seven this unit was authorized to adjudicate, [[DEC-0035]] §7 keeps the rule documentary in V2, and D2 prefers fewer controls to more. It is named here so a later unit finds it, and it is **not** thereby authorized.
+**Phase D — not this record.** Documentation-quality standards, general testing policy and code-quality policy are Phase D. The forty tests here validate `C5`'s own implementation and **create no repository-wide testing policy**. The `docs/product/decisions/**` header-classification check that [[DEC-0035]] §12 already routes, and which [[DEC-0039]] §8 lists as its own candidate, is **observed as adjacent and deliberately not implemented**: it was not among the seven this unit was authorized to adjudicate, [[DEC-0035]] §7 keeps the rule documentary in V2, and D2 prefers fewer controls to more. It is named here so a later unit finds it, and it is **not** thereby authorized.
 
 **Phase F — not this record, and constrained by it.** The controlled executor, wrapper or sandbox that D8 says real write-scope prevention would require is **Phase F**, as is the out-of-band observer D9 says F4b detection would require. **Naming them routes them; it authorizes nothing**, and no future unit may cite this record as permission to build either. [[DEC-0040]] D8 continues to govern: no status field auto-authorizes a stage, and a Product-Lead GO has no automated substitute.
 
@@ -299,7 +299,10 @@ Stated here rather than left for a reviewer to find.
 2. **The control's false-positive rate on the current corpus is 8 in 13 at the canonical base, 6 in 11 after this unit.** Every one is a reference whose durable identity exists in a form the signal vocabulary does not recognise — a prose descriptor, an intra-line back-reference, a genre the file-level filter cannot separate. **Prospective scope means none of them gates anything today**, but an author writing in those styles on a governed surface will meet a false failure — as this unit did, three times, on its own diff. The remedy available to them is to add an anchor, which is the behaviour the control exists to encourage; the remedy prohibited to them is an exception.
 3. **`§` is a very common token in this corpus**, so rule 2 rarely fires inside ordinary prose paragraphs and does most of its work on terse bullets and table cells. Rule 1 carries the load against the shape that actually caused the failure.
 4. **The `REPORTED` claim at §4 item 4 was not upgraded to `VERIFIED`.** D9 is built so the disposition does not depend on it, but the claim itself remains unproven by execution in this unit.
-5. **One control against seven candidates will read as thin to anyone counting.** That is D2's decision and not an accident, and §6 gives the reason for each refusal individually rather than as a blanket.
+5. **Any colon-number on a path-bearing line is read as a locator, and the guard against this is far weaker than `C5` first described it.** The colon form requires a path token earlier on the line. **`R1` claimed that requirement *"excludes clock times, ratios and stray numerals from ever being read as citations"*. That claim was false, and the independent reviewer falsified it.** The requirement removes the **no-path class only**. On a line that names a file — which is most lines on a governed surface — **`postgres:15`, `09:45`/`11:20`, `4:0` and `3:1` are all flagged `BARE-LOCATOR`**, verified by execution. Only a line with **no** path token at all is genuinely excluded.
+   **The correction is a disclosure, not a behaviour change.** Detection semantics are untouched: narrowing the colon form is a separate decision with its own false-negative cost, and it is **not** taken here. The class is now pinned by an explicit test asserting the **actual** behaviour, so it cannot be described as excluded again and cannot be quietly widened away. **Prospective scope means it gates nothing today, and the remedy for an author who meets it is an anchor — never an exception.**
+   **This mattered enough to be material:** D1 makes it binding that a control is never described as stronger than the mechanism carrying it, and `R1` committed exactly that error inside the delivered control's own documentation.
+6. **One control against seven candidates will read as thin to anyone counting.** That is D2's decision and not an accident, and §6 gives the reason for each refusal individually rather than as a blanket.
 
 ---
 
