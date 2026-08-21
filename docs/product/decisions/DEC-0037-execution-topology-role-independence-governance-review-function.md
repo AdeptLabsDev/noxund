@@ -54,7 +54,7 @@ Stated as fact, and not editable by preference.
 
 ### D1 — Actor taxonomy
 
-Six actors. Nothing else acts in a governed unit.
+Seven actors. Nothing else acts in a governed unit — the `TASK-SCOPED SPECIALIST` of §D4 is the seventh and is listed here, not outside the list.
 
 | Actor | What it is | May it accept its own work? |
 |---|---|---|
@@ -63,9 +63,10 @@ Six actors. Nothing else acts in a governed unit.
 | **TASK-SCOPED AUTHOR** | Produces the artifact for one unit. | **No.** |
 | **TASK-SCOPED INDEPENDENT REVIEWER** | Independent technical / correctness review for one unit. | Never the Author. |
 | **TASK-SCOPED GOVERNANCE REVIEWER** | Independent governance / integrity review for one unit (§D8). | Never the Author; never audits its own execution. |
+| **TASK-SCOPED SPECIALIST** | Read-only specialist investigation for one unit (§D4): **not** a registered NOXUND agent, **no standing authority**, **no domain veto by virtue of the role**, expires with the unit. Produces **recommendation / evidence** only. | **No** — and it **cannot accept a mutating artifact** at all. |
 | **REGISTERED NOXUND AGENT** | An identity with a formal `docs/agents/*.md` contract, a registry entry and a compatible boundary. | Per its own contract. |
 
-A **task-scoped role** exists only inside the unit that created it, carries no contract, no boundary, no domain authority and no standing permission, and expires with the unit. A **registered agent** may participate **only where it is genuinely operational**; a registered-but-not-operational identity may not be represented as participating, and **its name may never be attached to any result** (§D2).
+**Four of the seven are task-scoped roles** — Author, Independent Reviewer, Governance Reviewer, Specialist. The first three carry the **process-independence** functions; the Specialist carries an **investigation** function instead and holds **no veto**, so it is **not an exception to §D3 but another instance of it**. A **task-scoped role** exists only inside the unit that created it, carries no contract, no boundary, no domain authority and no standing permission, and expires with the unit. A **registered agent** may participate **only where it is genuinely operational**; a registered-but-not-operational identity may not be represented as participating, and **its name may never be attached to any result** (§D2).
 
 ### D2 — Registered ≠ operational ≠ participating
 
@@ -79,7 +80,7 @@ Therefore: no unit may claim participation by an identity that is not operationa
 
 Instantiating a generic subagent creates **no** NOXUND agent. It confers no contract, no boundary, no runtime id and no registry entry, and it is **never** a `target_agent`. This is the existing invariant applied, not amended: `ROLE NAMES DO NOT CREATE AGENTS`; `NO EPHEMERAL / AD-HOC / UNREGISTERED AGENTS`; `TARGET_AGENT MUST HAVE A FORMAL docs/agents/*.md CONTRACT + REGISTRY ENTRY + COMPATIBLE BOUNDARY` (`product-orchestrator-agent.md` §*Operational Invariants Summary*).
 
-The two protections that invariant exists to give are preserved in full. **No manufactured specialism:** a task-scoped role carries the **process-independence** functions — authorship, independent technical review, independent governance/integrity review — and **never** substitutes for a registered domain agent's veto where a landed clause names one (§D6). **No standing capability:** the role dies with the unit, and the vinculante registry-first provisioning model in `docs/agents/README.md` §*Como adicionar um novo agente* is **undisturbed and still binding**, with no step waived, shortened or deemed satisfied here.
+The two protections that invariant exists to give are preserved in full. **No manufactured specialism:** a task-scoped role carries the **process-independence** functions — authorship, independent technical review, independent governance/integrity review — or, for the read-only `TASK-SCOPED SPECIALIST` (§D1, §D4), an **investigation** function carrying no veto, and **never** substitutes for a registered domain agent's veto where a landed clause names one (§D6). **No standing capability:** the role dies with the unit, and the vinculante registry-first provisioning model in `docs/agents/README.md` §*Como adicionar um novo agente* is **undisturbed and still binding**, with no step waived, shortened or deemed satisfied here.
 
 ### D4 — Read-only topology
 
@@ -89,7 +90,7 @@ For a unit that produces analysis and accepts **no** mutating artifact:
 PRODUCT ORCHESTRATOR  (+ optional TASK-SCOPED SPECIALIST)
 ```
 
-Where the question is one of canonical truth, routing or decomposition, the Product Orchestrator's own coordination reading answers it. Where it requires specialist technical investigation, that is delegated to a task-scoped specialist — the Product Orchestrator does not self-execute a delegable investigation (`product-orchestrator-agent.md` §*Operating Protocol*).
+Where the question is one of canonical truth, routing or decomposition, the Product Orchestrator's own coordination reading answers it. Where it requires specialist technical investigation, that is delegated to a **`TASK-SCOPED SPECIALIST`** (§D1) — the Product Orchestrator does not self-execute a delegable investigation (`product-orchestrator-agent.md` §*Operating Protocol*).
 
 The output is a **RECOMMENDATION / ANALYSIS**, never an acceptance. **No mandatory reviewer is imposed on routine read-only work.** A read-only unit that begins proposing a mutating artifact for landing has become a §D5 unit and takes §D5's topology.
 
@@ -192,7 +193,7 @@ Two distinct findings. They must not be merged, and neither may be overstated.
 
 ### D13 — What this makes smaller
 
-Checkable, so the claim is not decorative. The default governed unit is **three parties** — Author, one distinct reviewer, Product Lead — where the paper architecture read as four to five roles. Reviewers are counted **by function**, so a second reviewer appears only where a domain or a landed clause actually requires separation. **No new agent identity, no new status token, no new artifact class, no new runtime dependency, and no second governance architecture is created.** Every rule above is either an existing invariant applied, or the single narrowing named in the header.
+Checkable, so the claim is not decorative. The default mutating unit has **four participating actors** — the **Product Orchestrator** as coordinator, the **Author**, **one distinct Reviewer**, and the **Product Lead** — of which **three** are production / review / acceptance parties. **The Product Orchestrator does not disappear from the permanent topology**; it is counted as the coordinator it is (§D10). The reduction is on the review side, where it belongs: `product-orchestrator-agent.md` §*Topologia mínima por risco* #2 read as **two mandatory reviewers** for any mutating artifact and #3 as **three or more**, while D5 requires **one distinct reviewer** and adds a second only where a domain or a landed clause actually requires separation. Reviewers are counted **by function, not by headcount**. **No new agent identity, no new status token, no new artifact class, no new runtime dependency, and no second governance architecture is created.** Every rule above is either an existing invariant applied, or the single narrowing named in the header.
 
 ---
 
