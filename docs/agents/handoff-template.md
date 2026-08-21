@@ -53,6 +53,9 @@ EIXO F  NEXT / AUTHORIZATION  NEXT CANDIDATE  ·  PRODUCT-LEAD GO               
     <só para papéis de revisão; OMITIR para o Author.
      Listar as funções efetivamente exercidas — nunca inferir cobertura por número de participantes (DEC-0037 D5; DEC-0040 D9)>
 12. **Next recommendation (Eixo F):** <recomendação; NUNCA autorização>
+13. **Critério de aceite:** <cole o critério original + como verificar: comando / rota / passo>
+14. **Validação executada:** <o que rodou e o RESULTADO REAL; auditoria/reprodutibilidade quando aplicável>
+15. **Riscos:** <riscos introduzidos ou mitigados; referência a `07_Risks` quando aplicável>
 ```
 
 **Se não conseguir cumprir um item obrigatório, diga por quê.** Silêncio sobre item obrigatório é, ele próprio, um finding.
@@ -90,6 +93,26 @@ EIXO F  NEXT / AUTHORIZATION  NEXT CANDIDATE  ·  PRODUCT-LEAD GO               
 ### Extensões específicas da unidade
 
 O writ **pode** acrescentar campos exigidos pelo domínio (por exemplo: evidência de validação, estado de rollback, resultado de gate técnico). O writ **não pode** redefinir, renomear, fundir ou reordenar os eixos, nem exigir campo sem referente. **Não reinventar um contrato de retorno por unidade** (`DEC-0040` D12).
+
+### Gates de escopo e revisão cruzada — condicional
+
+Preencher quando a unidade toca escopo, número, banco, auth, segurança, produção, infra ou copy pública. **Não é ornamento:** `product-orchestrator-agent.md` §*Definition of Done* exige a determinação de revisão de domínio e aponta para este arquivo.
+
+```md
+## Impacto no escopo
+- Mantém o MVP travado? <sim/não — se não, PARAR e escalar>
+- Toca algum non-negotiable? <quais e como>
+- Toca número / banco / auth / copy pública? <sim/não → revisão obrigatória abaixo>
+
+## Revisões necessárias (gatilhos, não formalidade)
+- [ ] Data/AI Review — tocou número, rubric, pipeline ou coleta
+- [ ] Security Review — tocou auth, secrets, API keys, endpoints, RLS
+- [ ] Database / Data Integrity Review — tocou schema, migrations, raw/computed
+- [ ] QA Review — tocou fluxo crítico ou eventos
+- [ ] Product Lead — há OPEN DECISION ou mudança de escopo
+```
+
+**A autoridade destes gatilhos é `agent-review-matrix.md` e `agent-boundaries.md`, não esta lista** — aqui ela é auxílio de preenchimento. Marcar a revisão **e** acioná-la; `HOLD` de domínio de veto bloqueia a unidade e **não há voto por maioria**. Uma função de revisão exigida é exercida, ou a unidade retorna `HOLD` + `AGENT-CAPABILITY-GAP` (`DEC-0037` D6).
 
 ---
 
