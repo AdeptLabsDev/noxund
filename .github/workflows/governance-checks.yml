@@ -1,0 +1,139 @@
+name: Governance · Reference Durability (CI)
+
+# --------------------------------------------------------------------------
+# BINDING STATUS - READ THIS BEFORE CITING THIS WORKFLOW AS ENFORCEMENT
+#
+#   AUTOMATIC DETECTIVE · NOT MECHANICALLY MERGE-BLOCKING
+#
+# Ruleset `Protect main` (id 19697151) carries exactly three rules -
+# `deletion`, `non_fast_forward`, `pull_request`. There is NO
+# `required_status_checks` rule, so NO CI check on this repository can block a
+# merge today. C5 is forbidden to change rulesets, so this workflow produces a
+# deterministic, automatic signal on the PR and nothing more. Do not describe
+# it as preventive. See DEC-0041 §9.
+#
+# WHY IT EXISTS AT ALL - of the eleven workflows on `main`, only
+# data-engine-tests.yml and sg8-integration-local.yml run on push/pull_request,
+# and BOTH are path-filtered to `services/data-engine/**` (sg8 additionally to
+# `supabase/migrations/**`). So nothing whatsoever runs on a docs/governance
+# PR. This is the first.
+#
+# WHAT IT CHECKS - citation SHAPE only, per DEC-0040 D15: that a newly written
+# load-bearing reference on a governed surface does not use a line number as
+# its sole semantic identity. It CANNOT verify an anchor semantically, CANNOT
+# judge load-bearingness, and deliberately CANNOT detect drift (a drifted
+# locator carrying a durable anchor is a stale locator, not an authority
+# defect). A green run means only that no malformed reference SHAPE was
+# introduced.
+#
+# HARDENING: `permissions: contents: read` (no write anywhere); actions
+# SHA-pinned (SEC-F17); ZERO secrets; ZERO Environment; ZERO database; ZERO
+# cloud. Python 3.11 stdlib-only - no pip install of any kind. It re-arms
+# nothing and dispatches nothing.
+#
+# SCOPE (negative): does NOT read or modify rulesets, branch protection,
+# CODEOWNERS, reviewer thresholds or any GitHub setting; does NOT apply
+# migrations; does NOT touch production-db; does NOT unlock any phase.
+# --------------------------------------------------------------------------
+
+on:
+  pull_request:
+    paths:
+      - 'docs/product/decisions/**'
+      - 'docs/product/context-map.md'
+      - 'docs/product/current-state.md'
+      - 'docs/product/task-context-pack.md'
+      - 'docs/result/**'
+      - 'tools/governance/**'
+      - '.github/workflows/governance-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: governance-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checker-tests:
+    name: Reference-durability checker · own test suite (Python 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Set up Python 3.11 (pinned)
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
+        with:
+          python-version: '3.11'
+
+      - name: Assert interpreter is CPython 3.11.x
+        run: |
+          set -euo pipefail
+          ver="$(python -c 'import platform; print(platform.python_version())')"
+          echo "Python: ${ver}"
+          case "$ver" in
+            3.11.*) echo "OK — Python 3.11.x pinned." ;;
+            *) echo "::error::Expected Python 3.11.x, got ${ver}."; exit 1 ;;
+          esac
+
+      - name: Run the checker suite — require exactly 39/39 (fail-closed count)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          # stdlib-only, ZERO pip install. The count is asserted fail-closed
+          # because a discovery regression that silently ran fewer tests would
+          # still exit 0 under unittest.
+          if out="$(python -m unittest discover -s tools/governance/tests -p 'test_*.py' -v 2>&1)"; then
+            status=0
+          else
+            status=$?
+          fi
+          echo "$out"
+          if [ "$status" -ne 0 ]; then
+            echo "::error::governance checker tests FAILED (unittest exit ${status})."
+            exit 1
+          fi
+          if ! grep -qE '^Ran 39 tests in ' <<<"$out"; then
+            ran="$(grep -oE '^Ran [0-9]+ tests' <<<"$out" || true)"
+            echo "::error::expected exactly 39 tests, got '${ran:-<none>}' (discovery regression)."
+            exit 1
+          fi
+          echo "39/39 OK."
+
+  reference-durability:
+    name: Reference durability · prospective check on added/changed lines
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history — the check needs the merge base)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11 (pinned)
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
+        with:
+          python-version: '3.11'
+
+      - name: Prospective check — only lines this PR adds or changes
+        if: github.event_name == 'pull_request'
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          # Existing lines are never judged: DEC-0040 D15 "creates no general
+          # citation framework" and imposes no retroactive obligation. There is
+          # no baseline-exception list and none may be added — if this ever
+          # becomes noisy, NARROW the governed scope in the checker instead.
+          python tools/governance/check_reference_durability.py check --base "${BASE_SHA}"
+
+      - name: Corpus audit — reporting only, never a gate
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          python tools/governance/check_reference_durability.py audit --repo-root .
