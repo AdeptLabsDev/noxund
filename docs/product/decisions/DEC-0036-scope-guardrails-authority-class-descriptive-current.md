@@ -121,3 +121,45 @@ This record does **not** and must not be read to: change product scope · admit 
 ---
 
 *Related: [[DEC-0035]] §9 and Annex A row 12 (the reserved adjudication), §3.1 (imperative wording confers no class), §3.2 (lifecycle vocabulary), §4 P3/P4 (conflict versus divergence), §9.1 (clause-level normativity, not generalized), §10 (forward discoverability); [[DEC-0028]] §8 `OD-6` (future authentication provider, open); [[DEC-0034]] §4 (byte-frozen supersession scoping). Routing surfaces reconciled: [`context-map.md`](../context-map.md), [`current-state.md`](../current-state.md), [`task-context-pack.md`](../task-context-pack.md).*
+
+---
+
+## Additive forward-status note — appended by `C5` Limb A, 2026-08-21
+
+**This is a clearly-marked additive forward-status note, appended by an authorized unit under [[DEC-0035]] §3.3** — which permits exactly that on a `FROZEN` record, and reserves the stricter **byte-frozen** grade to [[DEC-0028]] and [[DEC-0033]] alone. It is appended by `PHASE-C-C5-MECHANICAL-ENFORCEMENT-R1` and carried by [[DEC-0041]] §7. **Nothing above this line is edited, rewritten, revoked, weakened, narrowed or reopened.** D1–D6 stand exactly as landed, and this record remains **`FROZEN`** and **`ACTIVE / CURRENT`**.
+
+### What this repairs — and what it refuses to do
+
+[[DEC-0040]] §7 verified that `C2`'s two-line reconciliation note shifted every line of `docs/agents/product-orchestrator-agent.md` below its insertion point by `+2`, and [[DEC-0040]] §9 routed the repair to `C5` Limb A. **The defect is a stale locator, not an authority defect** ([[DEC-0040]] D15): a pointer moved, no normative requirement and no descriptive claim is in tension, and this is therefore **not** a `STATE-AUTHORITY DIVERGENCE` ([[DEC-0035]] §4 P4). D15 directs repair at the **citing** end, and that is what this note is. **Neither endpoint is edited to fit:** this record's body is untouched, and the cited file is never edited to make an old number true again.
+
+### The three references, given durable identity
+
+§*Evidence base* (header) and **D2** cite `docs/agents/product-orchestrator-agent.md` at *"lines 40, 128, 384 and 790"* as four instances of one *find-the-full-version-here* idiom. **`:40` carries its quotation** and resolves on the quoted text. The other three carried **no quotation and no named anchor**, and [[DEC-0040]] §7 classified them **`UNRESOLVED — LOCATOR ONLY`**.
+
+Each is given its durable identity below — **stable path + stable named section + verbatim quotation** — **re-derived by `C5` directly from the file** at `main` @ `f88e5ca84bc510adb7f9717e2e20296c8830b2d8`, not inherited from any prior reading.
+
+| Historical / stale locator | Durable identity — **this is now the semantic identity** | Convenience locator at the `C5` base |
+|---|---|---|
+| `:128` | §*Source of Truth*, **opening paragraph**: *"Os documentos em `/context` são a fonte da verdade. Índice operacional completo: `docs/product/context-index.md`."* | `:130` |
+| `:384` | §*Agent Interaction Model*, **opening paragraph**, closing sentence: *"Catálogo em `docs/agents/README.md`."* | `:386` |
+| `:790` | §*Output Format* › §*Decision sequencing*, **the closing line beneath that subsection's `Regras:` list**: *"Protocolo completo: `docs/agents/agent-onboarding-orchestration.md`."* | `:804` |
+
+**A reader who has never seen the historical line positions can establish all three from the section name and the quotation alone.** That is the test D15 sets, and meeting it is what closes the debt.
+
+### How the record reads from here
+
+> **The named section and the quoted text govern. The number is a convenience** ([[DEC-0040]] D15).
+
+The three old numbers remain in the header and in D2 **exactly as written** and are now to be read as **`HISTORICAL / STALE LOCATOR`** — recorded, never the identity.
+
+### D2's argument is confirmed, not reopened
+
+Re-derivation confirms each of the three propositions is what D2 said it was: a **purely nominal** *find-the-full-version-here* pointer — a noun phrase, a preposition and a path, with **no verb of incorporation** — so D2's *a fortiori* comparison against the pointer at `:167` holds exactly as landed, and the contrast with the one instance that does carry a verb of adherence is undisturbed. **No conclusion of D1–D6 depends on any line number.**
+
+**Not repaired here, because nothing is broken.** The `:167` citation is **rescued by quotation** in §*Scope*, §2 and D2 (its convenience locator at this base is `:169`); the range at `:152–167`, `agent-registry.md`:5–7 and `README.md`:101 are outside the routed four and are not touched. [[DEC-0035]] §9's reading note cites the same `:128` **with** its quotation and is likewise rescued rather than repaired — and [[DEC-0035]] is not amended by this unit in any event.
+
+### Explicit non-effects
+
+This note **does not**: change any classification · promote or demote any artifact · resolve, reopen or renumber any `OD-*` item · create any citation obligation for any other record ([[DEC-0040]] D15 *"creates no general citation framework"* and imposes no retroactive obligation) · edit any file under `docs/agents/**` · authorize any execution of any kind.
+
+*Related: [[DEC-0040]] D15 (evidence-reference durability), §7 (the verified drift finding and the Limb-A routing), §9; [[DEC-0035]] §3.3 (FROZEN admits a clearly-marked additive forward-status note), §4 P4; [[DEC-0041]] §7 (the authorizing record for this note and the prospective control that succeeds it).*

@@ -288,3 +288,52 @@ This record does **not** and must not be read to: register, wire, activate or pr
 ---
 
 *Related: [[DEC-0035]] §3.1 (imperative wording confers no class), §4 P3/P4 (conflict versus divergence), §6 (GO versus durable authority), §7 and §9 (classification and family defaults), §10 (forward discoverability), §11 (clause-level classification of a status claim), §12 (Phase-C boundary), §14 (temporary Phase-B topology); [[DEC-0036]] §4 (adjudication without supersession); [[DEC-0032]] §8 (`packages/orchestrator` DEFER-PHASE-C); [[DEC-0033]] §8 (unlanded identifiers; nothing re-arms). Agent surfaces relied on and not edited: [`product-orchestrator-agent.md`](../../agents/product-orchestrator-agent.md), [`README.md`](../../agents/README.md), [`agent-conflict-resolution.md`](../../agents/agent-conflict-resolution.md), [`governance-integrity-agent.md`](../../agents/governance-integrity-agent.md). Surface narrowed and reconciled: [`agent-review-matrix.md`](../../agents/agent-review-matrix.md). Routing surfaces reconciled: [`current-state.md`](../current-state.md), [`context-map.md`](../context-map.md). Predecessor unit — unlanded, no file path: `PHASE-C-C0-AGENT-GOVERNANCE-V2-FOUNDATION-ASSESSMENT-R1` (historical disposition `RED`, `CLOSED — REMEDIATED`; see the header).*
+
+---
+
+## Additive forward-status note — appended by `C5` Limb A, 2026-08-21
+
+**This is a clearly-marked additive forward-status note, appended by an authorized unit under [[DEC-0035]] §3.3** — which permits exactly that on a `FROZEN` record, and reserves the stricter **byte-frozen** grade to [[DEC-0028]] and [[DEC-0033]] alone. It is appended by `PHASE-C-C5-MECHANICAL-ENFORCEMENT-R1` and carried by [[DEC-0041]] §7. **Nothing above this line is edited, rewritten, revoked, weakened, narrowed or reopened.** D1–D16 stand exactly as landed — including the **`AUTHOR ≠ REVIEWER`** invariant, D5's reviewer-counting-by-function rule and D9's narrowing of `agent-review-matrix.md` item **#12** — and this record remains **`FROZEN`** and **`ACTIVE / CURRENT`**.
+
+### What this repairs — and what it refuses to do
+
+[[DEC-0040]] §7 verified that `C2`'s two-line reconciliation note shifted every line of `docs/agents/product-orchestrator-agent.md` below its insertion point by `+2`, and [[DEC-0040]] §9 routed the repair to `C5` Limb A. **The defect is a stale locator, not an authority defect** ([[DEC-0040]] D15): a pointer moved, no normative requirement and no descriptive claim is in tension, and this is therefore **not** a `STATE-AUTHORITY DIVERGENCE` ([[DEC-0035]] §4 P4). D15 directs repair at the **citing** end. **Neither endpoint is edited to fit:** this record's body is untouched, and the cited file is never edited to make an old number true again.
+
+### Correction to the routed scope, stated rather than absorbed silently
+
+[[DEC-0040]] §7 escalated **`:565` in the evidence-base header** as the [[DEC-0037]] instance of `UNRESOLVED — LOCATOR ONLY`. **`C5` re-derived the header and found the bare enumeration to be three locators, not one:** the header clause reads *"specifically :562, :563 and :565, the separation-of-duties clauses engaged in §D5"*. All three drifted by the same `+2` and all three are bare **in the header**. `C5` **repairs all three**, because they are one enumeration in one sentence and repairing a third of it would leave the same defect standing. **This corrects the *extent* of a finding [[DEC-0040]] reported; it revises no adjudication, and [[DEC-0040]] is not edited.**
+
+### The separation-of-duties clauses, given durable identity
+
+All four clauses sit in **§*Task Decomposition Contract* › §*Regras de atribuição*** — a stable named section, and the anchor that now carries the identity. **Re-derived by `C5` directly from the file** at `main` @ `f88e5ca84bc510adb7f9717e2e20296c8830b2d8`, not inherited from any prior reading.
+
+| Historical / stale locator | Durable identity within §*Regras de atribuição* — **this is now the semantic identity** | Convenience locator at the `C5` base |
+|---|---|---|
+| `:562` | **Author ≠ reviewer**: *"o reviewer de um artefato não deve ser a mesma identidade/sessão que o Author"* | `:564` |
+| `:563` | **Executor ≠ governance reviewer**: *"o governance reviewer de uma operação não deve ser o executor da mesma operação"* | `:565` |
+| `:564` | **Reviewer of a later stage ≠ producer of the stage under review**: *"um agente pode revisar um estágio futuro somente se não houver conflito de função com o estágio que produziu"* | `:566` |
+| `:565` | **The exception clause D5 turns on**: *"qualquer exceção à separação de funções requer decisão explícita do Product Lead e deve ser registrada como risco de governança"* | `:567` |
+
+**Why the fourth row is listed although it was never `UNRESOLVED`.** D5's body cites `:564` **with** its quotation and is rescued on the quoted text; it is recorded here only so the four clauses read as one block. **The collision this table removes is the sharp one:** the old `:565` now lands on the *executor ≠ governance reviewer* clause — a **different** separation-of-duties rule in the same list — so a reader following the bare number would arrive at a plausible-looking wrong clause rather than at obvious nonsense.
+
+**A reader who has never seen the historical line positions can establish all four from the section name and the quotation alone.** That is the test D15 sets, and meeting it is what closes the debt.
+
+### How the record reads from here
+
+> **The named section and the quoted text govern. The number is a convenience** ([[DEC-0040]] D15).
+
+The old numbers remain in the header and in D5 **exactly as written** and are now to be read as **`HISTORICAL / STALE LOCATOR`** — recorded, never the identity.
+
+### D5's argument is confirmed, not reopened
+
+Re-derivation confirms every clause is what D5 said it was, and **D5's conclusion is untouched**: the three separations are each stated against **production**, never between one review function and another; all three hold absolutely; the exception clause is **not engaged** and **no exception is taken**, so no governance risk is registered under it. **No conclusion of D1–D16 depends on any line number.**
+
+### Also drifted, reported for discoverability — **not** part of the routed repair
+
+The header's `:598` and `:599` likewise drifted `+2`. **[[DEC-0040]] §7 did not classify them `UNRESOLVED — LOCATOR ONLY`** — the header identifies each by an explicit substantive descriptor — so they are **reported here, not repaired**, and this paragraph creates no finding. Both sit in **§*Stage-Gate Discipline*, in that section's `Regras:` list**: the *technically-accepted artifact carrying a historical governance finding* rule (*"artefato tecnicamente aceito pode continuar com um finding de governança histórico…"*, `:600` at this base) and the **no-rewrite** rule (*"RED histórico não deve ser reescrito para PASS"*, `:601` at this base).
+
+### Explicit non-effects
+
+This note **does not**: register, wire or activate any agent · alter the topology, the reviewer-count policy or any independence criterion · re-narrow or widen `agent-review-matrix.md` item **#12** · revisit `C0`'s historical `RED`, which is **never rewritten to `PASS`** · create any citation obligation for any other record ([[DEC-0040]] D15 *"creates no general citation framework"* and imposes no retroactive obligation) · edit any file under `docs/agents/**` · authorize any execution of any kind.
+
+*Related: [[DEC-0040]] D15 (evidence-reference durability), §7 (the verified drift finding and the Limb-A routing), §9; [[DEC-0035]] §3.3 (FROZEN admits a clearly-marked additive forward-status note), §4 P4; [[DEC-0041]] §7 (the authorizing record for this note and the prospective control that succeeds it).*
