@@ -7,6 +7,8 @@
 
 **Scoped reverification — `351a73f99c7f8b103faa0a993ef9094e77f74305`, 2026-08-20, B6 (Phase-B closeout).** That base is the descendant merge of the `fae24ba7…` base above (PR #86, landing `DEC-0036`). B6 established from the repository that **the only files changed between `fae24ba7…` and this base are the three Phase-B routing artifacts, `DEC-0036` and `scope-guardrails.md`** — so every §A–§F claim here still rests on B5's verification, undisturbed. B6 therefore reverified and repaired **only the Phase-B terminal state** (§B, §G, §H, §I) and made no wider sweep. **This revision states what its own merge makes true**; the Product-Lead manual merge is the ratification gate (§E), and that merge recreates the ordinary `STALE-UNTIL-REVERIFIED` condition — inherent, not a defect.
 
+**Scoped reverification — `aff75d51ac40348fae041fe068953dc3dd288d38`, 2026-08-21, `C1` (execution topology).** That base is the descendant merge of the `351a73f9…` base above (PR #87, landing the Phase-B closeout). C1 reverified and repaired **only what its own decision makes stale** — the Axis-2 ladder and the authority paragraph in §B, and §E in whole — resting on agent-capability and `packages/orchestrator` facts it re-derived from the repository at this base. **Every other claim here still rests on the B5 / B6 verifications and nothing wider should be inferred:** this was a bounded governance-topology unit, not a reverification sweep. **§F is deliberately untouched** — its *"no state-authority divergence was found"* is scoped to those verifications, and the one divergence C1 addressed (`agent-review-matrix.md` #12) is resolved at the authority end by [`DEC-0037`](decisions/DEC-0037-execution-topology-role-independence-governance-review-function.md) D9 rather than left standing. `STALE ≠ WRONG` applies unchanged, and this revision's own merge recreates the condition — inherent, not a defect.
+
 **Reading convention.** `State:` = factually true now. `Authority:` = what a landed normative record requires. Never merged; a fact is never rewritten to fit a rule.
 
 ---
@@ -41,15 +43,16 @@ An **overlay** that improves the context, governance, agent, engineering and orc
 
 - **A — Reality & Repository Hygiene:** **COMPLETE**
 - **B — Canonical Context V2:** **COMPLETE** (B0–B6 all complete — §G)
-- **C · D · E · F:** **NOT STARTED**
+- **C — agent-governance / runtime redesign:** **STARTED, not complete.** Its first landed unit is **C1**, the execution topology ([`DEC-0037`](decisions/DEC-0037-execution-topology-role-independence-governance-review-function.md)); its predecessor `C0` was an unlanded in-session assessment with **no file on `main`**, carrying a historical `RED` disposition adjudicated `CLOSED — REMEDIATED` — never routed from as clean evidence (`DEC-0037` header). `C2`…`C5` are Product-Lead-defined unit labels, named to place work and **not** started (`DEC-0037` §9).
+- **D · E · F:** **NOT STARTED**
 
 **F is the final currently-defined phase of this improvement program — not the final phase of NOXUND development.**
 
 **Provenance.** A–F is the **current Product-Lead improvement-program model**, not a landed ladder. Repository-landed records establish **A–C**; **D–F are Product-Lead-defined future program phases, not yet independently defined as landed phase records**, and the complete six-phase sequence is defined by no canonical record on `main`. Per `DEC-0033` §8, such identifiers are named to place them, never to confer standing.
 
-**State:** B6 was the terminal Phase-B unit and **Phase B is closed** — its terminal record is [`PHASE-B-CLOSEOUT-R1`](../result/PHASE-B-CLOSEOUT-R1.md). **Phase C is the next candidate improvement phase** — roadmap sequence, not landed order, and **not** a start.
+**State:** B6 was the terminal Phase-B unit and **Phase B is closed** — its terminal record is [`PHASE-B-CLOSEOUT-R1`](../result/PHASE-B-CLOSEOUT-R1.md). **Phase C has begun on its first unit only.** No Phase-C closeout record exists, and the phase as a whole is defined by no canonical record on `main`.
 
-**Authority:** **Phase C is not authorized and has not started**; it requires its own explicit Product-Lead GO. **Closing Phase B authorizes nothing** — not Phase C, not any Axis-1 resumption, and no re-arming (`DEC-0033` §8). No successor unit is authorized on either axis at this base.
+**Authority:** **each Phase-C unit requires its own explicit Product-Lead GO**; the C1 GO authorized C1 and expired with it (`DEC-0035` §6). **Landing C1 authorizes nothing further** — not `C2`…`C5`, not any Axis-1 resumption, and no re-arming (`DEC-0033` §8). **Closing Phase B likewise authorized nothing.** No successor unit is authorized on either axis at this base.
 
 ---
 
@@ -82,15 +85,18 @@ Registry-active is **not** armed, and neither collection workflow is disabled: b
 ## E. Agent and governance reality
 
 **Authority:**
-- The **Product Lead is the final authority**; a landed record is ratified by their **manual merge** (`DEC-0035` header; §14 for Phase-B units).
+- The **Product Lead is the final authority**; a landed record is ratified by their **manual merge** (`DEC-0035` header; [`DEC-0037`](decisions/DEC-0037-execution-topology-role-independence-governance-review-function.md) D11).
 - `NEXT` / `READY` / `RECOMMENDED` is **not execution authorization**; mutation needs an explicit Product-Lead GO.
-- An Author **must not** review or accept their own work; the Reviewer is a distinct party.
+- An Author **must not** review or accept their own work; the Reviewer is a distinct party — `AUTHOR ≠ REVIEWER` (`DEC-0037` D5, with checkable independence criteria at D7).
+- **The execution topology is landed authority, no longer practice.** `DEC-0037` fixes the actor taxonomy, the minimum topology per risk class, and that **the Product Lead manually merges every governed PR** until changed by explicit Product-Lead authority.
+- **`agent-review-matrix.md` item #12 is narrowed** by `DEC-0037` D9: the mandatory reviewer is the independent governance-review **function**, satisfiable by a distinct `TASK-SCOPED GOVERNANCE REVIEWER` — never by the Author, never silently omitted, and never labelled as the registered agent. **No other item of that matrix is changed**; #11 is latent and untouched.
 
 **State:**
-- Product-Lead manual merge of **every** PR is current practice; no landed record generalizes it beyond the gates above.
-- `governance_integrity_agent` is **PROPOSED-NOT-OPERATIONAL / RUNTIME-NOT-WIRED**; it binds nothing.
-- Substantive `packages/orchestrator` work remains **improvement Phase C**.
-- The Phase-B docs-only topology is **temporary**: task-scoped Author + distinct independent Reviewer + manual Product-Lead merge; it wires no agent and grants no standing permission.
+- **Zero registered NOXUND agents are REAL PRODUCT EXECUTORS.** `governance_integrity_agent` is **PROPOSED-NOT-OPERATIONAL / RUNTIME-NOT-WIRED**; it binds nothing, and `DEC-0037` neither registers nor wires it.
+- **Task-scoped roles are not agents**: instantiating one creates no registration, no boundary and no standing permission (`DEC-0037` D3). The registry-first provisioning gate in [`docs/agents/README.md`](../agents/README.md) is undisturbed.
+- **Process independence is not mechanical independence.** No `CODEOWNERS` file exists and independent approval is not mechanically required, so the same GitHub principal may author and merge a PR; a single admin may also prospectively alter rulesets. Neither fact means current protections are ineffective — direct push to `main` is mechanically blocked under the observed ruleset. Per-claim provenance is marked at `DEC-0037` D12; mechanical enforcement is Phase-C unit `C5`.
+- Substantive `packages/orchestrator` work remains **improvement Phase C** (`C2`), and the topology is **runtime-agnostic** — it holds whether that runtime is resumed, reduced or retired.
+- The Phase-A/B docs-only topology was a **temporary exception** (`DEC-0035` §14). `DEC-0037` establishes the permanent topology **prospectively** and does **not** retroactively convert Phase-A/B practice into standing authority.
 
 ---
 
