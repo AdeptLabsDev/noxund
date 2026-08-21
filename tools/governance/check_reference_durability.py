@@ -212,8 +212,13 @@ def find_locator_runs(text):
         colon form safe against clock times, ratios, versions or any other
         colon-number.  On a line that happens to name a file - which is most
         lines on a governed surface - `postgres:15`, `09:45`, `4:0` and `3:1`
-        ARE read as locator runs and ARE flagged.  The guard buys exactly one
-        thing: a line with no path token at all is never scanned.
+        ARE read as locator runs and ARE flagged.  The guard buys exactly
+        one thing, and it is narrower than it sounds: a COLON-FORM candidate
+        on a line carrying no earlier path token is never scanned.
+
+        It bounds the colon form alone.  KEYWORD-form references stay
+        eligible with no same-line path token at all - by design, and that is
+        exactly how DEC-0036 D2's `lines 40, 128, 384 and 790` is caught.
 
         This is a KNOWN FALSE-POSITIVE CLASS, disclosed at DEC-0041 section
         13 and pinned by TestFalsePositiveGuards, not a defect to be silently

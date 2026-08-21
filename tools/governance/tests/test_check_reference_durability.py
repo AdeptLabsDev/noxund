@@ -162,10 +162,13 @@ class TestFalsePositiveGuards(unittest.TestCase):
     def test_the_no_path_guard_removes_only_the_no_path_class(self):
         """The path-token requirement is far weaker than it reads.
 
-        It buys exactly one thing: a line with no path token is never
-        scanned.  It does NOT make the colon form safe against clock times,
-        ratios or versions.  On a line that names a file - which is most
-        lines on a governed surface - every one of these IS flagged.
+        It buys exactly one thing, and only for the COLON form: a colon-form
+        candidate on a line with no earlier path token is never scanned.  It
+        does NOT make the colon form safe against clock times, ratios or
+        versions.  On a line that names a file - which is most lines on a
+        governed surface - every one of these IS flagged.  Keyword-form
+        references are not bounded by it at all and stay eligible with no
+        same-line path token.
 
         Asserted as ACTUAL BEHAVIOUR, not as desired behaviour.  This pins a
         disclosed false-positive class (DEC-0041 §13) so that it cannot be
@@ -195,7 +198,8 @@ class TestFalsePositiveGuards(unittest.TestCase):
         self.assertEqual(len(kinds(flagged["version"])), 1)  # :15
         self.assertEqual(len(kinds(flagged["tally"])), 1)    # :0
 
-        # The one case the guard genuinely does remove: no path token at all.
+        # The one case the guard genuinely does remove: a COLON-FORM
+        # candidate with no earlier path token on its line.
         self.assertEqual(kinds("The run started at 14:30 and finished 16:05."), [])
 
 
