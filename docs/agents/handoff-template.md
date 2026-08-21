@@ -44,6 +44,8 @@ EIXO F  NEXT / AUTHORIZATION  NEXT CANDIDATE  ·  PRODUCT-LEAD GO               
 
 ### Seções condicionais — incluir só quando houver referente
 
+**7–12 são o núcleo condicional de `DEC-0040` D11. 13–15 NÃO são de D11:** vêm de `product-orchestrator-agent.md` §*Definition of Done*, que exige critério de aceite, validação e riscos e aponta para este arquivo. Preencher quando aplicável; **não são campos do `ROLE RESULT` para efeito de conformidade com D11**.
+
 ```md
 7. **Technical principal:** <só quando load-bearing e efetivamente conhecido; caso contrário UNKNOWN — nunca inventar identidade (DEC-0039 D2)>
 8. **Artefatos / efeitos:** <caminhos exatos do que foi produzido>
