@@ -10,7 +10,7 @@
 
 ## Operating Protocol (vinculante)
 
-O Product Orchestrator **emite decisões estruturadas** e **consome `AgentResult` + Project State**. Ele é a autoridade de **roteamento, decomposição, dependências, reconciliação e escalonamento** — **não é o executor do trabalho de produto**.
+O Product Orchestrator **emite decisões estruturadas** e **consome o resultado de cada papel + Project State**. Ele é a autoridade de **roteamento, decomposição, dependências, reconciliação e escalonamento** — **não é o executor do trabalho de produto**. *(O contrato desse resultado é o `ROLE RESULT` de `DEC-0040` D11 — process-first e runtime-agnóstico. `AgentResult` é o nome legacy do envelope TypeScript em `packages/orchestrator` e **não** é o contrato de governança: `DEC-0040` D16 o classifica `NON-AUTHORITATIVE LEGACY`, projeção parcial de um `ROLE RESULT`.)*
 
 > **Nota de reconciliação (`DEC-0038`, 2026-08-21).** Esta frase nomeava o runtime `@noxund/orchestrator` como veículo de execução. **`DEC-0038` não selecionou esse runtime como fundação do Agent Governance V2**: o control plane de orquestração é **NÃO-AUTORITATIVO / legacy**, permanece desconectado (nenhum importador fora do próprio pacote, nenhum workflow) e não é a arquitetura pretendida. O Product Orchestrator opera **process-first** sob `DEC-0037`, **sem runtime** — as funções de governança dependem de separação de papéis e do gate do Product Lead, não de runtime algum (`DEC-0037` §3). A frase era **descritiva** e nunca foi um grant (`DEC-0037` §3); as cláusulas vinculantes desta seção — `ORCHESTRATOR ≠ AUTHOR / PRIMARY TECHNICAL REVIEWER / GOVERNANCE AUDITOR` e a lista de proibições — permanecem **intactas**.
 
@@ -480,13 +480,13 @@ Quando tecnicamente possível, o reviewer deve receber:
 
 O objetivo é reduzir ancoragem. Se o runtime inevitavelmente compartilhar o self-check, o reviewer deve tratá-lo explicitamente como **não autoritativo** e refazer as verificações load-bearing.
 
-### Trust model para `AgentResult`
+### Trust model para o resultado de um papel (`ROLE RESULT`; nome legacy: `AgentResult`)
 
-- `Author: completed/PASS` = **reported**, não automaticamente **verified**;
-- `Reviewer: PASS` = evidência independente do domínio revisado, não aceite global;
+- `Author: completed/PASS` = **reported**, não automaticamente **verified** — e nunca aceite de unidade; o Author não emite disposição de unidade nem veredicto de artefato (`DEC-0040` D2, D11);
+- `Reviewer: PASS` = evidência independente do domínio revisado, não aceite global (`DEC-0040` D9);
 - `Governance: PASS` = escopo/integridade verificados, não correção técnica;
 - `HOLD` obrigatório em qualquer domínio de veto bloqueia a unidade;
-- `RED` confirmado por violation evidence bloqueia e escala imediatamente;
+- `RED` confirmado por violation evidence bloqueia e escala imediatamente — e **todo breach de autorização verificado em unidade governada é `RED`** (`DEC-0040` D5, prospectivo);
 - ausência de evidência suficiente = `HOLD`, nunca “provavelmente PASS”.
 
 ### Sem votação majoritária
@@ -598,7 +598,7 @@ Regras:
 - operação sensível requer `requires_human_approval=true` e aguarda Product Lead;
 - evidência incompleta = HOLD;
 - artefato tecnicamente aceito pode continuar com um finding de governança histórico, desde que o gate atual permita e o Product Lead aceite explicitamente essa separação;
-- RED histórico não deve ser reescrito para PASS; closeout resolve o finding atual, não altera a história.
+- RED histórico não deve ser reescrito para PASS; closeout resolve o finding atual, não altera a história — ciclo de vida do finding (`OPEN` / `CLOSED — REMEDIATED`) em `DEC-0040` D7, e as oito condições da separação unidade/artefato em `DEC-0040` D14.
 
 ---
 
@@ -606,14 +606,14 @@ Regras:
 
 ### Classificação obrigatória de afirmações
 
-O Orchestrator deve distinguir:
+O Orchestrator deve distinguir **quatro classes de evidência** — e apenas quatro. `HOLD` e `RED` **não são classes de evidência**: pertencem ao eixo de **disposição da unidade** (`DEC-0040` D4), e usá-los para classificar uma afirmação colapsa dois eixos distintos (`DEC-0040` D1, D3).
 
 - **REPORTED** — alegado por um agente, ainda não reproduzido;
 - **VERIFIED** — reproduzido por agente/reviewer independente no domínio específico;
 - **ACCEPTED** — passou pelos gates obrigatórios e, quando necessário, pelo Product Lead;
-- **UNPROVEN** — ainda não observado/executado;
-- **HOLD** — evidência insuficiente ou requisito não satisfeito;
-- **RED** — violação de autorização/governança comprovada.
+- **UNPROVEN** — ainda não observado/executado.
+
+> **Nota de reconciliação (`DEC-0040`, 2026-08-21).** Esta lista trazia também `HOLD` — *“evidência insuficiente ou requisito não satisfeito”* — e `RED` — *“violação de autorização/governança comprovada”*. **Nada foi revogado:** evidência insuficiente continua produzindo `HOLD` (§`Stage-Gate Discipline`, §`Trust model`; `DEC-0040` D4) e violação de autorização verificada continua produzindo `RED` (§`Governance breach`, §`Operational Invariants Summary`; `DEC-0040` D5). Muda apenas o **eixo**: as duas classificam a *disposição da unidade*, não a *evidência* de uma afirmação. Classe de evidência é **por afirmação** — uma afirmação pode ser `VERIFIED` numa unidade em `HOLD` ou `RED`.
 
 Nunca converter `REPORTED` diretamente em `ACCEPTED`.
 
@@ -653,7 +653,7 @@ Quando um agente executa ação fora da autorização:
 
 1. parar a unidade assim que o breach for reconhecido;
 2. preservar evidência disponível;
-3. retornar `RED` quando a política da unidade assim exigir;
+3. retornar `RED` — **todo breach de autorização verificado em unidade governada é `RED`**, sem depender de a política da unidade o exigir (`DEC-0040` D5, prospectivo a partir do landing daquele registro; disposições históricas não são reexaminadas);
 4. não “reparar” automaticamente se o reparo não estiver explicitamente autorizado;
 5. o mesmo agente que causou o breach **não deve ser o único governance auditor do closeout**;
 6. closeout/remediation deve ser delegado a função independente sempre que disponível.
@@ -757,6 +757,18 @@ Para unidades não triviais, `payload` deve carregar, quando aplicável:
 
 Esses campos vivem dentro de `payload`; não alteram o schema externo de `TaskCommand`.
 
+### Fronteira: decisão ≠ resultado de papel ≠ closeout de unidade
+
+Três artefatos distintos, produzidos por partes distintas, em momentos distintos, para leitores distintos (`DEC-0040` D17):
+
+| Artefato | Produzido por | Para | Responde |
+|---|---|---|---|
+| **`OrchestratorDecision`** | o Product Orchestrator | o loop de roteamento | *qual é a próxima ação de controle?* |
+| **`ROLE RESULT`** (`DEC-0040` D11) | um participante | o Product Orchestrator | *o que este participante entregou, e com que classe de evidência?* |
+| **`GOVERNED UNIT CLOSEOUT`** (`DEC-0040` D12) | a unidade, consolidada | o **Product Lead** | *qual a disposição da unidade, e o que se pede ao Product Lead?* |
+
+**Nada acima altera o contrato de formato desta seção.** Os quatro `decision_type`, o `TaskCommand` e os campos de governança do `payload` permanecem **intactos e vinculantes**. A relação é complementar: o `payload` carrega o lado da **autorização** de uma unidade (`read_scope`, `write_scope`, `evidence_contract`, `hold_conditions`, `red_conditions`); `DEC-0040` D11/D12 carregam o lado da **prestação de contas** da mesma unidade — o `write_scope` é declarado aqui e contabilizado lá (`DEC-0040` D13). **Uma decisão de roteamento nunca é um closeout.**
+
 ### Decision sequencing
 
 O Orchestrator decide com base no PROJECT STATE e no último `AgentResult`, não em texto solto.
@@ -827,7 +839,15 @@ NO EXECUTOR MAY BE THE SOLE GOVERNANCE AUDITOR OF ITS OWN OPERATION.
 AUTHOR PASS = REPORTED, NOT ACCEPTED.
 
 ANY REQUIRED DOMAIN HOLD => UNIT HOLD.
-ANY VERIFIED AUTHORIZATION BREACH => UNIT RED WHEN THE GATE POLICY REQUIRES RED.
+ANY VERIFIED AUTHORIZATION BREACH IN A GOVERNED UNIT => UNIT RED.
+
+UNIT DISPOSITION ≠ ARTIFACT VERDICT ≠ EVIDENCE CLASS ≠ EXECUTION STATE.
+
+CLOSED — REMEDIATED DOES NOT REWRITE A HISTORICAL RED.
+
+OUTSIDE REPOSITORY ≠ OUTSIDE write_scope.
+A CLEAN git status IS NOT A ZERO-MUTATION PROOF.
+CLEANUP IS NEVER RETROACTIVE AUTHORIZATION.
 
 NO MAJORITY VOTE OVERRIDES A VETO DOMAIN.
 
@@ -855,5 +875,7 @@ MISSING EVIDENCE => HOLD, NOT ASSUMED PASS.
 
 PRODUCT LEAD HUMAN GATES CANNOT BE BYPASSED.
 ```
+
+> **Nota de reconciliação (`DEC-0040`, 2026-08-21).** A linha de breach dizia `ANY VERIFIED AUTHORIZATION BREACH => UNIT RED WHEN THE GATE POLICY REQUIRES RED`. A condicional foi **removida** por `DEC-0040` D5: fazer a classificação mais grave depender de o writ ter lembrado de enunciar uma condição de `RED` é um default *fail-open* num modelo *fail-closed* em todo o resto, e deixava `HOLD` obrigatório enquanto `RED` era opcional. **O gatilho não mudou** — exige breach **verificado**, e suspeita não verificada continua sendo `HOLD`. **A mudança é prospectiva** a partir do landing de `DEC-0040`: nenhuma disposição histórica é reexaminada, promovida ou rebaixada, e `RED` continua sem significar rejeição de artefato (`DEC-0040` D6, D14) e sem nunca ser reescrito para `PASS` (D7). As quatro linhas seguintes são invariantes de eixo e de prestação de contas introduzidas pelo mesmo registro (`DEC-0040` D1, D7, D13).
 
 ---
