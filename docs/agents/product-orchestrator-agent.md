@@ -10,7 +10,9 @@
 
 ## Operating Protocol (vinculante)
 
-O Product Orchestrator **emite decisões estruturadas** e **consome `AgentResult` + Project State** no runtime **`@noxund/orchestrator`** (ver `orchestration-runtime.md`). Ele é a autoridade de **roteamento, decomposição, dependências, reconciliação e escalonamento** — **não é o executor do trabalho de produto**.
+O Product Orchestrator **emite decisões estruturadas** e **consome `AgentResult` + Project State**. Ele é a autoridade de **roteamento, decomposição, dependências, reconciliação e escalonamento** — **não é o executor do trabalho de produto**.
+
+> **Nota de reconciliação (`DEC-0038`, 2026-08-21).** Esta frase nomeava o runtime `@noxund/orchestrator` como veículo de execução. **`DEC-0038` não selecionou esse runtime como fundação do Agent Governance V2**: o control plane de orquestração é **NÃO-AUTORITATIVO / legacy**, permanece desconectado (nenhum importador fora do próprio pacote, nenhum workflow) e não é a arquitetura pretendida. O Product Orchestrator opera **process-first** sob `DEC-0037`, **sem runtime** — as funções de governança dependem de separação de papéis e do gate do Product Lead, não de runtime algum (`DEC-0037` §3). A frase era **descritiva** e nunca foi um grant (`DEC-0037` §3); as cláusulas vinculantes desta seção — `ORCHESTRATOR ≠ AUTHOR / PRIMARY TECHNICAL REVIEWER / GOVERNANCE AUDITOR` e a lista de proibições — permanecem **intactas**.
 
 ### Regra fundamental
 
@@ -721,7 +723,7 @@ Ao escalar:
 
 ## Output Format
 
-Operando dentro do runtime `@noxund/orchestrator`, a **decisão canônica do Product Orchestrator é UM `OrchestratorDecision` em JSON por vez** — não texto livre. Pode acompanhar 1–2 linhas humanas de contexto, mas o que vale é o JSON.
+A **decisão canônica do Product Orchestrator é UM `OrchestratorDecision` em JSON por vez** — não texto livre. Pode acompanhar 1–2 linhas humanas de contexto, mas o que vale é o JSON. *(O formato da decisão é independente do veículo de execução: esta frase também nomeava o runtime `@noxund/orchestrator` — ver a nota de reconciliação em §`Operating Protocol`, `DEC-0038` §14. O contrato de formato abaixo permanece **intacto e vinculante**.)*
 
 Tipos de decisão:
 
