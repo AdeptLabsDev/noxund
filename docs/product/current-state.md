@@ -5,6 +5,8 @@
 
 **Freshness contract.** LAST VERIFIED AGAINST CANONICAL MAIN = `fae24ba7551a5d9469e7b1d62aa175a1ebf7a90c`, verification date **2026-08-20** (B5 reverification). If `origin/main` advances past that SHA, this document is **STALE-UNTIL-REVERIFIED** for current-state purposes — which does **not** mean every merge changes its content: reverification may conclude **NO CONTENT CHANGE REQUIRED**, updating only this metadata under an authorized maintenance unit. **The SHA is freshness provenance, not normative authority**, and **`STALE ≠ WRONG`**. B5 re-read §A–§F at that base and repaired only the Phase-B unit state (§B, §G, §H, §I): between B2's `a11bd169…` base and this one, the only files that changed are the three Phase-B artifacts themselves, so no claim here about any other file was disturbed. **The SHA records the base actually verified; the §B / §G unit state records what the B5 merge itself makes true.** That merge advances `main` past this SHA and so recreates the staleness condition on landing — inherent to the contract, **not a defect**.
 
+**Scoped reverification — `351a73f99c7f8b103faa0a993ef9094e77f74305`, 2026-08-20, B6 (Phase-B closeout).** That base is the descendant merge of the `fae24ba7…` base above (PR #86, landing `DEC-0036`). B6 established from the repository that **the only files changed between `fae24ba7…` and this base are the three Phase-B routing artifacts, `DEC-0036` and `scope-guardrails.md`** — so every §A–§F claim here still rests on B5's verification, undisturbed. B6 therefore reverified and repaired **only the Phase-B terminal state** (§B, §G, §H, §I) and made no wider sweep. **This revision states what its own merge makes true**; the Product-Lead manual merge is the ratification gate (§E), and that merge recreates the ordinary `STALE-UNTIL-REVERIFIED` condition — inherent, not a defect.
+
 **Reading convention.** `State:` = factually true now. `Authority:` = what a landed normative record requires. Never merged; a fact is never rewritten to fit a rule.
 
 ---
@@ -25,7 +27,7 @@ NOXUND runs on **two distinct axes**. The A–F ladder is only the second, and i
 
 ### Axis 1 — product / engineering trajectory
 
-**State:** the substantive product-build work. It **predates** the A–F program, is substantial and **incomplete as a whole**. It is **not the current active execution focus** while improvement Phase B is current, and it was **not globally completed or superseded** by the improvement program. **Repository evidence does not establish the causal reason for the pivot**; any account of it is Product-Lead orientation, not repository fact. Unsettled and relevant here: **the exact resumption point and the next technical unit**.
+**State:** the substantive product-build work. It **predates** the A–F program, is substantial and **incomplete as a whole**. It is **not the current active execution focus** — nothing is, at this base — and it was **not globally completed or superseded** by the improvement program. **Repository evidence does not establish the causal reason for the pivot**; any account of it is Product-Lead orientation, not repository fact. Unsettled and relevant here: **the exact resumption point and the next technical unit**.
 
 **Plan, not present fact and not authorization:** it is to be **re-established from canonical repository truth, re-adjudicated as necessary, and resumed under Product-Lead GO**. The exact next post-improvement unit is **not decided**.
 
@@ -38,16 +40,16 @@ Collection-track evidence is landed on `main`; this document neither enumerates 
 An **overlay** that improves the context, governance, agent, engineering and orchestration system used to develop NOXUND.
 
 - **A — Reality & Repository Hygiene:** **COMPLETE**
-- **B — Canonical Context V2:** **CURRENT improvement phase** (B1–B5 complete; B6 not started — §G)
+- **B — Canonical Context V2:** **COMPLETE** (B0–B6 all complete — §G)
 - **C · D · E · F:** **NOT STARTED**
 
 **F is the final currently-defined phase of this improvement program — not the final phase of NOXUND development.**
 
 **Provenance.** A–F is the **current Product-Lead improvement-program model**, not a landed ladder. Repository-landed records establish **A–C**; **D–F are Product-Lead-defined future program phases, not yet independently defined as landed phase records**, and the complete six-phase sequence is defined by no canonical record on `main`. Per `DEC-0033` §8, such identifiers are named to place them, never to confer standing.
 
-**State:** the next candidate unit after B5 is **B6 — Phase-B closeout** — roadmap sequence, not landed order (§G).
+**State:** B6 was the terminal Phase-B unit and **Phase B is closed** — its terminal record is [`PHASE-B-CLOSEOUT-R1`](../result/PHASE-B-CLOSEOUT-R1.md). **Phase C is the next candidate improvement phase** — roadmap sequence, not landed order, and **not** a start.
 
-**Authority:** B6 is **not authorized** and has **not started**; it requires its own explicit Product-Lead GO. **Phase B is not closed** — closeout is B6's work, not B5's.
+**Authority:** **Phase C is not authorized and has not started**; it requires its own explicit Product-Lead GO. **Closing Phase B authorizes nothing** — not Phase C, not any Axis-1 resumption, and no re-arming (`DEC-0033` §8). No successor unit is authorized on either axis at this base.
 
 ---
 
@@ -115,10 +117,12 @@ These `B*` labels are **Phase-B units**, **not** the `B1`/`B2`/`B3` Phase-A *blo
 - **B2** compact current state — **this artifact**
 - **B3** context index — **LANDED** ([`context-map.md`](context-map.md))
 - **B4** task context pack — **LANDED** ([`task-context-pack.md`](task-context-pack.md))
-- **B5** bounded context reconciliation — **COMPLETE on the merge that lands this revision**; it reconciled §B, §G, §H and §I here and the stale routing claims in `context-map.md`
-- **B6** closeout — **NOT STARTED**, not authorized
+- **B5** bounded context reconciliation — **LANDED** (PR #85, merge `262c71907f24375196d13dc6901f64aa354acfad`); it reconciled §B, §G, §H and §I here and the stale routing claims in `context-map.md`
+- **B6** Phase-B closeout — **COMPLETE**; its output is [`PHASE-B-CLOSEOUT-R1`](../result/PHASE-B-CLOSEOUT-R1.md) plus this revision's terminal-state maintenance
 
-Unlanded identifiers (§B): `DEC-0035` names B0, B1, B3 and B5; **B2, B4 and B6 are defined by no canonical record on `main`** — `task-context-pack.md` is the artifact B4 produced, not a record defining the unit — and B2, B4 and B5 each stood on their own authorizing GO. Phase B is no more complete than this.
+**Phase B is CLOSED.** Closing it **creates no authority and starts nothing** — see §B *Authority*.
+
+Unlanded identifiers (§B): `DEC-0035` names B0, B1, B3 and B5; **B2, B4 and B6 are defined by no canonical record on `main`** — `task-context-pack.md` is the artifact B4 produced and `PHASE-B-CLOSEOUT-R1` the artifact B6 produced, neither being a record defining its unit — and B2, B4, B5 and B6 each stood on their own authorizing GO. Phase B is no more complete than this.
 
 **Implemented by B3.** The two-axis separation this document required of the index — **improvement-program routing** kept distinct from **product/engineering-trajectory routing**, so the index does not treat A–F as NOXUND's only historical axis — is carried by [`context-map.md`](context-map.md) §2, which assigns every ladder it registers to Axis 1 or Axis 2.
 
@@ -130,7 +134,7 @@ Unlanded identifiers (§B): `DEC-0035` names B0, B1, B3 and B5; **B2, B4 and B6 
 
 ## H. Open and deferred headlines
 
-Headlines only, not an inventory. **Successor PostgreSQL architecture undecided**, **provisioning unexecuted**. **Agent-governance / runtime redesign is improvement Phase C.** **Historical context normalization** remains improvement Phase-B work where scoped — B5 was a *bounded* reconciliation, not a corpus-wide normalization. **The product / engineering trajectory is paused and incomplete** (§B). The `OD-*` namespace and its cross-series collisions are **not** inventoried here — B3 inventoried the six families in [`context-map.md`](context-map.md) §2; the open `OD-*` items themselves stay open and close only by Product-Lead decision.
+Headlines only, not an inventory. **Successor PostgreSQL architecture undecided**, **provisioning unexecuted**. **Agent-governance / runtime redesign is improvement Phase C.** **Historical context normalization is open with no successor venue** — B5 was a *bounded* reconciliation, not a corpus-wide normalization, and Phase B closed without it (`DEC-0035` Annex A rows 1–11 stay routed and not solved). It is **not** carried by any open phase; assigning it one is a Product-Lead decision. **The product / engineering trajectory is paused and incomplete** (§B). The `OD-*` namespace and its cross-series collisions are **not** inventoried here — B3 inventoried the six families in [`context-map.md`](context-map.md) §2; the open `OD-*` items themselves stay open and close only by Product-Lead decision.
 
 **What B5 pruned, so pruned is not mistaken for overlooked.** `DEC-0035` Annex A rows 1–11 and its §11 step 4 routing of `docs/agents/orchestration-runtime.md`'s stale `Status: implementado` line were **considered and deliberately left out** of this bounded unit as historical normalization: Annex A is expressly *"NOT normative"* and *"creates NO obligation to edit any file listed below"*, and permits B5 to *"add to or prune this list"*. They remain **routed and not solved** — the `orchestration-runtime.md` warning is live in `task-context-pack.md` §5 case D.
 
@@ -140,6 +144,7 @@ Headlines only, not an inventory. **Successor PostgreSQL architecture undecided*
 
 - Authority model, precedence, supersession → [`DEC-0035`](decisions/DEC-0035-canonical-context-v2-authority-lifecycle-supersession-model.md)
 - Phase-A terminal state → [`PHASE-A-CLOSEOUT-R1`](../result/PHASE-A-CLOSEOUT-R1.md)
+- Phase-B terminal state; Phase-B routed residuals → [`PHASE-B-CLOSEOUT-R1`](../result/PHASE-B-CLOSEOUT-R1.md)
 - Decision records → `docs/product/decisions/**`
 - Agent governance and contracts → `docs/agents/**`
 - Locked product scope → [`context/01_MVP_Scope_PRD.md`](../../context/01_MVP_Scope_PRD.md)
