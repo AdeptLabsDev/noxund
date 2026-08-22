@@ -568,7 +568,7 @@ These three carry a current modification time **only** because the pre-session `
 |---|---|
 | branch `chore/phase-d-d2-first-js-ts-quality-signal` created from the canonical base and pushed | `AUTHORIZED MUTATION` |
 | PR #96 opened against `main`, and left **unmerged** | `AUTHORIZED MUTATION` |
-| automatic Actions runs caused by that PR's `pull_request` trigger — `32586763336`, `32587386670`, `32587458090` and `32589235883` on this workflow; `32587386665`, `32587458094` and `32589235958` on `governance-checks.yml`. **All seven `success`; zero failed runs, zero cancelled runs, zero manual dispatches** | `AUTHORIZED MUTATION` — automatic effects the writ names |
+| automatic Actions runs caused by that PR — on this workflow `32586763336`, `32587386670`, `32587458090`, `32589235883`; on `governance-checks.yml` `32587386665`, `32587458094`, `32589235958`. **Every run produced up to and including the commit that lands this row concluded `success`, with zero failed runs, zero cancelled runs and zero manual dispatches.** The enumeration is complete as at authorship and is deliberately not a claim about later commits on this branch, each of which produces its own runs under the same two path filters — see the paragraph below | `AUTHORIZED MUTATION` — automatic effects the writ names |
 | the ephemeral runner's own filesystem — a checkout, a Node toolchain, a pnpm store and 327 installed packages | `AUTHORIZED MUTATION`, entirely inside the runner, destroyed with it, and **outside this repository and this host** |
 | workflow id `340140169` registered by GitHub on first sight of the file | `HARNESS OR SYSTEM PERSISTENCE OUTSIDE AGENT CONTROL` — an automatic platform consequence of committing a workflow file, not a separate act |
 
