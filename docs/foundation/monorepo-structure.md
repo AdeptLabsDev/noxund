@@ -1,9 +1,15 @@
 # Monorepo Structure — NOXUND
 
-**Status:** fundação mínima criada e **buildável** (Sprint 0). **Nenhuma feature de produto.**
+**Status:** fundação mínima criada. **Nenhuma feature de produto.**
 **Owner:** DevOps/Infra Agent + Documentation Agent (com Product Orchestrator).
 
-Esta camada prepara o terreno técnico sem antecipar construção. `apps/web` está scaffoldado e compila; `services/data-engine` e `supabase/` permanecem scaffolds mínimos.
+Esta camada prepara o terreno técnico sem antecipar construção. `apps/web` está
+scaffoldado e **passa no typecheck** (`tsc --noEmit`, verificado no CI);
+`packages/shared` idem. **`next build` NÃO é executado por nenhum workflow e
+permanece `UNPROVEN`** — a palavra "buildável" foi retirada desta página porque
+nada a sustentava. `services/data-engine` **não** é mais um scaffold: é o maior
+corpo de código ativo do repositório, com suíte determinística e CI próprio.
+`supabase/` é `HISTORICAL / PRESERVED` e não recebe investimento de qualidade.
 
 ---
 
@@ -12,21 +18,25 @@ Esta camada prepara o terreno técnico sem antecipar construção. `apps/web` es
 ```txt
 noxund/
 ├─ apps/
-│  └─ web/                 # Next.js + TS + Tailwind (front + core API). Scaffoldado e buildável.
+│  └─ web/                 # Next.js + TS + Tailwind (front + core API). Scaffold mínimo; typecheck no CI.
 ├─ packages/
-│  └─ shared/              # Tipos/contratos TS compartilhados (mínimo).
+│  ├─ shared/              # Tipos/contratos TS compartilhados (mínimo). ACTIVE-BUT-UNREACHED.
+│  └─ orchestrator/        # LEGACY / NON-AUTHORITATIVE (DEC-0038 D1). Fora do workspace; sem investimento de qualidade. EXCLUÍDO ≠ REMOVIDO.
 ├─ services/
-│  └─ data-engine/         # Pipeline Python (scaffold). NÃO é pnpm workspace.
-├─ supabase/
-│  ├─ migrations/          # Migrations do schema (vazio). Placeholder.
-│  └─ README.md
+│  └─ data-engine/         # Pipeline Python determinístico. NÃO é pnpm workspace. CI próprio.
+├─ tools/
+│  └─ governance/          # Checker de durabilidade de referência + suíte própria. ACTIVE TOOLING.
+├─ infra/
+│  └─ postgres/            # PostgreSQL 15 local (DEC-0028). ACTIVE TOOLING · LOCAL ONLY — sem CI.
+├─ supabase/               # HISTORICAL / PRESERVED. Sem investimento de qualidade.
 ├─ context/                # Fonte de verdade do produto (NÃO alterar sem indexar).
 ├─ docs/
 │  ├─ agents/              # Governança + contratos de agentes.
 │  ├─ product/             # Sistema operacional do produto + decisions/.
+│  ├─ result/              # Registros de evidência por unidade.
 │  └─ foundation/          # Este documento.
-├─ package.json            # Root privado, workspaces (apps/*, packages/*).
-├─ pnpm-workspace.yaml     # Workspaces JS/TS (services/ é Python, fora daqui).
+├─ package.json            # Root privado. Scripts de raiz — `typecheck` é o entrypoint canônico JS/TS.
+├─ pnpm-workspace.yaml     # Workspaces JS/TS ativos: root, apps/web, packages/shared (services/ é Python, fora daqui).
 ├─ tsconfig.base.json      # Config TS base (apps/packages estendem).
 ├─ .env.example            # Template de env (sem secrets).
 ├─ .gitignore  .nvmrc  .editorconfig
@@ -59,10 +69,52 @@ Frameworks (Next/Supabase/Python) já estavam decididos em `/context`. O que é 
 
 ---
 
-## Próximo passo técnico (quando autorizado)
+## Entrypoints canônicos de qualidade
 
-1. Confirmar DEC-0001 (pnpm + layout).
-2. `git init`, branch protection da `main` (DevOps).
-3. Scaffold `apps/web` (Frontend/Backend) — Sprint 1 (relatório mockado).
-4. `supabase init` + primeira migration (Database + Security) — Sprint 3 prep.
-5. Bootstrap `services/data-engine` (Data/AI) — Sprint 3.
+**Um comando por superfície, versionado, e o CI invoca exatamente o mesmo
+artefato.** Ninguém precisa ler YAML de workflow para reconstruir estes
+comandos.
+
+| Superfície | Comando canônico | O CI invoca esse mesmo comando? |
+|---|---|---|
+| JS/TS ativo (`apps/web` + `packages/shared`) | `pnpm typecheck` (da raiz) | **Sim** — `js-ts-quality.yml` |
+| Data engine (`services/data-engine`) | `python services/data-engine/run_quality_checks.py` | **Sim** — `data-engine-tests.yml` |
+| Governança (`tools/governance`) | `python tools/governance/run_quality_checks.py` | **Sim** — `governance-checks.yml` |
+| PostgreSQL local (`infra/postgres`) | `infra/postgres/scripts/verify-local` | **Não — LOCAL ONLY, por decisão.** Sem CI |
+
+Instalação das dependências JS/TS, com o lockfile como autoridade:
+
+```bash
+pnpm install --frozen-lockfile
+```
+
+**Cada nome descreve exatamente o que o comando checa** (`DEC-0042` §D10).
+`typecheck` é `tsc --noEmit` — correção de tipos e nada mais: **não** builda,
+**não** roda lint, **não** roda testes e nada afirma sobre Python. Os dois
+runners Python declaram no próprio docstring o que cobrem e o que **não**
+cobrem.
+
+**Não há comando de raiz que rode tudo, e isso é deliberado.** Um `quality` ou
+`check-all` de raiz atravessando linguagens afirmaria uma cobertura que nenhum
+mecanismo entrega.
+
+### Duas exceções, declaradas em vez de escondidas
+
+- **`infra/postgres` é `LOCAL ONLY`.** Exige Docker Desktop + WSL 2 e roda por
+  `infra/postgres/scripts/*-local`; `verify-local` é a suíte de asserção.
+  **Nenhum CI existe para ele e nenhum é criado** — ver `infra/postgres/README.md`.
+- **O contrato do driver de coleta permanece só no CI.** Provar que o wheel
+  hash-pinado do `psycopg` importa exige `pip install`, o que alteraria o
+  ambiente local; por isso ele não entra no comando local padrão do data engine.
+
+### O que ainda NÃO é verificado por nada
+
+Dito porque uma lista de comandos verdes sugere cobertura que não existe:
+
+- **`next build`** — nenhum workflow o executa; integridade de build (`Q1`) de
+  `apps/web` permanece `UNPROVEN`, **roteada e não dispensada**.
+- **Lint / análise estática** — ESLint, Ruff, shellcheck e actionlint estão
+  configurados ou ausentes, mas **nenhum é executado**. É a adjudicação `D4`.
+- **Testes de comportamento em JS/TS** — não existem, e `D2` adjudicou que
+  nenhuma suíte se justifica na superfície atual. Resposta temporal, não
+  permanente.

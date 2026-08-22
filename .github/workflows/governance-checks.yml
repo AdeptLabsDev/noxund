@@ -26,6 +26,23 @@ name: Governance · Reference Durability (CI)
 # defect). A green run means only that no malformed reference SHAPE was
 # introduced.
 #
+# SAME-ARTIFACT PARITY (D3) — READ THIS BEFORE EDITING A STEP BELOW.
+# The `checker-tests` job's quality logic is NOT in this file. It lives in ONE
+# checked-in, stdlib-only entrypoint a developer invokes identically:
+#
+#     python tools/governance/run_quality_checks.py
+#
+# The expected test count and the fail-closed assertion are defined THERE and
+# nowhere else. Do not re-encode an assertion here: change the entrypoint,
+# which CI and local both execute.
+#
+# The `reference-durability` job below is DELIBERATELY separate and keeps
+# calling the checker directly. It is GitHub platform plumbing — a
+# pull-request base SHA and an event name — and DEC-0042 §D9 asks for one
+# checked-in home for the substantive quality logic, not for event wiring to
+# be pushed into package-quality code. The checker itself is already a single
+# checked-in file; only its trigger context lives here.
+#
 # HARDENING: `permissions: contents: read` (no write anywhere); actions
 # SHA-pinned (SEC-F17); ZERO secrets; ZERO Environment; ZERO database; ZERO
 # cloud. Python 3.11 stdlib-only - no pip install of any kind. It re-arms
@@ -78,30 +95,21 @@ jobs:
             *) echo "::error::Expected Python 3.11.x, got ${ver}."; exit 1 ;;
           esac
 
-      - name: Run the checker suite — require exactly 40/40 (fail-closed count)
+      - name: Run the checker suite through the canonical checked-in entrypoint
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: |
           set -euo pipefail
-          # stdlib-only, ZERO pip install. The count is asserted fail-closed
-          # because a discovery regression that silently ran fewer tests would
-          # still exit 0 under unittest.
-          if out="$(python -m unittest discover -s tools/governance/tests -p 'test_*.py' -v 2>&1)"; then
-            status=0
-          else
-            status=$?
-          fi
-          echo "$out"
-          if [ "$status" -ne 0 ]; then
-            echo "::error::governance checker tests FAILED (unittest exit ${status})."
-            exit 1
-          fi
-          if ! grep -qE '^Ran 40 tests in ' <<<"$out"; then
-            ran="$(grep -oE '^Ran [0-9]+ tests' <<<"$out" || true)"
-            echo "::error::expected exactly 40 tests, got '${ran:-<none>}' (discovery regression)."
-            exit 1
-          fi
-          echo "40/40 OK."
+          # THE SAME COMMAND A DEVELOPER RUNS. stdlib-only, ZERO pip install.
+          # The expected count and the fail-closed assertion live inside
+          # run_quality_checks.py — this workflow holds NO second copy of
+          # them, so CI and local cannot drift (D3; DEC-0042 §D9). The count
+          # is asserted there because a discovery regression that silently
+          # ran fewer tests would still exit 0 under unittest.
+          # The entrypoint sets PYTHONDONTWRITEBYTECODE for its child process
+          # itself; the job-level value above is kept as well, so the
+          # guarantee holds no matter which one a reader is looking at.
+          python tools/governance/run_quality_checks.py
 
   reference-durability:
     name: Reference durability · prospective check on added/changed lines

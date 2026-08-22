@@ -84,12 +84,14 @@ pnpm install              # install workspace deps
 pnpm dev                  # run apps/web (Next.js dev server)
 pnpm --filter web lint    # lint the web app
 pnpm --filter web build   # production build
-pnpm --filter web typecheck
+pnpm typecheck            # typecheck the active JS/TS surface (canonical entrypoint)
 ```
 
 The Python data engine (`services/data-engine`) has its own environment and is **not**
-part of the pnpm workspace. It is a scaffold only at this stage (Python not required to
-build the web app).
+part of the pnpm workspace (Python is not required to build the web app). Its checked-in
+quality entrypoint is `python services/data-engine/run_quality_checks.py`; see
+[`services/data-engine/README.md`](services/data-engine/README.md) for its exact coverage
+and exclusions.
 
 ---
 

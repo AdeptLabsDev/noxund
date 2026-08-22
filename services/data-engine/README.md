@@ -21,16 +21,37 @@ padrão: nenhuma SDK de LLM, driver de banco, ML, Celery ou Redis foi adicionada
 Nenhuma conexão, chamada LLM ou escrita real ocorre ao importar ou testar o pacote; testes usam
 doubles em memória.
 
-## Rodar testes
+## Qualidade — o comando canônico
 
-No diretório `services/data-engine`:
+De qualquer diretório, em qualquer sistema operacional:
 
-```powershell
-$env:PYTHONPATH = "src"
-python -m unittest discover -s tests -v
+```bash
+python services/data-engine/run_quality_checks.py
 ```
 
-O ambiente atual precisa oferecer Python 3.11+. Não instalar dependências para esta etapa.
+Esse é **o entrypoint canônico de qualidade deste serviço**, e é exatamente o
+que o CI executa — `.github/workflows/data-engine-tests.yml` invoca esse mesmo
+arquivo versionado e **não guarda uma segunda cópia das asserções**. Não é
+preciso definir `PYTHONPATH`, nem saber o separador de caminho do sistema, nem
+fazer `cd`: o entrypoint monta o próprio caminho de importação a partir da
+localização dele. Ele também não deixa `__pycache__` para trás.
+
+Três limbs, executáveis isoladamente — `suite`, `repro`, `digest`:
+
+```bash
+python services/data-engine/run_quality_checks.py suite    # suíte unitária, ×2
+python services/data-engine/run_quality_checks.py repro    # harness P5-REPRO-01, ×2
+python services/data-engine/run_quality_checks.py digest   # golden digest
+```
+
+**O que ele cobre e o que ele NÃO cobre está declarado no docstring do próprio
+arquivo** (`DEC-0042` §D10) — em resumo: sem lint, sem type check, sem testes de
+integração, sem banco, sem rede, e **sem o contrato do driver de coleta**, que
+permanece só no CI porque exige `pip install` com hash-pin e alteraria o
+ambiente local. Essa exceção é aceita e documentada, não escondida.
+
+Requisito: Python 3.11+ na biblioteca padrão. **Não instalar dependências para
+esta etapa** — o núcleo declara `dependencies = []` de propósito.
 
 ## Sequência pipeline-first
 
