@@ -263,7 +263,22 @@ The workflow YAML is not itself sufficient evidence. Every item the writ require
 
 **All eight executable steps concluded `success`, with none skipped.** The run was caused by the `pull_request` trigger firing on PR #96; **it was not manually dispatched, and this unit ran no `gh workflow run` and no `workflow_dispatch` of any kind.** Retrieval used read-only operations only.
 
-**One honest limit on the head SHA.** The run above evaluated the commit that introduced the workflow. The documentation commits that follow it on this branch change no path in the workflow's filter, so the workflow correctly does not re-fire for them — **the run therefore evidences the workflow file exactly as landed, and does not evidence the branch's final head.** Recorded so no one reads it as more than it is.
+### 10.1 A second run, and a prediction of this Author's that observation falsified
+
+**A first draft of this section asserted that the documentation commit which follows the workflow commit on this branch "changes no path in the workflow's filter, so the workflow correctly does not re-fire for it". That was wrong, it was written as a prediction rather than an observation, and it is corrected here rather than quietly deleted.**
+
+**What actually happens.** For a `pull_request` event, GitHub evaluates a path filter against **the whole set of files the pull request changes**, not against the newest commit alone. The pull request as a whole still changes `.github/workflows/js-ts-quality.yml`, so the `synchronize` event fired the workflow again on the documentation head.
+
+| Field | Run 1 | Run 2 |
+|---|---|---|
+| run id | `32586763336` | `32587386670` |
+| head SHA | `5da1a3645d0230c549b38bc41538e55283120953` | `c3e2374c40636275f93c1ca2e730c032a567a12c` |
+| trigger | PR opened | PR synchronized |
+| conclusion | `success` | `success` |
+
+**Two consequences, both in the honest direction.** The signal is evidenced on **both** heads of this branch rather than only on the first, so the caveat that draft was trying to state does not arise. And **a claim this Author reasoned to rather than measured turned out to be false** — recorded because §10's whole purpose is that the workflow YAML is not self-evidencing, and an Author's expectation of platform behaviour is not either. `VERIFIED` by two runs; the earlier sentence is withdrawn.
+
+**The `governance-checks.yml` reference-durability workflow also fired on the documentation head, as its own path filter requires, and concluded `success`** — run `32587386665`, both of its jobs green. That is an authorized automatic effect of a documentation change, not an effect of this unit's workflow.
 
 ---
 
@@ -453,11 +468,11 @@ Per `DEC-0040` D13. **`OUTSIDE REPOSITORY ≠ OUTSIDE write_scope`**, and **a cl
 |---|---|
 | branch `chore/phase-d-d2-first-js-ts-quality-signal` created from the canonical base and pushed | `AUTHORIZED MUTATION` |
 | PR #96 opened against `main`, and left **unmerged** | `AUTHORIZED MUTATION` |
-| one automatic Actions run, `32586763336`, caused by that PR's `pull_request` trigger | `AUTHORIZED MUTATION` — an automatic effect the writ names |
+| automatic Actions runs caused by that PR's `pull_request` trigger — `32586763336` and `32587386670` on this workflow, and `32587386665` on `governance-checks.yml`, all three `success` | `AUTHORIZED MUTATION` — automatic effects the writ names |
 | the ephemeral runner's own filesystem — a checkout, a Node toolchain, a pnpm store and 327 installed packages | `AUTHORIZED MUTATION`, entirely inside the runner, destroyed with it, and **outside this repository and this host** |
 | workflow id `340140169` registered by GitHub on first sight of the file | `HARNESS OR SYSTEM PERSISTENCE OUTSIDE AGENT CONTROL` — an automatic platform consequence of committing a workflow file, not a separate act |
 
-**A second automatic run is expected and is likewise authorized:** the documentation commit that adds this record and reconciles the two routing documents matches the path filter of `governance-checks.yml`, which will fire on it. **Its result is not yet known at the time of writing** and is `UNPROVEN` here.
+**Every automatic run above is a consequence of an authorized push or pull-request event and of nothing else.** None was manually dispatched. **A further round of runs will fire on any commit this branch receives after this record is written** — including the one that lands this very paragraph — which is the ordinary and intended behaviour of the two path filters involved, not an unaccounted effect; their results are `UNPROVEN` here for the same reason a record cannot contain its own consequences.
 
 ### 17.9 `UNKNOWN MUTATION STATE`
 
