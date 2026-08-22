@@ -1,6 +1,6 @@
 # PHASE D — `D1` JS/TS toolchain coherence and reproducible install · R1
 
-**Status:** COMPLETE as an Author deliverable · **Date:** 2026-08-22 · **Author:** a task-scoped Author, to be reviewed by a **distinct** task-scoped independent reviewer, under the topology [`DEC-0037`](../product/decisions/DEC-0037-execution-topology-role-independence-governance-review-function.md) D5 fixes, carried into this unit by the Product Lead's own explicit `D1` GO ([`DEC-0042`](../product/decisions/DEC-0042-engineering-quality-phase-charter.md) §D16) · **Ratification gate:** the Product Lead's manual merge ([`DEC-0037`](../product/decisions/DEC-0037-execution-topology-role-independence-governance-review-function.md) D11)
+**Status:** COMPLETE as an Author deliverable · **Date:** 2026-08-22 · **Author:** a task-scoped Author, **reviewed by a distinct task-scoped independent reviewer whose reproduction is recorded at §18** — function-independent in all three required functions, **not** principal-independent (§18.1) — under the topology [`DEC-0037`](../product/decisions/DEC-0037-execution-topology-role-independence-governance-review-function.md) D5 fixes, carried into this unit by the Product Lead's own explicit `D1` GO ([`DEC-0042`](../product/decisions/DEC-0042-engineering-quality-phase-charter.md) §D16) · **Ratification gate:** the Product Lead's manual merge ([`DEC-0037`](../product/decisions/DEC-0037-execution-topology-role-independence-governance-review-function.md) D11)
 **Authority class:** DESCRIPTIVE-CURRENT · **Lifecycle:** CURRENT · **Mutability:** FROZEN
 **Type:** Toolchain-coherence record for a **mutating** unit. **This is not a decision record** — it creates no authority, classifies no artifact, narrows no clause, sets no threshold and authorizes no execution. `D1` operates entirely under the landed charter [`DEC-0042`](../product/decisions/DEC-0042-engineering-quality-phase-charter.md) and **creates no new normative authority of its own.**
 **Canonical base:** `main` @ `3110acff2225e5a5e8e2c5a5ccfebefaca4ec9ae` (PR #94 merge), working tree clean at unit start.
@@ -35,11 +35,14 @@
 | **what pnpm actually evaluates that to** | **four** projects: root, `apps/web`, `packages/orchestrator`, `packages/shared` | `pnpm -r list --depth -1` executed at the base — **not inferred from the YAML** | `VERIFIED` |
 | `pnpm-lock.yaml` | **three** importers: `.`, `apps/web`, `packages/shared` | `importers:` block; `packages/orchestrator` absent | `VERIFIED` |
 
-**The consequence, quoted verbatim from the failing run (Probe A, §10).**
+**The consequence — the operative lines of the failing run. This is a MARKED EXCERPT, not the untrimmed output:** two Node deprecation lines and pnpm's CI advisory are elided at the marks below, and **§10 Probe A carries the run in full.** *(R1 introduced this block with the word "verbatim" over a silent elision, while §10 point 8 preserved comparable noise expressly "rather than trimmed out of the quotation" — two standards in one record. R2 keeps the untrimmed output at §10 and marks the elision here.)*
 
 ```
 Scope: all 4 workspace projects
+[… two Node `[DEP0169] DeprecationWarning: url.parse()` lines elided — §10 …]
  ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with packages\orchestrator\package.json
+
+[… pnpm's "Note that in CI environments this setting is true by default…" advisory elided — §10 …]
 
     Failure reason:
     specifiers in the lockfile ({}) don't match specs in package.json ({"@types/node":"^20.19.0","typescript":"^5.7.3"})
@@ -219,6 +222,8 @@ pnpm install --frozen-lockfile --ignore-scripts --store-dir C:/Adeptlabs/noxund-
 
 Run first, exactly as the writ recommends, to settle `D0` §12 item 1.
 
+**The install output below is untrimmed** — every line pnpm and Node emitted, including the deprecation pair and the CI advisory that R1 silently dropped (repaired in R2; §2 now carries a marked excerpt and points here).
+
 ```
 $ git rev-parse HEAD
 3110acff2225e5a5e8e2c5a5ccfebefaca4ec9ae
@@ -226,11 +231,18 @@ $ pnpm -r list --depth -1
 noxund@0.0.0 ... / web@0.0.0 ...\apps\web / @noxund/orchestrator@0.0.0 ...\packages\orchestrator / @noxund/shared@0.0.0 ...\packages\shared
 $ pnpm install --frozen-lockfile --ignore-scripts --store-dir C:/Adeptlabs/noxund-d1-pnpm-store-author
 Scope: all 4 workspace projects
+(node:73772) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
  ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with packages\orchestrator\package.json
+
+Note that in CI environments this setting is true by default. If you still need to run install in such cases, use "pnpm install --no-frozen-lockfile"
+
     Failure reason:
     specifiers in the lockfile ({}) don't match specs in package.json ({"@types/node":"^20.19.0","typescript":"^5.7.3"})
 EXIT_CODE=1
 ```
+
+**The advisory is quoted rather than dropped because it is the one elided line that could mislead a later reader**: pnpm proposes `--no-frozen-lockfile` as the way out. **That is not the repair `D1` chose and would have been the wrong one** — it would have let the install proceed by re-resolving against the untrue declaration, mutating the lockfile to add the legacy importer, and delivering exactly the Option-C outcome §3 rejects.
 
 **`D0` §12 item 1 is resolved: `UNPROVEN — NOT PROBED` → `VERIFIED`. It fails.** The failed install wrote nothing: the lockfile hashes were unchanged and `git status --porcelain --ignored=traditional` returned **empty** — no `node_modules` was created at all.
 
@@ -251,13 +263,17 @@ Same authorized worktree path, moved to the candidate by `git checkout --detach`
 | **9** | no legacy file changed | `git diff --stat <base>..<cand> -- packages/orchestrator` | **empty** (§12) |
 | **10** | no package version changed | manifest + lockfile blob comparison | all identical (§12) |
 
-**Point 6, tail of the output, verbatim:**
+**Point 6 — the decisive lines. A MARKED SELECTION, not a contiguous tail:** the same deprecation pair, pnpm's update banner and roughly two dozen incremental `Progress:` lines sit between these and are elided at the marks. *(R1 called this "tail of the output, verbatim"; it was a selection, and R2 says so. The banner is quoted at §7, where declining it is the load-bearing fact.)*
 
 ```
 Scope: all 3 workspace projects
+[… two Node `[DEP0169] DeprecationWarning` lines elided …]
 Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
 Packages: +320
+[… progress bar, pnpm's "Update available! 9.0.0 → 11.22.0" banner, and ~24 incremental `Progress:` lines elided — see §7 …]
 Progress: resolved 320, reused 0, downloaded 320, added 320, done
+
 Done in 37.2s
 ```
 
@@ -274,9 +290,13 @@ $ git status --porcelain --ignored=traditional
 
 **Two honest notes on point 8.** First, the ignored set is **exactly three** `node_modules` trees and **no `packages/orchestrator/node_modules`** — independent confirmation that the install never reached the legacy package. Second, `git status --ignored` emitted four `warning: could not open directory … Filename too long` lines while walking a deeply nested `@typescript-eslint` path under `node_modules/.pnpm/`. **They are Windows path-length warnings from git's scan of ignored content, they concern no tracked file, and the tracked-status result is unaffected** — recorded rather than trimmed out of the quotation.
 
-### Probe C — re-verification at the branch head `434411d78a8b341fd10700af7fecc2a29cc6d687`
+### Probe C — re-verification at commit `434411d78a8b341fd10700af7fecc2a29cc6d687`
 
-**Why it exists.** Probe B ran at `4b54de0b…`, the commit carrying the toolchain change alone. The branch head additionally carries this record and the two routing documents. Those are documentation and **cannot** affect an install — but a reviewer arrives at the head, not at the intermediate commit, so the claim is **re-established there rather than argued to carry forward.**
+**Why it exists.** Probe B ran at `4b54de0b…`, the commit carrying the toolchain change alone. `434411d7…` additionally carries this record and the two routing documents. Those are documentation and **cannot** affect an install, but the claim is **re-established on them rather than argued to carry forward.**
+
+> **`434411d7…` IS NOT THE BRANCH HEAD, and R1's heading said it was. Corrected here rather than left standing.** `434411d7…` was the head **at the moment this probe ran**; the very commit that recorded the probe (`d0432df…`) displaced it, and R2 displaces it again. **R1 applied the self-falsification discipline to commit counts at §17** — *"a number written into a `FROZEN` record is falsified by the act of writing it"* — **and failed to apply the identical discipline to a head SHA.** A `FROZEN` record cannot name its own head: **any commit that records the naming falsifies it.** This is the same defect class `D0` R4 repaired in its own predecessor's push count, and the repair is the same — state what actually happened and stop asserting a self-falsifying value.
+
+**What this probe does and does not establish.** It establishes that the install outcome is unchanged on a commit carrying the documentation as well as the toolchain change. **It does not establish the outcome at the branch head**, and no Author probe in this record does. **That verification is discharged by the independent Reviewer's Probe B at `46d83d4b87c180b69eea3b61ddc197e3b25a519e`, recorded at §18** — which was the branch head at the time of that review, and which is likewise not asserted here to be the final head. **No new Author probe was invented at the true head to paper over this**, and Probe C is not deleted.
 
 ```
 $ git rev-parse HEAD
@@ -293,7 +313,7 @@ $ git status --porcelain
 (empty)
 ```
 
-**Three projects, exit 0, lockfile byte-identical, tracked tree clean — unchanged from Probe B.** `Already up to date` also confirms the second install was idempotent against the store rather than a fresh resolution. `VERIFIED`.
+**Three projects, exit 0, lockfile byte-identical, tracked tree clean — unchanged from Probe B.** `Already up to date` also confirms the second install was idempotent against the store rather than a fresh resolution. `VERIFIED` **at `434411d7…`, and scoped to that commit.**
 
 ---
 
@@ -379,14 +399,15 @@ Every install ran with **`--ignore-scripts`**. Dependency lifecycle scripts were
 Recorded as `UNPROVEN` / `UNKNOWN` rather than assumed in either direction, and **routed rather than absorbed. Naming is not authorization.**
 
 1. **`apps/web/tsconfig.json` — the compiler-configuration defect is NOT REPAIRED by this unit, and is NOT WITHDRAWN.** `D0` §16's `D1` entry names three problems and this is the third: *"`apps/web/tsconfig.json` violates the `extends` constraint its own README states"* — `apps/web/README.md:27` requires *"`tsconfig.json` deve estender `../../tsconfig.base.json`"*, and the file declares no `extends` key, losing `noUncheckedIndexedAccess`, `noImplicitOverride`, `verbatimModuleSyntax` and `forceConsistentCasingInFileNames` (`D0` §10.2 row 1). **The Product Lead's `D1` writ enumerates the authorized mutation surfaces — root/workspace/toolchain configuration, the lockfile if strictly necessary, at most one Node selector, this artifact and the two routing documents — and `apps/web/tsconfig.json` is not among them.** The divergence between the `D0` roadmap entry and the writ is recorded plainly here rather than argued away or acted on. **The file was not touched.** → **Routed to the Product Lead: it needs either an explicit scope extension to a `D1` follow-up round, or its own bounded authorized unit.** Note the interaction with §11: the green `tsc --noEmit` reported there ran against the weak local configuration, so it is not evidence that the strict settings would pass.
-2. **Whether the frozen install succeeds on Node 20 specifically** — `UNPROVEN`. Only Node v24.15.0 was available and no Node was installed. → `D2`, which selects the CI Node version.
-3. **Whether a scripts-enabled install succeeds** (`sharp`, `unrs-resolver`) — `UNPROVEN`; every probe used `--ignore-scripts` (§13). → `D2`.
-4. **Whether `next build` and `next lint` pass** — `UNPROVEN — NOT PROBED`; `next build` is forbidden to this unit. `D0` §12 item 2 survives in part.
-5. **The narrow `>=20` / `^20.9.0` declared-constraint gap** (§6) — real, unenforced, and not a demonstrated incompatibility. → Product Lead, or a later unit that can demonstrate an actual failure. **Not a `D1` repair on this evidence.**
-6. **Whether `packages/shared` should be imported or retired** — unchanged from `D0` §17 item 6; a product-architecture question. `D1` changed nothing about it beyond keeping it an explicit workspace member.
-7. **Whether the resolved closure is identical on Linux** — `UNKNOWN`. Only Windows was exercised. → `D2`.
+2. **No decision record was produced, and `D0` §16 expected one — disclosed here so the divergence account is symmetric.** `D0` §16's `D1` entry states the expected artifact is *"Coherent manifests, lockfile and compiler configuration, **plus a decision record for the choices made**."* **`D1` produced no `DEC-00NN`.** Nothing is misstated by that — **the writ governs, not the roadmap** (`DEC-0042` §D16): it directed `D1` to operate under the landed charter, enumerated a write scope containing no decision record, and instructed that if a genuinely new normative policy were required the unit must **stop and escalate** rather than create one. **No new normative policy was required**, so none was created; the workspace disposition is an application of `DEC-0038` D1 and `DEC-0042` §D11, not a new rule. **The adjudication a decision record would have carried is at §3** — four options, the ground each was rejected on, and the empirical precondition tested before Option B was relied on. **Why this is stated at all:** item 1 already discloses one shortfall against that same `D0` line (compiler configuration), and R1 disclosed only that one while listing "no new decision record" at the foot of this section as merely deliberately-not-done. **Disclosing one half of a two-part divergence and not the other is the asymmetry repaired here.** → **Routed to the Product Lead**, who may judge that the config-plus-evidence form is sufficient, or may direct that a `DEC-00NN` be authored under a separately authorized unit. **`D1` does not decide that question and does not treat its own silence as an answer.**
+3. **Whether the frozen install succeeds on Node 20 specifically** — `UNPROVEN`. Only Node v24.15.0 was available and no Node was installed. → `D2`, which selects the CI Node version.
+4. **Whether a scripts-enabled install succeeds** (`sharp`, `unrs-resolver`) — `UNPROVEN`; every probe used `--ignore-scripts` (§13). → `D2`.
+5. **Whether `next build` and `next lint` pass** — `UNPROVEN — NOT PROBED`; `next build` is forbidden to this unit. `D0` §12 item 2 survives in part.
+6. **The narrow `>=20` / `^20.9.0` declared-constraint gap** (§6) — real, unenforced, and not a demonstrated incompatibility. → Product Lead, or a later unit that can demonstrate an actual failure. **Not a `D1` repair on this evidence.**
+7. **Whether `packages/shared` should be imported or retired** — unchanged from `D0` §17 item 6; a product-architecture question. `D1` changed nothing about it beyond keeping it an explicit workspace member.
+8. **Whether the resolved closure is identical on Linux** — `UNKNOWN`. Only Windows was exercised. → `D2`.
 
-**Deliberately not done, and each was in reach:** no CI or workflow file; no ruleset, `CODEOWNERS` or required check; no test framework and no test; no root `test`/`quality`/`check` script; no lint or typecheck unification; no product source change; no dependency upgrade; no new decision record; and no merge.
+**Deliberately not done, and each was in reach:** no CI or workflow file; no ruleset, `CODEOWNERS` or required check; no test framework and no test; no root `test`/`quality`/`check` script; no lint or typecheck unification; no product source change; no dependency upgrade; **no new decision record — item 2 above, not merely a line in this list**; and no merge.
 
 ---
 
@@ -401,7 +422,7 @@ Recorded as `UNPROVEN` / `UNKNOWN` rather than assumed in either direction, and 
 1. A **reproducible install command** exists that exits 0 from a clean checkout and leaves the lockfile byte-identical: `pnpm install --frozen-lockfile`.
 2. The **active workspace is exactly three projects**, declared truthfully, so a job scoped to them covers the JS/TS active surface without excluding a declared member by hand.
 3. **Both active typechecks pass** at this base (§11) — a candidate first signal that is known to be green today rather than hoped to be.
-4. **Three named `UNPROVEN` inputs `D2` must settle:** the CI Node version (§15 item 2), lifecycle scripts (item 3), and Linux closure identity (item 7).
+4. **Three named `UNPROVEN` inputs `D2` must settle:** the CI Node version (§15 item 3), lifecycle scripts (item 4), and Linux closure identity (item 8).
 
 **`D2` remains NOT AUTHORIZED and NOT STARTED** and requires its own explicit Product-Lead GO.
 
@@ -413,7 +434,7 @@ Per `DEC-0040` D13. **`OUTSIDE REPOSITORY ≠ OUTSIDE write_scope`**, and **a cl
 
 | Surface | Finding | Class |
 |---|---|---|
-| **Repository files** | **Exactly four created or modified**, all inside the declared write scope: `pnpm-workspace.yaml`; this record; `current-state.md`; `context-map.md`. Checked by `git status --porcelain` in the primary checkout and by `git diff --name-only` across each commit. **`pnpm-lock.yaml`, root `package.json`, every workspace manifest, `.nvmrc` and `apps/web/tsconfig.json` are blob-identical to the base** (§8, §12) | `AUTHORIZED MUTATION` |
+| **Repository files** | **Exactly four created or modified across the whole unit**, all inside the declared write scope: `pnpm-workspace.yaml`; this record; `current-state.md`; `context-map.md`. **R2 touched two of those four and created nothing new** — this record and `pnpm-workspace.yaml`; `current-state.md` and `context-map.md` were **not** reopened in R2, the Reviewer having verified both as accurate and minimal (§17.1). Checked by `git status --porcelain` in the primary checkout and by `git diff --name-only` across each commit and across `3110acff..HEAD`. **`pnpm-lock.yaml`, root `package.json`, every workspace manifest, `.nvmrc` and `apps/web/tsconfig.json` are blob-identical to the base** (§8, §12) | `AUTHORIZED MUTATION` |
 | **Branches** | **One created** — `chore/phase-d-d1-js-ts-toolchain-coherence`, from canonical `main` @ `3110acff…`. Checked by `git branch --show-current` and `git for-each-ref` | `AUTHORIZED MUTATION` |
 | **Commits / pushes / pull requests** | **One branch, one pull request, left UNMERGED.** Every commit sits on that branch and touches only the four files above; every push targeted that branch alone. **No count is stated, deliberately** — a correction round adds a commit and a push, so a number written into a `FROZEN` record is falsified by the act of writing it (the rule `DEC-0042` §5 adopts, and the defect `D0` R4 had to repair in its own predecessor). Checked by `git log 3110acff..HEAD` with `git show --name-only` per commit; by `git branch -a --contains` on the first commit; by the branch reflog — **created from the canonical base, every entry a plain `commit:`, no amend, reset, rebase or force update**; and by `git for-each-ref refs/remotes/origin`, where `origin/main` still reads `3110acff…` | `AUTHORIZED MUTATION` |
 | **Refs, tags, stash** | **None created, deleted or moved.** Checked by `git for-each-ref`, `git tag --list` and `git stash list` — **one pre-existing stash entry, untouched**. Any `refs/codex/…` harness refs present are outside this agent's control | `ZERO MUTATION` for this unit's own acts, on that named basis · harness refs `HARNESS / SYSTEM PERSISTENCE OUTSIDE AGENT CONTROL` |
@@ -421,22 +442,88 @@ Per `DEC-0040` D13. **`OUTSIDE REPOSITORY ≠ OUTSIDE write_scope`**, and **a cl
 | **Out-of-repository files — the pnpm store** | **One directory created and then deleted, authorized in advance:** `C:/Adeptlabs/noxund-d1-pnpm-store-author`, passed explicitly via `--store-dir` on **every** install so that no shared or default pnpm store was written. Deleted after the evidence was recorded, by the same `\\?\` long-path `Remove-Item` used for the worktree; confirmed absent by `Test-Path`. A listing of `C:\Adeptlabs` afterwards shows **neither authorized artifact remains**, and the many pre-existing `noxund-p3c-*` sibling directories from earlier PG-EXIT work were **neither read, modified nor removed**. **Cleanup here is completion of an authorized instruction, not concealment** — `DEC-0040` D13's *"cleanup is never retroactive authorization"* is respected because both writes were authorized **before** they occurred, are disclosed in full, and the evidence they produced is recorded above rather than destroyed with them | `AUTHORIZED MUTATION`, created **and** cleaned up |
 | **Dependency materialization** | **`node_modules` was NEVER created in the primary checkout `c:\Adeptlabs\noxund`.** All three trees (`.`, `apps/web`, `packages/shared`) were created **inside the validation worktree only** and destroyed with it. The **four pre-existing `node_modules` trees in the primary checkout — including `packages/orchestrator/node_modules` — were not deleted, not refreshed, not reused as evidence and not read as proof of anything.** Checked by `git status --porcelain --ignored=traditional` in both locations | `AUTHORIZED MUTATION` inside the authorized worktree; **`ZERO MUTATION` in the primary checkout**, on that named basis |
 | **Temp, cache, sidecar, backup files** | **None created anywhere outside the two authorized surfaces.** One build artifact — `apps/web/tsconfig.tsbuildinfo`, written by `tsc` because `apps/web/tsconfig.json` sets `"incremental": true` — was created **inside the validation worktree**, is gitignored (`.gitignore:27`, confirmed by `git check-ignore -v`), and was destroyed with the worktree. **No backup, sidecar or `.orig` file was written.** The one temporary edit made anywhere was the Option-B negation probe to `pnpm-workspace.yaml` **inside the validation worktree**, reverted immediately by `git checkout -- pnpm-workspace.yaml` and confirmed clean by `git status --porcelain` before the worktree moved on | `AUTHORIZED MUTATION` within the authorized worktree, fully disclosed |
-| **`/tmp` and system temp** | **Nothing written.** No command in this unit targeted `/tmp`, `%TEMP%` or any system temp path; no `mktemp`, no redirection outside the two authorized surfaces, and no tool was invoked that writes there | `ZERO MUTATION`, on that named basis |
-| **Session scratchpad** | **Not used at any point.** No scratch file, note, helper script, intermediate result or pull-request-body file was created. **The pull-request body was passed inline**, and the commit message was passed via stdin, not via a file | `ZERO MUTATION`, on that named basis |
-| **Memory files** | **None written, of any kind**, inside the repository or outside it. **`C:\Users\Miguel\.claude\...` was not written to** — no `MEMORY.md`, no project or session memory, no settings file | `ZERO MUTATION`, on that named basis |
+| **`/tmp` and system temp** | **No command this unit issued wrote there**, and that is the exact scope of the claim: no command targeted `/tmp`, `%TEMP%` or any system temp path, no `mktemp` was used, no redirection left the two authorized surfaces, and no tool was invoked for the purpose of writing there. **R1 said "Nothing written", which reaches past what that check supports** — it is a statement about the agent's own acts, not a path-level guarantee about a directory the harness also uses. **The independent Reviewer's path-level check found two GUID-named system-temp files timestamped inside the unit window**; they are harness-owned housekeeping, not agent writes (§18) | **`ZERO MUTATION` for this unit's own acts**, on that named basis · the observed residue `HARNESS / SYSTEM PERSISTENCE OUTSIDE AGENT CONTROL` |
+| **Session scratchpad** | **Not used at any point, and this one is provable at path level.** No scratch file, note, helper script, intermediate result or pull-request-body file was created. **The pull-request body was passed inline**, and every commit message was passed via stdin, not via a file. Checked by enumerating the session scratchpad directory: **`find … -type f` returns `0`** — the directory exists, created by the harness, and is **empty**. The independent Reviewer confirmed the same (§18) | `ZERO MUTATION`, on that named basis |
+| **Memory files** | **No memory file was written, of any kind**, inside the repository or outside it — **no `MEMORY.md`, no project or session memory file, no settings file, and no `CLAUDE.md`.** Checked at path level by mtime rather than asserted: the newest file under the project memory directory is `MEMORY.md` at **`2026-08-21 12:52:34`**, and `.claude/settings.json` at `2026-08-19 21:20:32` — **both predate this unit's window**, and the Reviewer independently reproduced that finding (§18). **R1's broader phrasing — that `C:\Users\Miguel\.claude\...` "was not written to" — reaches past that check and is narrowed here.** Several paths **under** that root do carry mtimes inside the window: `.last-cleanup`, and the `session-env`, `sessions`, `shell-snapshots` and `backups` directories. **None is a memory file, a settings file or an agent write** — they are harness housekeeping this Author neither chose, requested nor could prevent, and **naming them is not a concession that a memory write occurred; none did** | **`ZERO MUTATION` for memory content**, on the named mtime basis · the harness housekeeping paths `HARNESS / SYSTEM PERSISTENCE OUTSIDE AGENT CONTROL` |
 | **External mutable systems** | **Zero writes, with one authorized read class.** No workflow was created, edited, enabled, disabled or dispatched; no ruleset, branch protection, required check, `CODEOWNERS`, Environment, secret, variable or repository setting was touched; no database, cloud or collection resource was reached; nothing was re-armed (`DEC-0033` §8; `DEC-0042` §D12). **The only network activity was registry reads downloading the 320 artifacts the frozen lockfile already identifies** — explicitly authorized, and **no publication, no registry mutation, no upgrade lookup used as an implementation input, and no telemetry or config change.** The pnpm update banner was declined. The one write to a hosted system is the branch push and the pull-request creation, accounted for above | `ZERO MUTATION` for external configuration, on that named basis |
 
-**No breach is recognized by this Author.** Three judgment calls are disclosed rather than left for a reviewer to discover: the **temporary in-worktree edit** used to falsify the negation question before relying on it; the **reuse of one authorized worktree path for all three probes** rather than a delete-and-recreate cycle, which the writ permitted provided each use was accounted for; and the **fallback deletion mechanism** — a PowerShell long-path `Remove-Item` — used only after `git worktree remove` failed on a Windows path-length limit, and targeted only at the one authorized directory. Each is recorded above at the point it occurred.
+**No breach is recognized by this Author, and the independent Reviewer recorded no verified authorization breach** — `DEC-0040` D5 is not engaged (§18). Three judgment calls are disclosed rather than left for a reviewer to discover: the **temporary in-worktree edit** used to falsify the negation question before relying on it; the **reuse of one authorized worktree path for all three probes** rather than a delete-and-recreate cycle, which the writ permitted provided each use was accounted for; and the **fallback deletion mechanism** — a PowerShell long-path `Remove-Item` — used only after `git worktree remove` failed on a Windows path-length limit, and targeted only at the one authorized directory. Each is recorded above at the point it occurred.
+
+### 17.1 Correction rounds
+
+**Later rounds, same unit, same Product-Lead GO and same canonical base.** This record was produced in R1 and revised in the rounds below. **No round count is written into this sentence** — a further round would falsify one, which is the same self-falsification rule §17 applies to push counts and which R2 had to extend to head SHAs (§10 Probe C). **The canonical base never moved:** every round was authored and pushed against `main` @ `3110acff2225e5a5e8e2c5a5ccfebefaca4ec9ae`, and **no round touched a file outside the four in the write scope above.**
+
+| Round | What it did |
+|---|---|
+| **R1** | Produced this record and the `pnpm-workspace.yaml` repair, ran the three Author probes, and performed the routing reconciliation in `current-state.md` and `context-map.md`. Within R1, one self-correction was already made and disclosed rather than quietly absorbed: the cleanup account was rewritten once the scripted `git worktree remove` failed on a Windows path limit |
+| **R2** | This round, on the independent Reviewer's return of **`ARTIFACT VERDICT = PASS`** with **no verified authorization breach** and **five non-material defects**, plus one completeness gap the Orchestrator raised against the writ. **Write scope: two files — this record and `pnpm-workspace.yaml`.** It (i) **replaced §18** — which R1 left `PENDING — INDEPENDENT REVIEWER` and which would have landed permanently empty in a `FROZEN` record — with the Reviewer's actual reproduction, attributed and not promoted; (ii) **repaired a false head SHA** at §10 Probe C, applying to head SHAs the self-falsification discipline R1 had applied only to counts; (iii) **made the divergence disclosure symmetric** by adding §15 item 2, the absent decision record `D0` §16 anticipated; (iv) **marked or removed three elisions** made under the word *verbatim* at §2 and §10; (v) **narrowed three over-broad negatives** in this table to what their checks actually support, classifying the harness residue `HARNESS / SYSTEM PERSISTENCE OUTSIDE AGENT CONTROL`; and (vi) **disambiguated the two senses of "importer"** in the `pnpm-workspace.yaml` comment, the one file a fresh operator consults for the success invariant. **No probe was re-run and none was invented** — R2 required no execution. **`current-state.md` and `context-map.md` were deliberately not reopened.** No lockfile, manifest, `.nvmrc`, workflow or `packages/orchestrator` file was touched, the `packages:` list itself was not altered, and the pull request stayed open and unmerged |
+
+**Why this is disclosed rather than omitted.** §17 exists so a later reader can reconstruct what this unit did, and `docs/result/**` is `FROZEN` on landing — anything missing here stays missing. Silent about its own rounds, this record would read as a single-pass unit. It was not one.
 
 ---
 
-## 18. Reviewer reproduction
+## 18. Reviewer reproduction — the independent Reviewer's own record
 
-> **`PENDING — INDEPENDENT REVIEWER`.**
+**Transcribed, not authored here.** Everything in this section is what the **distinct task-scoped independent Reviewer** reported on returning from its own round. **It is the Reviewer's evidence, not the Author's**, it is set down as the Reviewer stated it, and it is **not promoted a step beyond that**. R1 left this section `PENDING — INDEPENDENT REVIEWER`, which was correct only while no reviewer existed; one now has, and `docs/result/**` lands `FROZEN`, so leaving it pending would have permanently omitted content the writ requires.
 
-**Not fabricated and not pre-filled.** A **distinct** task-scoped independent reviewer (`DEC-0037` D5, D7) will reproduce the two probes and record the outcome, either in a later authored round of this unit or in the Phase-D closeout. Until then, every install claim in this record carries **Author-produced `VERIFIED`** — which under `DEC-0040` D3 is **not** `ACCEPTED`, and **`ACCEPTED` is the Product Lead's word alone.**
+### 18.1 Independence — held in three functions, and one limitation not softened
 
-**Minimum reproduction path**, so the reviewer need not reconstruct it: create a detached worktree at `3110acff…` and run the §9 command → expect `ERR_PNPM_OUTDATED_LOCKFILE`, exit 1; move it to the candidate commit and run the same command → expect exit 0 with *"Lockfile is up to date, resolution step is skipped"*; compare `sha256sum pnpm-lock.yaml` at both points against `9f013355c771fb6dcc5bea6266e75082e4c79f9234372c0fab6a274d0761d326`. **A reviewer on Node 20 would additionally settle §15 item 2**, which this Author could not.
+The Reviewer held **all three required review functions** — independent technical/toolchain, independent reproducibility, and independent governance/scope — under `DEC-0037` D5 and D8, and is **distinct from this Author**.
+
+> **The Reviewer expressly did NOT claim principal independence, and it is recorded here at full strength rather than smoothed.** **`TECHNICAL PRINCIPAL: UNKNOWN / NOT INDEPENDENT`** — the review ran on the **same machine** and under the **same GitHub credential** as this Author. `DEC-0037` D7.7 and D12 forbid representing that arrangement as principal independence. **Function independence was satisfied; principal independence was not**, and nothing in this section should be read as supplying it.
+
+### 18.2 The Reviewer's own surfaces, and the isolation between them and the Author's
+
+- Detached worktree `C:/Adeptlabs/noxund-d1-install-validation-reviewer`, with store `C:/Adeptlabs/noxund-d1-pnpm-store-reviewer` passed via `--store-dir` on **every** install.
+- **The Author's store was never used, read or touched** — so the Reviewer's install downloaded its own closure rather than inheriting a warm store from the unit under review.
+- **`node_modules` was never materialized in the primary checkout**; the four pre-existing trees there were untouched and **not used as evidence**.
+- Both surfaces **created and cleaned up**. Afterwards `git worktree list` shows only the three pre-existing entries, and `.git/worktrees` holds **no stale registration**.
+
+### 18.3 Environment, measured inside the Reviewer's worktree
+
+`node --version` → **`v24.15.0`** · `pnpm --version` → **`9.0.0`** (exact — **the declared `packageManager` contract is what executed**) · `corepack --version` → **`0.34.6`**.
+
+### 18.4 Probe A, unmodified canonical base `3110acff…` — reproduced as failing
+
+`pnpm -r list --depth -1` returned **four** projects, including `@noxund/orchestrator@0.0.0`. The §9 command exited **`1`**:
+
+```
+ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with packages\orchestrator\package.json
+specifiers in the lockfile ({}) don't match specs in package.json ({"@types/node":"^20.19.0","typescript":"^5.7.3"})
+```
+
+Lockfile sha256 and git blob **unchanged**; `git status --porcelain` **empty**; **no `node_modules` created**.
+
+### 18.5 Probe B, at branch head `46d83d4b87c180b69eea3b61ddc197e3b25a519e` — reproduced as passing
+
+**This is the head-state verification no Author probe in this record supplies** (§10 Probe C). `46d83d4b…` was the branch head **at the time of that review**; consistent with §10's correction, it is **not asserted to be the final head**.
+
+- `pnpm -r list --depth -1` → **three** projects: `noxund`, `web`, `@noxund/shared`
+- `pnpm list -r --depth -1 --json | grep -c orchestrator` → **`0`**
+- the §9 command exited **`0`** — `Scope: all 3 workspace projects` / `Lockfile is up to date, resolution step is skipped` / `Packages: +320` / `Done in 39.5s`
+- lockfile **sha256 `9f013355c771fb6dcc5bea6266e75082e4c79f9234372c0fab6a274d0761d326`** and **blob `e183bdc8be1eec284cb0abc7f80b5e49bc55b589`**, **identical before and after**
+- `git status --porcelain` **empty**; ignored set exactly the three expected `node_modules` trees; **`packages/orchestrator/node_modules` absent**
+
+### 18.6 What the Reviewer re-derived rather than accepted
+
+- **pnpm 9.0.0 negation support was independently verified by the Reviewer's own execution** — **not** accepted on this Author's word. This matters more than the other items, because it is the single empirical premise the selected workspace disposition rests on (§3).
+- **Both typechecks reproduced at exit 0**, and the Reviewer independently confirmed that the `apps/web` pass **genuinely runs against the weak local `tsconfig.json`** — so the caveat at §11 and §15 item 1 is **correct and necessary**, not defensive hedging.
+- **The `engines.node` table at §6 matches the Reviewer's own closure exactly** — `eslint@9.39.4` and `@eslint/eslintrc@3.3.5` → `^18.18.0 || ^20.9.0 || >=21.1.0`; `next@15.5.19` → `^18.18.0 || ^19.8.0 || >= 20.0.0`; `typescript@5.9.3` → `>=14.17`.
+- **The install-lifecycle inventory at §13 matches exactly** — `sharp@0.34.5` and `unrs-resolver@1.12.2`, and no others.
+
+### 18.7 The Reviewer's verdict, and the boundary on it
+
+> **`ARTIFACT VERDICT = PASS`**, scoped to the four-file diff, this record, the toolchain outcome at the candidate head, and the unit's authorization boundary and mutation accounting. **No verified authorization breach — `DEC-0040` D5 not engaged.** **Five non-material defects**, all repaired in R2 and listed at §17.1.
+
+**On the material question the Reviewer was asked** — whether any material toolchain incoherence remains unresolved — the Reviewer answered **yes, one: `apps/web/tsconfig.json`**, and judged it **correctly deferred as outside the writ, honestly recorded, genuinely untouched, and requiring its own Product-Lead routing** (§15 item 1). By contrast the Reviewer classified the `engines.node` `>=20` versus `^20.9.0` gap as a **correctly-deferred item and not a material incoherence** — enforced by nothing (no `.npmrc` anywhere), avoided by `.nvmrc` `20` resolving to the newest 20.x, and **tightening it without a demonstrated failure mode would violate `DEC-0042` §D6** (§15 item 6).
+
+### 18.8 The Reviewer's own `UNPROVEN` / `UNKNOWN` set
+
+Recorded because a reviewer's limits bound its verdict: **Node 20 specifically** · **scripts-enabled install** · **Linux closure identity** · **`next build` / `next lint`** · **live GitHub ruleset and workflow configuration** — not re-derived, on the ground that no committed change touches `.github/**` · and **this Author's execution process itself**, which the Reviewer classified `REPORTED` while reproducing every outcome it produced.
+
+### 18.9 The classification discipline this section does not relax
+
+> **Reviewer `VERIFIED` is still not `ACCEPTED`.** `DEC-0040` D3 keeps the classes distinct, and **`ACCEPTED` is the Product Lead's word alone** — reached only after the applicable gates, and never by an Author transcribing a reviewer, nor by a reviewer's `PASS`. **`ARTIFACT VERDICT` is Axis D and settles no unit disposition** (Axis C), which is the independent governance function's to state and the Product Lead's to ratify (`DEC-0040` D4, D6, D18). **This Author states neither.**
 
 ---
 

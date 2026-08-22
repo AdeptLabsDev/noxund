@@ -4,12 +4,19 @@
 # ACTIVE JS/TS WORKSPACE — the projects declared below are the whole of it:
 #   .                  root, tooling and scripts only (no dependencies)
 #   apps/web           ACTIVE PRODUCT
-#   packages/shared    ACTIVE-BUT-UNREACHED (declared and maintained; no importer yet)
+#   packages/shared    ACTIVE-BUT-UNREACHED — declared, maintained and installed, but
+#                      no source file anywhere imports it yet
 #
-# Those three are exactly the importers recorded in pnpm-lock.yaml, so the dependency
-# graph materializes from a clean checkout, with no lockfile repair and no guessing:
+# Those three are exactly the workspaces listed under `importers:` in pnpm-lock.yaml,
+# so the dependency graph materializes from a clean checkout, with no lockfile repair
+# and no guessing:
 #
 #   pnpm install --frozen-lockfile
+#
+# (Careful with the word "importer": pnpm uses it for a WORKSPACE that has its own
+# dependency block in the lockfile, which packages/shared is. That is unrelated to
+# whether any SOURCE FILE imports it, which nothing currently does. Both statements
+# above are true at once and do not contradict each other.)
 #
 # Node: root `engines.node` is ">=20" and `.nvmrc` pins 20 — the only Node selector
 # in this repository. pnpm is pinned by root `packageManager` (pnpm@9.0.0).
