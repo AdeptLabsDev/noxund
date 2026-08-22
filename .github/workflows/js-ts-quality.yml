@@ -22,6 +22,8 @@ name: JS/TS Quality · frozen install + typecheck (apps/web, packages/shared)
 #   `@noxund/shared` (packages/shared), plus the root toolchain files that
 #   decide how their dependencies materialize. For each package the signal
 #   is `tsc --noEmit` - TYPE CORRECTNESS ONLY.
+#   Each typecheck runs with `--fail-if-no-match`, so a filter matching no
+#   project is a hard failure rather than a silent green no-op.
 #
 #   NOT COVERED, and none of it may be inferred from a green run:
 #     * NO behavioural test of any kind. Zero test suites exist on this
@@ -176,15 +178,20 @@ jobs:
           #                     is deliberately NOT probed here.
           pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Typecheck the ACTIVE product app - apps/web (package `web`), tsc --noEmit only
+      - name: Typecheck apps/web (package `web`) - tsc --noEmit, fail-closed if the filter matches no project
         run: |
           set -euo pipefail
           # Invoked directly rather than through the root `typecheck` script:
           # root `typecheck` routes only to `web`, so calling it would leave
           # `@noxund/shared` silently unobserved. D3 owns entrypoint parity.
-          pnpm --filter web typecheck
+          # --fail-if-no-match turns a zero-project filter into a hard failure.
+          # Without it, a rename, a removal or a workspace-membership error
+          # would silently reduce this named check to a no-op while the job
+          # stayed green - the false-confidence failure DEC-0042 §D10 names.
+          pnpm --filter web --fail-if-no-match typecheck
 
-      - name: Typecheck the ACTIVE shared package - packages/shared (`@noxund/shared`), tsc --noEmit only
+      - name: Typecheck packages/shared (`@noxund/shared`) - tsc --noEmit, fail-closed if the filter matches no project
         run: |
           set -euo pipefail
-          pnpm --filter @noxund/shared typecheck
+          # --fail-if-no-match for the same fail-closed reason as the step above.
+          pnpm --filter @noxund/shared --fail-if-no-match typecheck
