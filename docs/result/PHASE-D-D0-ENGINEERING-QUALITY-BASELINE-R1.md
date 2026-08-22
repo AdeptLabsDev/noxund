@@ -358,7 +358,7 @@ Per `DEC-0040` D13. **A clean `git status` is not a `ZERO MUTATION` proof**, so 
 |---|---|---|
 | **Repository files** | Exactly four created or modified, all inside the declared write scope: `DEC-0042`, this record, `current-state.md`, `context-map.md`. Checked by `git status --porcelain` and by the commit diff | `AUTHORIZED MUTATION` |
 | **Branches** | One created — `docs/phase-d-d0-engineering-quality-baseline-and-charter`. Checked by `git branch --show-current` and `git for-each-ref` | `AUTHORIZED MUTATION` |
-| **Commits / pushes / pull requests** | Commits on that branch only; one push; one pull request, left **unmerged** | `AUTHORIZED MUTATION` |
+| **Commits / pushes / pull requests** | **One branch, one pull request, left unmerged.** Every commit this unit created sits on that branch and touches only the four files named above; every push targeted that branch and nothing else. **No count is stated here, deliberately:** each correction round adds a commit and a push, so a number written into a `FROZEN` record is falsified by the act of writing it — the hazard §14 states and the rule `DEC-0042` §5 adopts. The rounds themselves are disclosed at §18.1. Checked by `git log 9f12680d..HEAD` with `git show --name-only` on each commit; by `git branch -a --contains` on the first commit, which names this branch and its remote and nothing else; by the branch reflog, **created from the canonical base, every entry a plain `commit:` — no amend, reset, rebase or force update**; and by `git for-each-ref refs/remotes/origin`, where `origin/main` still reads `9f12680d…` | `AUTHORIZED MUTATION` |
 | **Refs, tags, worktrees, stash** | None created, deleted or moved by this unit. Checked by `git for-each-ref`, `git stash list` (one pre-existing entry, untouched) and `git worktree list` (three pre-existing entries, untouched). **Six `refs/codex/turn-diffs/checkpoints/…` refs were present at unit start and are outside this agent's control** | `HARNESS / SYSTEM PERSISTENCE OUTSIDE AGENT CONTROL` |
 | **Temp, cache, sidecar, backup files** | **None created.** `PYTHONDONTWRITEBYTECODE=1` was exported as an environment variable so children inherited it, and `-B` was passed as well; the ignored-file set from `git status --porcelain --ignored=traditional` is **byte-for-byte identical before and after every execution** | `ZERO MUTATION`, on that named basis |
 | **`/tmp` and system temp** | **Nothing written.** The one test module that calls `tempfile.mkstemp()` was **deliberately excluded** from execution for exactly this reason (§7.1) | `ZERO MUTATION`, on that named basis |
@@ -368,6 +368,19 @@ Per `DEC-0040` D13. **A clean `git status` is not a `ZERO MUTATION` proof**, so 
 | **External mutable systems** | **Zero writes.** Every platform call was a read — rulesets, branch protection, workflows, runs. No workflow was created, edited, enabled, disabled or dispatched; no ruleset, Environment, secret, variable, reviewer requirement or repository setting was touched; no database, cloud or collection resource was reached; nothing was re-armed | `ZERO MUTATION`, on that named basis |
 
 **No breach is recognized by this Author.** The only judgment call worth disclosing is the deliberate exclusion of one test module to stay inside the write boundary, which is recorded as a limit on the evidence at §7.1 rather than as a completed run.
+
+### 18.1 Correction rounds
+
+**Later rounds, same unit and same base.** This record was produced in R1 and revised in three correction rounds under the same Product-Lead GO. **The canonical base never moved** — every round was authored, verified and pushed against `main` @ `9f12680d329a6107693bdd9f1b077fdfb17dd0dc` — and **no round touched a file outside the four in the write scope above.**
+
+| Round | What it did |
+|---|---|
+| **R1** | Produced the two artifacts, this baseline record and `DEC-0042`, and performed the routing reconciliation in `current-state.md` and `context-map.md` |
+| **R2** | On independent-review `HOLD`. Repaired the stale present-tense Phase-C clause in `context-map.md` §2 — a `STALE-DESCRIPTIVE DEFECT` under `DEC-0035` §4 P4, **never an authority defect** — and a **false premise in `DEC-0042` D4's stated reason**, found at two sites and repaired volume-free at both; plus three accuracy repairs in this record |
+| **R3** | Repaired a cell-boundary defect in §10.2 rows 8 and 9 that displaced the evidence class into the wrong column. The scoped structural check found no other malformed row |
+| **R4** | This round. Corrected the mutation-accounting row above, which stated a push count the later rounds had already falsified, and added this disclosure |
+
+**Why this is disclosed rather than omitted.** §18 exists so that a later reader can reconstruct what this unit did, and `docs/result/**` is `FROZEN` on landing, so anything missing here stays missing. Silent about its own rounds, this record would read as a single-pass unit. It was not one: each round after R1 repaired a defect returned by the **distinct** independent reviewer the topology requires (`DEC-0037` D5).
 
 ---
 
