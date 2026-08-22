@@ -1,5 +1,31 @@
 # NOXUND monorepo workspaces (JS/TS only).
 # The Python data engine lives in services/ and is NOT a pnpm workspace.
+#
+# ACTIVE JS/TS WORKSPACE — the projects declared below are the whole of it:
+#   .                  root, tooling and scripts only (no dependencies)
+#   apps/web           ACTIVE PRODUCT
+#   packages/shared    ACTIVE-BUT-UNREACHED (declared and maintained; no importer yet)
+#
+# Those three are exactly the importers recorded in pnpm-lock.yaml, so the dependency
+# graph materializes from a clean checkout, with no lockfile repair and no guessing:
+#
+#   pnpm install --frozen-lockfile
+#
+# Node: root `engines.node` is ">=20" and `.nvmrc` pins 20 — the only Node selector
+# in this repository. pnpm is pinned by root `packageManager` (pnpm@9.0.0).
+#
+# packages/orchestrator is DELIBERATELY EXCLUDED, and the exclusion is stated here so
+# that no operator needs prior knowledge to understand it. DEC-0038 D1 reduced that
+# package to NON-AUTHORITATIVE legacy, and DEC-0042 §D11 gives a legacy surface no
+# quality investment. It is therefore not an active workspace member, is absent from
+# pnpm-lock.yaml by design rather than by omission, and its `engines.node` of ">=22.6"
+# constrains nothing in the active workspace.
+#
+# EXCLUDED IS NOT REMOVED. DEC-0038 D3 forbids deleting, moving, emptying or editing
+# anything under packages/orchestrator/; that tree stays on `main` exactly as it is,
+# and this line changes no file inside it. Re-including it would be a new decision,
+# not a cleanup.
 packages:
   - "apps/*"
   - "packages/*"
+  - "!packages/orchestrator"
