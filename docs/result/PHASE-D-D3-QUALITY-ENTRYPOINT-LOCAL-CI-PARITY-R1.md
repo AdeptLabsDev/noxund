@@ -193,7 +193,11 @@ Re-derived after editing, not assumed. Every `D2` guarantee is intact:
 
 ## 10. Fail-closed assertions — BEFORE → AFTER, so nothing is lost silently
 
-**`D3` moves logic. It does not simplify protections away.** Every assertion that existed before exists after, in exactly one place.
+> **Scope of this table, stated first because an under-inclusive list presented as exhaustive is itself a defect.** It inventories **the fail-closed assertions whose substantive quality logic `D3` relocates, consolidates or directly changes for parity** — and only those. It is **not** an inventory of every fail-closed assertion in the repository, and **must not be read as one**.
+>
+> **Workflow-level environment and toolchain assertions are deliberately outside it and were not relocated by `D3`.** They remain where they were, in workflow and platform setup: the `Assert interpreter is CPython 3.11.x` step in each Python job, and the Node-versus-`.nvmrc` and pnpm-versus-`packageManager` pin assertions in the JS/TS job. **Each was verified unchanged** — they sit in steps `D3` did not edit, and the JS/TS pin assertions were observed passing live in the same runs quoted at §14. **`D3` claims no parity work on them, because it did none.** They are named here so their absence from the table below reads as a stated boundary rather than an omission.
+
+**Within that scope: `D3` moves logic. It does not simplify protections away.** Every assertion in scope that existed before exists after, in exactly one place.
 
 | # | Assertion | BEFORE (location) | AFTER (location) | Preserved? |
 |---|---|---|---|---|
@@ -217,11 +221,11 @@ Re-derived after editing, not assumed. Every `D2` guarantee is intact:
 | 18 | JS/TS: `web` filter matching zero projects fails | workflow YAML | **root `package.json`** | **YES** |
 | 19 | JS/TS: `@noxund/shared` filter matching zero projects fails | workflow YAML | **root `package.json`** | **YES** |
 
-> **Nothing on this list was dropped, weakened or merged.** Two were **added** rather than moved: the runners each suppress bytecode internally, so the guarantee no longer depends on the caller setting an environment variable.
+> **Nothing in scope was dropped, weakened or merged.** Two were **added** rather than moved: the runners each suppress bytecode internally, so the guarantee no longer depends on the caller setting an environment variable. **No claim is made about assertions outside the scope stated above**, other than that `D3` left them alone and they were verified unchanged.
 
 ---
 
-## 11. The one specialized CI contract, classified and kept
+## 11. The specialized CI contracts, classified and kept
 
 `D3`'s writ requires every current data-engine quality limb be classified. The classification, with the evidence:
 
@@ -235,6 +239,24 @@ Re-derived after editing, not assumed. Every `D2` guarantee is intact:
 > **The exception is recorded, not hidden.** It is stated in the workflow header, in the data-engine runner's own docstring, in the data-engine README and here — four places, because `DEC-0042` §D17 condition 4 requires a difference between local and CI invocation be *"recorded as an accepted limitation with its reason"*. **It was not forced into the default local command**, which is exactly what the writ warned against.
 
 The `reference-durability` job is the analogous governance case: its `check` mode needs a pull-request base SHA and its `audit` mode is explicitly never a gate. **Both are GitHub platform plumbing, and parity does not require identical environment metadata** — the invariant is that the substantive logic lives in one checked-in artifact, and the checker already is one.
+
+### 11.1 `sg8-integration-local.yml` — a second workflow on the same path filter
+
+**Classified here for record completeness.** It fires on the `D3` pull request because it shares the `services/data-engine/**` path filter, so a reader who sees it run is owed its standing. Every fact below was **re-derived by bounded read of the workflow file**, not transcribed:
+
+| Property | Established | Class |
+|---|---|---|
+| It is a **separate SG-8 end-to-end integration workflow** | its own header states it is *"Separate from the driver-free unit suite (data-engine-tests.yml)"* | `VERIFIED` |
+| It runs **only** `tests_integration` | it discovers against `tests_integration`, **not** `tests`, so it does **not** overlap the 276-test unit suite | `VERIFIED` |
+| It uses a **disposable local** Supabase stack | *"drives the runner ↔ PostgresSg8Store against a DISPOSABLE LOCAL Supabase — NEVER a remote/live project"*; the stack is destroyed unconditionally afterwards with `--no-backup` | `VERIFIED` |
+| It is **driver- and environment-bearing** | it installs the hash-pinned driver from `requirements-sg8-integration.txt` under `--require-hashes --only-binary=:all:`, pins the database URL to loopback, and writes run manifests into runner temp | `VERIFIED` |
+| It is **independently fail-closed** on its own count | it requires exactly **7** E2E tests per attempt and errors otherwise — a count its own header calls *"independent of the unit guard's 276"* | `VERIFIED` |
+| It has **its own determinism semantics** | **two** independent attempts, each preceded by a full database reset, whose happy-path manifests must be **byte-identical**; differing manifests fail the job as non-determinism | `VERIFIED` |
+| It is **unchanged by `D3`** | it does not appear in this branch's change set | `VERIFIED` |
+
+> **Standing: `SEPARATE SPECIALIZED CI CONTRACT · OUTSIDE D3 PARITY TARGET · UNCHANGED`.**
+
+**What this classification deliberately does not do.** `D3` did **not** move its logic, did **not** create an entrypoint for it, did **not** modify its workflow, and **does not claim it is covered by `run_quality_checks.py`** — the data-engine runner runs `tests`, never `tests_integration`, and its own docstring says so in terms. Making this workflow's contract a developer default would require standing up a local Supabase stack and installing a database driver, which is precisely the environment-altering property that keeps the collection-driver contract CI-only as well. **This entry is record completeness, not parity work.**
 
 ---
 
@@ -387,6 +409,7 @@ Recording live CI evidence inside the branch it describes advances the branch, w
 | `packages/shared/README.md` | status read *"placeholder. Não scaffoldado ainda"* for a package with source, a manifest and a working typecheck script | truthful state — four exported string constants; `ACTIVE-BUT-UNREACHED` standing stated with its rule; names `pnpm typecheck` and explains that this package is required **individually**; records the `Q3` answer as temporal. **Not turned into product-architecture authority** |
 | `services/data-engine/README.md` | a PowerShell-only transcription setting `PYTHONPATH` then calling a **weaker** command than CI ran — no ×2, no count assertion | names the canonical OS-neutral entrypoint and its three limbs; states CI invokes the same file; points at the runner's own docstring for scope rather than duplicating it; records the driver-contract exception |
 | `docs/foundation/monorepo-structure.md` | claimed the foundation was *"buildável"* and that `apps/web` *"compila"*; called the data engine a scaffold; layout tree omitted `tools/`, `infra/` and the legacy package and misdescribed the workspace globs; the *"Próximo passo técnico"* list still instructed `git init`, scaffolding `apps/web`, `supabase init` and bootstrapping the data engine — all long done | the unsupported build claim is **narrowed, not restated**: typecheck is verified, `next build` is `UNPROVEN`; layout corrected with standings; the obsolete next-step list is **replaced by a quality-entrypoint index** — one table mapping each surface to its canonical command and whether CI invokes it, plus the two documented exceptions and an explicit *"what is verified by nothing"* list |
+| `README.md` — **`## Local Development` only**, under the later scope amendment (§21) | its command block still instructed the obsolete single-package typecheck command, which this unit's own work had made non-canonical — a contradiction against the two package READMEs repaired above; and its prose described the Python data engine as *"a scaffold only at this stage"* | the command block names the canonical entrypoint, with the obsolete command **replaced rather than offered as an alternate** and the leaf filters **not** duplicated into prose; the data-engine paragraph names the checked-in quality entrypoint and points at the data-engine README for exact coverage and exclusions. **No other section of the file was touched**, and the pre-existing lint, build and install commands inside the same block were deliberately left alone |
 
 **Discoverability, checked against the writ's test.** From repository documentation alone a fresh maintainer can now determine: how to typecheck all active JS/TS; how to run the data-engine quality path; how to run governance quality tests; what remains local-only; and what CI invokes. **None of it requires reading workflow YAML.** No document reproduces a runner's internal implementation — each names the entrypoint and points at the artifact.
 
@@ -398,7 +421,7 @@ Recording live CI evidence inside the branch it describes advances the branch, w
 
 | File | Why |
 |---|---|
-| **root `README.md`** | **Out of scope, explicitly.** Its `packages/orchestrator` architecture misdescription is separate `DEC-0038` / governance debt. **`D3` completed without needing to touch it**, so no `HOLD — ROOT README INTERACTION` arose. It was **not** opportunistically cleaned up |
+| **root `README.md`** | **Out of scope for the original `D3` GO, and untouched under it** — its `packages/orchestrator` architecture misdescription is separate `DEC-0038` / governance debt, and `D3` did not opportunistically clean it up. **A later Product-Lead scope amendment narrowly authorized its `## Local Development` section only**, and that bounded region is now repaired. **Everything else in the file remains untouched**, the `packages/orchestrator` misdescription included. See §21 |
 | `infra/postgres/README.md` | not in the authorized mutation set. The surface is documented from the new index instead, and **no semantic modification** of that surface occurred |
 | `supabase/**`, `packages/orchestrator/**` | `HISTORICAL / PRESERVED` and `LEGACY` — **zero investment**, and neither deleted, emptied, moved nor edited |
 | every other document | outside the small-diff principle: no mutation was made that does not answer *canonical entrypoint*, *workflow invoking one*, *stale build/quality-path documentation*, or *result and routing artifact* |
@@ -442,11 +465,12 @@ Per [`DEC-0040`](../product/decisions/DEC-0040-governed-result-disposition-close
 
 ### 19.1 Repository, inside write scope
 
-Ten files, every one inside the authorized mutation set:
+Eleven files, every one inside the authorized mutation set — **ten under the original `D3` GO, plus root `README.md` under the later narrow scope amendment** (§21):
 
 | Path | Change |
 |---|---|
 | `package.json` | one script value — root `typecheck` |
+| `README.md` | **`## Local Development` section only**, under the scope amendment — two hunks. Everything else in the file is untouched |
 | `services/data-engine/run_quality_checks.py` | **added** |
 | `tools/governance/run_quality_checks.py` | **added** |
 | `.github/workflows/js-ts-quality.yml` | two steps → one; header note |
@@ -461,7 +485,7 @@ Plus this record and the two routing documents.
 
 ### 19.2 Repository, outside write scope — `ZERO`
 
-Supported by `git status --porcelain` **and** by an explicit diff of the staged change set, which lists exactly the paths above and no others. **Specifically zero** changes to: root `README.md`; any product source under `apps/web/src/**` or `packages/shared/src/**`; any test file; any test framework or dependency; `pnpm-lock.yaml`; any `package.json` other than the root; `.nvmrc`; any `tsconfig`; `pnpm-workspace.yaml`; `pyproject.toml`; either requirements file; `packages/orchestrator/**`; `supabase/**`; `infra/postgres/**`; any workflow other than the three named; any ruleset, `CODEOWNERS` or required check.
+Supported by `git status --porcelain` **and** by an explicit diff of the staged change set, which lists exactly the paths above and no others. **Specifically zero** changes to: any product source under `apps/web/src/**` or `packages/shared/src/**`; any test file; any test framework or dependency; `pnpm-lock.yaml`; any `package.json` other than the root; `.nvmrc`; any `tsconfig`; `pnpm-workspace.yaml`; `pyproject.toml`; either requirements file; `packages/orchestrator/**`; `supabase/**`; `infra/postgres/**`; any workflow other than the three named; any ruleset, `CODEOWNERS` or required check.
 
 ### 19.3 Branches, commits, pushes, pull requests
 
@@ -524,3 +548,56 @@ No other surface is in an unknown state.
 - **No trigger redesign.** Existing path filters already covered every new entrypoint, so **trigger configuration was left alone**, and pre-existing `workflow_dispatch` was preserved.
 - **No worktree**, no local dependency installation, no validation surface beyond the one pre-authorized runtime-temp directory.
 - **No Axis-1 action**, no Phase E or F work, no `packages/orchestrator` or `supabase` edit.
+
+---
+
+## 21. Product-Lead scope amendment, and the closeout of the documentation findings
+
+**History is preserved rather than rewritten**, because the sequence is the point:
+
+> **The initial `R2` review found root `README.md` interaction to be outside the then-authorized scope; the Product Lead subsequently granted a narrow `## Local Development` scope amendment.**
+
+Stated in full, in order:
+
+1. The independent Reviewer returned **`PASS`** on JS/TS entrypoint and parity, on Python entrypoint semantics, on CI parity, and on governance and scope — and **`HOLD` on documentation and build-path accuracy only.**
+2. The finding was one **this Author did not raise**: root `README.md` still instructed the now-non-canonical single-package typecheck command, contradicting the two package READMEs `D3` had just repaired.
+3. **The Reviewer held that the Author was correct not to have edited root `README.md`** — the original `D3` GO forbade it in terms — and that the remedy was a Product-Lead ruling rather than an Author action. **This record does not present the original abstention as an error.**
+4. **The Product Lead then ruled**, granting mutation of root `README.md` **inside its `## Local Development` section only**, and expressly granting **no** authority to repair the `packages/orchestrator` misdescription, which **remains separately routed `DEC-0038` debt**.
+
+### 21.1 Disposition of the four documentation findings
+
+| Finding | Substance | Repair | Disposition |
+|---|---|---|---|
+| **`F-1`** | root `README.md` instructed the obsolete single-package typecheck command, which `D3` had made non-canonical, creating competing operational instructions | the command block now names the canonical entrypoint. **The obsolete command is replaced, not presented as an equivalent or an alternate**, and the two leaf filters are **not** duplicated into documentation — the implementation stays in root `package.json` | **`CLOSED — REMEDIATED`** |
+| **`F-2`** | root `README.md` described `services/data-engine` as *"a scaffold only at this stage"*, which no longer describes the surface | the prose now states the engine is not a pnpm workspace member and names its checked-in quality entrypoint, pointing at the data-engine README for exact coverage and exclusions | **`CLOSED — REMEDIATED`** |
+| **`F-3`** | this record did not classify `sg8-integration-local.yml`, which runs on the `D3` pull request | classified at §11.1 as **`SEPARATE SPECIALIZED CI CONTRACT · OUTSIDE D3 PARITY TARGET · UNCHANGED`**, with every stated fact re-derived by bounded read of the workflow | **`CLOSED — REMEDIATED`** |
+| **`F-4`** | the §10 inventory read as exhaustive while being scoped | §10 now states its scope first, and names the workflow-level interpreter and Node/pnpm pin assertions as **outside** it, verified unchanged and never relocated | **`CLOSED — REMEDIATED`** |
+
+**`F-2` was repaired without overcorrecting**, and the distinction is deliberate: the record and the README assert that an **implemented deterministic data-engine core and a real checked-in quality surface exist**. Neither asserts that external collection is operational, that database integration is active, or that SG-8 integration is part of the default local quality entrypoint. **None of those is claimed anywhere, and none should be inferred.**
+
+### 21.2 What the amendment did **not** touch
+
+**The technical artifact was not reopened, and architecture selection was not rerun.** The correction is **documentation only**. Verified by blob identity: root `package.json`, both Python runners and all three workflows are **byte-identical to the head the Reviewer passed**, and this Author re-derived each blob id and compared it against the recorded baseline before making any edit and again afterwards (§21.3).
+
+**No other root `README.md` section was touched** — not `## Tech Stack`, not `## Repository Structure`, not the `packages/orchestrator` description, not `## Environment Variables`, not product scope, not the sprint descriptions, not the architecture or routing links. **The pre-existing lint, build and install commands inside `## Local Development` were left exactly as they were:** the amendment repaired the two `D3`-created or `D3`-exposed contradictions and performed **no general modernization pass**, because pre-existing unrelated debt stays separately routed unless this correction directly falsifies it. **It does not.**
+
+### 21.3 Blob identity at the amendment
+
+The six technical files carried these blob ids at the reviewed head and carry the identical ids after the correction:
+
+| Blob | Path |
+|---|---|
+| `2ccf486b980252399b8199498159924bedc1a519` | `package.json` |
+| `3eefd91be70425028b8590e63aba09c04720692b` | `services/data-engine/run_quality_checks.py` |
+| `68f9b257c478a403eb9ca62bfe0ff53bacd4e068` | `tools/governance/run_quality_checks.py` |
+| `cf8f5b321a893983a8ad1e7d2c054c2f9a1cdd13` | `.github/workflows/js-ts-quality.yml` |
+| `3a3d8e41f69f017ce8b301592bacb6d6c7dce9f4` | `.github/workflows/data-engine-tests.yml` |
+| `4ef4bc1ec0ac18811c0d6a6b8dfed6ca30db6f8a` | `.github/workflows/governance-checks.yml` |
+
+Root `README.md` moved from `8d04c751395a3408c2bbabc74c4ae3e2fc933178` — **the one file expected to change, and it changed inside `## Local Development` only.**
+
+### 21.4 Standing carried forward, unchanged
+
+**`D3` `R1` remains a historical `RED — VERIFIED AUTHORIZATION BREACH`, and `D3-G-1` remains `CLOSED — REMEDIATED`.** Neither is affected by this amendment, and closure never rewrites a historical `RED`. **That `R1` disposition is unrelated to the four documentation findings above**, which arose in `R2` and belong to a different unit attempt.
+
+**No technical defect was established in any of the three canonical entrypoints**, at review or here. **This record continues to state no unit disposition and no artifact verdict** — both remain void from an Author, the current unit disposition is the Product Lead's and the Reviewer's to settle, and this correction is subject to independent re-review.
