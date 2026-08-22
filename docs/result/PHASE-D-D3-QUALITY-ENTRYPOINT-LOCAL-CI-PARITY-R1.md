@@ -291,7 +291,76 @@ All on the current Windows host, CPython 3.11.9, at this base. **No dependency w
 
 *Recorded after the pull request opened and CI ran automatically. **No manual dispatch was used to manufacture any of it.***
 
-<!-- D3-CI-EVIDENCE -->
+Pull request **#97**, `https://github.com/AdeptLabsDev/noxund/pull/97`, head `c0bc553a27d109c52d9c8ee67de91c19da1a386f`.
+
+**Every workflow `D3` changed executed automatically on the pull request, and every one passed.**
+
+| Run | Workflow | Event | Conclusion |
+|---|---|---|---|
+| `32593932537` | JS/TS Quality | `pull_request` | **success** |
+| `32593932557` | Data Engine · Resolver Tests | `pull_request` | **success** |
+| `32593932611` | Governance · Reference Durability | `pull_request` | **success** |
+| `32593911038` | Data Engine · Resolver Tests | `push` | **success** |
+| `32593932613` | SG-8 Integration · Local E2E | `pull_request` | **success** — **not changed by `D3`**; it fires on the same `services/data-engine/**` filter and is recorded because an adjacent workflow passing is part of showing nothing was broken |
+
+Run URLs follow the form `https://github.com/AdeptLabsDev/noxund/actions/runs/<run id>`.
+
+### 14.1 The canonical entrypoints actually ran — step names and output
+
+**JS/TS.** The job now carries **one** typecheck step, *"Typecheck the active JS/TS surface through the canonical root entrypoint"*, and its output shows the single `pnpm typecheck` call reaching **both** packages:
+
+```
+Scope: all 3 workspace projects
+> web@0.0.0 typecheck /home/runner/work/noxund/noxund/apps/web
+> tsc --noEmit
+> @noxund/shared@0.0.0 typecheck /home/runner/work/noxund/noxund/packages/shared
+```
+
+The `D2` contract is intact in the same run — `node --version = v20.20.2`, satisfying the `.nvmrc` pin; `pnpm --version = 9.0.0`, exactly the repository pin; frozen script-free install green.
+
+> **This is the parity claim, discharged.** One step, one command, and it is the command a developer runs. **There is no longer a second encoding of the two leaf invocations in the workflow.**
+
+**Data engine.** Three steps, all through the checked-in entrypoint:
+
+```
+== suite: full unit suite, x2 ==
+  attempt 1/2: 276/276 OK
+  attempt 2/2: 276/276 OK
+OK - data-engine unit suite: 276/276 across 2 independent processes.
+
+== repro: P5-REPRO-01 harness, x2 ==
+  attempt 1/2: 21/21 OK
+  attempt 2/2: 21/21 OK
+OK - P5-REPRO-01 repro harness: 21/21 across 2 independent processes.
+
+== digest: pipeline digest over the golden snapshot ==
+  digest#1 c8e33fe85034e2c406bb189249ff829d8928a5b085d192c73220afcb89674ca8
+  digest#2 c8e33fe85034e2c406bb189249ff829d8928a5b085d192c73220afcb89674ca8
+OK - digest byte-identical x2 and equal to the locked GOLDEN_DIGEST.
+```
+
+The unchanged `collection-driver-contract` job passed alongside them — `driver contract OK — psycopg 3.3.4 (pinned, hash-verified)` — confirming the CI-only exception still works and was not disturbed.
+
+**Governance.** `OK - 40/40.` through the checked-in entrypoint, and the untouched prospective job reported `prospective check over 447 added/changed line(s) on governed surfaces` · `OK - no malformed reference shape introduced` — so this record's own citations satisfy the durability rule it is governed by.
+
+### 14.2 Outcomes preserved, BEFORE → AFTER
+
+| Property | BEFORE (landed `main`) | AFTER (this PR, live) | Preserved? |
+|---|---|---|---|
+| Unit suite count, per run | 276 | 276 | **YES** |
+| Unit suite independent runs | 2 | 2 | **YES** |
+| Repro harness count, per run | 21 | 21 | **YES** |
+| Repro harness independent runs | 2 | 2 | **YES** |
+| Golden digest value | `c8e33fe8…4ca8` | `c8e33fe8…4ca8` | **YES — unchanged** |
+| Digest computed twice, identical | yes | yes | **YES** |
+| Governance test count | 40 | 40 | **YES** |
+| Driver contract | pinned, hash-verified | pinned, hash-verified | **YES** |
+| JS/TS packages typechecked | 2, via two steps | 2, via one entrypoint | **YES — same coverage, one command** |
+| Node / pnpm in force | v20.20.2 / 9.0.0 | v20.20.2 / 9.0.0 | **YES** |
+
+> **Cross-platform determinism is demonstrated end to end.** The digest this Author computed on **Windows** through the new entrypoint and the digest Linux CI computed through the **same** entrypoint are **byte-identical** and both equal the locked constant. The repair did not merely make the command runnable on Windows — it produced the same value there.
+
+**No path filter prevented any changed entrypoint or workflow from exercising itself**, so no `HOLD` arose on that ground: the JS/TS workflow watches root `package.json` and its own file, the data-engine workflow watches `services/data-engine/**`, and the governance workflow watches `tools/governance/**` and `docs/result/**`. **All three were verified to already cover the new paths, so no trigger was modified.**
 
 ---
 
