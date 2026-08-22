@@ -6,6 +6,7 @@
 **Canonical base:** `main` @ `3110acff2225e5a5e8e2c5a5ccfebefaca4ec9ae` (PR #94 merge), working tree clean at unit start.
 **Method.** Every load-bearing claim below was **re-derived by this unit at the canonical base**, by execution wherever execution was possible. The unit writ supplied a list of already-derived facts; **every one was treated as `REPORTED` and independently re-verified**, and the two that materially govern the outcome — pnpm's actual workspace membership, and whether `--frozen-lockfile` fails today — were established by running pnpm rather than by reading YAML. No conversation claim and no memory content was used as proof ([`DEC-0035`](../product/decisions/DEC-0035-canonical-context-v2-authority-lifecycle-supersession-model.md) §5).
 **Evidence classes** are exactly the four of [`DEC-0040`](../product/decisions/DEC-0040-governed-result-disposition-closeout-contract.md) D3 — `REPORTED` · `VERIFIED` · `ACCEPTED` · `UNPROVEN`. `HOLD` and `RED` are unit-disposition values and are used nowhere here as evidence classes.
+**Governance provenance, in the header because it must not be discoverable only by reading to the end.** The D1 **unit** carries a permanent historical **`UNIT GOVERNANCE DISPOSITION = RED — VERIFIED AUTHORIZATION BREACH`**, arising from the independent **Reviewer's** conduct after this record's R2 commit — **not** from this Author's conduct, and **not** from the artifact. Findings **`G-1`** and **`G-1b`** are both **`CLOSED — REMEDIATED`**, which **never rewrites the historical `RED`** (`DEC-0040` D7). The **technical artifact verdict is `PASS`** and survives, the Product Lead having **explicitly accepted the unit/artifact separation** (`DEC-0040` D14 condition 7). **Final ratification is still pending and is the Product Lead's manual merge of PR #95.** Full account at **§20**. **None of it is this Author's to decide, and it is recorded here as the Product Lead's ruling and the reviewers' findings, not as this Author's conclusions.**
 **Author boundary.** This record states **no unit disposition and no artifact verdict** ([`DEC-0040`](../product/decisions/DEC-0040-governed-result-disposition-closeout-contract.md) D11). Both are void coming from an Author.
 
 ---
@@ -111,7 +112,7 @@ pnpm-workspace.yaml
 | root `package.json` | **NOT CHANGED** | no concrete `D1` coherence defect requires it (§6, §7). Cosmetic edits are not authorized and none was made. Blob identical: `b00dd1ca7d38006ed527484909886bcc83d7d913` |
 | `pnpm-lock.yaml` | **NOT CHANGED — byte-identical** | §8 |
 | Node selectors | **NONE ADDED** | §6 |
-| `apps/web/tsconfig.json` | **NOT CHANGED — deliberately, and the defect is not withdrawn** | §15 item 1 |
+| `apps/web/tsconfig.json` | **CHANGED IN R3 — one line, under the Product Lead's explicit scope extension.** In R1 and R2 it was **NOT CHANGED**, deliberately, because the original writ did not authorize it; the Product Lead has since ruled that omission a **writ defect rather than an Author failure** | §19 — the T1 adjudication. The R1/R2 position is preserved at §15 item 1 |
 
 The result artifact and the two routing documents are the unit's other three files; they are accounted for at §17.
 
@@ -330,7 +331,7 @@ EXIT=0
 
 Both active TypeScript surfaces typecheck clean at the candidate, on Node v24.15.0 and pnpm 9.0.0. **This partially resolves `D0` §12 item 2** — `tsc --noEmit` on `apps/web` was `UNPROVEN — NOT PROBED` and is now `VERIFIED` as passing at this base **on this Node version**. `next build` and `next lint` remain `UNPROVEN — NOT PROBED`.
 
-**Scope discipline stated so the result is not over-read.** These passes are **not** a quality gate, nothing was fixed on their account, and a failure would not have authorized any product-code change. **`apps/web` typechecks against its own weak local configuration**, not against `tsconfig.base.json` — see §15 item 1. A green `tsc --noEmit` here therefore says less than it appears to, which is exactly the reading `DEC-0042` §D10 requires be stated rather than left to inference.
+**Scope discipline stated so the result is not over-read.** These passes are **not** a quality gate, nothing was fixed on their account, and a failure would not have authorized any product-code change. **`apps/web` typechecks against its own weak local configuration**, not against `tsconfig.base.json` — see §15 item 1. A green `tsc --noEmit` here therefore says less than it appears to, which is exactly the reading `DEC-0042` §D10 requires be stated rather than left to inference. **`HISTORICAL — TRUE OF R1 AND R2 ONLY.` R3 repaired exactly this**: `apps/web/tsconfig.json` now extends the base, and the R3 typecheck at §19.5 runs against the inherited strict settings. **The caveat is preserved rather than deleted because it was the honest reading of the R1/R2 evidence and is why that evidence must not be re-read as stronger than it was.**
 
 `apps/web/tsconfig.json` sets `"incremental": true`, so `apps/web/tsconfig.tsbuildinfo` was written **inside the validation worktree**. It is gitignored (`.gitignore:27` — `*.tsbuildinfo`, confirmed by `git check-ignore -v`) and was destroyed with the worktree (§17).
 
@@ -398,7 +399,7 @@ Every install ran with **`--ignore-scripts`**. Dependency lifecycle scripts were
 
 Recorded as `UNPROVEN` / `UNKNOWN` rather than assumed in either direction, and **routed rather than absorbed. Naming is not authorization.**
 
-1. **`apps/web/tsconfig.json` — the compiler-configuration defect is NOT REPAIRED by this unit, and is NOT WITHDRAWN.** `D0` §16's `D1` entry names three problems and this is the third: *"`apps/web/tsconfig.json` violates the `extends` constraint its own README states"* — `apps/web/README.md:27` requires *"`tsconfig.json` deve estender `../../tsconfig.base.json`"*, and the file declares no `extends` key, losing `noUncheckedIndexedAccess`, `noImplicitOverride`, `verbatimModuleSyntax` and `forceConsistentCasingInFileNames` (`D0` §10.2 row 1). **The Product Lead's `D1` writ enumerates the authorized mutation surfaces — root/workspace/toolchain configuration, the lockfile if strictly necessary, at most one Node selector, this artifact and the two routing documents — and `apps/web/tsconfig.json` is not among them.** The divergence between the `D0` roadmap entry and the writ is recorded plainly here rather than argued away or acted on. **The file was not touched.** → **Routed to the Product Lead: it needs either an explicit scope extension to a `D1` follow-up round, or its own bounded authorized unit.** Note the interaction with §11: the green `tsc --noEmit` reported there ran against the weak local configuration, so it is not evidence that the strict settings would pass.
+1. **`apps/web/tsconfig.json` — `RESOLVED IN R3`. The paragraph below is `HISTORICAL — THE R1 AND R2 POSITION`, preserved because it records why the deferral was correct at the time; the resolution is at §19.** The Product Lead subsequently ruled that the original writ's omission of this file was a **writ defect, not an Author failure**, extended scope explicitly, and R3 adjudicated it to **T1 — ALIGN**. **As written in R1/R2:** *the compiler-configuration defect is NOT REPAIRED by this unit, and is NOT WITHDRAWN.* `D0` §16's `D1` entry names three problems and this is the third: *"`apps/web/tsconfig.json` violates the `extends` constraint its own README states"* — `apps/web/README.md:27` requires *"`tsconfig.json` deve estender `../../tsconfig.base.json`"*, and the file declares no `extends` key, losing `noUncheckedIndexedAccess`, `noImplicitOverride`, `verbatimModuleSyntax` and `forceConsistentCasingInFileNames` (`D0` §10.2 row 1). **The Product Lead's `D1` writ enumerates the authorized mutation surfaces — root/workspace/toolchain configuration, the lockfile if strictly necessary, at most one Node selector, this artifact and the two routing documents — and `apps/web/tsconfig.json` is not among them.** The divergence between the `D0` roadmap entry and the writ is recorded plainly here rather than argued away or acted on. **The file was not touched.** → **Routed to the Product Lead: it needs either an explicit scope extension to a `D1` follow-up round, or its own bounded authorized unit.** Note the interaction with §11: the green `tsc --noEmit` reported there ran against the weak local configuration, so it is not evidence that the strict settings would pass.
 2. **No decision record was produced, and `D0` §16 expected one — disclosed here so the divergence account is symmetric.** `D0` §16's `D1` entry states the expected artifact is *"Coherent manifests, lockfile and compiler configuration, **plus a decision record for the choices made**."* **`D1` produced no `DEC-00NN`.** Nothing is misstated by that — **the writ governs, not the roadmap** (`DEC-0042` §D16): it directed `D1` to operate under the landed charter, enumerated a write scope containing no decision record, and instructed that if a genuinely new normative policy were required the unit must **stop and escalate** rather than create one. **No new normative policy was required**, so none was created; the workspace disposition is an application of `DEC-0038` D1 and `DEC-0042` §D11, not a new rule. **The adjudication a decision record would have carried is at §3** — four options, the ground each was rejected on, and the empirical precondition tested before Option B was relied on. **Why this is stated at all:** item 1 already discloses one shortfall against that same `D0` line (compiler configuration), and R1 disclosed only that one while listing "no new decision record" at the foot of this section as merely deliberately-not-done. **Disclosing one half of a two-part divergence and not the other is the asymmetry repaired here.** → **Routed to the Product Lead**, who may judge that the config-plus-evidence form is sufficient, or may direct that a `DEC-00NN` be authored under a separately authorized unit. **`D1` does not decide that question and does not treat its own silence as an answer.**
 3. **Whether the frozen install succeeds on Node 20 specifically** — `UNPROVEN`. Only Node v24.15.0 was available and no Node was installed. → `D2`, which selects the CI Node version.
 4. **Whether a scripts-enabled install succeeds** (`sharp`, `unrs-resolver`) — `UNPROVEN`; every probe used `--ignore-scripts` (§13). → `D2`.
@@ -434,7 +435,7 @@ Per `DEC-0040` D13. **`OUTSIDE REPOSITORY ≠ OUTSIDE write_scope`**, and **a cl
 
 | Surface | Finding | Class |
 |---|---|---|
-| **Repository files** | **Exactly four created or modified across the whole unit**, all inside the declared write scope: `pnpm-workspace.yaml`; this record; `current-state.md`; `context-map.md`. **R2 touched two of those four and created nothing new** — this record and `pnpm-workspace.yaml`; `current-state.md` and `context-map.md` were **not** reopened in R2, the Reviewer having verified both as accurate and minimal (§17.1). Checked by `git status --porcelain` in the primary checkout and by `git diff --name-only` across each commit and across `3110acff..HEAD`. **`pnpm-lock.yaml`, root `package.json`, every workspace manifest, `.nvmrc` and `apps/web/tsconfig.json` are blob-identical to the base** (§8, §12) | `AUTHORIZED MUTATION` |
+| **Repository files** | **Exactly four created or modified across the whole unit**, all inside the declared write scope: `pnpm-workspace.yaml`; this record; `current-state.md`; `context-map.md`. **R2 touched two of those four and created nothing new** — this record and `pnpm-workspace.yaml`; `current-state.md` and `context-map.md` were **not** reopened in R2, the Reviewer having verified both as accurate and minimal (§17.1). **R3 raised the total to five** by adding **`apps/web/tsconfig.json`**, authorized by the Product Lead's explicit R3 scope extension and by nothing earlier (§19). **`apps/web/README.md` was NOT touched** — the grant permitted that file **or** the config, not both, and T1 needs only the config. Checked by `git status --porcelain` in the primary checkout and by `git diff --name-only` across each commit and across `3110acff..HEAD`. **`pnpm-lock.yaml`, root `package.json`, every workspace manifest, `.nvmrc` and `apps/web/tsconfig.json` are blob-identical to the base** (§8, §12) | `AUTHORIZED MUTATION` |
 | **Branches** | **One created** — `chore/phase-d-d1-js-ts-toolchain-coherence`, from canonical `main` @ `3110acff…`. Checked by `git branch --show-current` and `git for-each-ref` | `AUTHORIZED MUTATION` |
 | **Commits / pushes / pull requests** | **One branch, one pull request, left UNMERGED.** Every commit sits on that branch and touches only the four files above; every push targeted that branch alone. **No count is stated, deliberately** — a correction round adds a commit and a push, so a number written into a `FROZEN` record is falsified by the act of writing it (the rule `DEC-0042` §5 adopts, and the defect `D0` R4 had to repair in its own predecessor). Checked by `git log 3110acff..HEAD` with `git show --name-only` per commit; by `git branch -a --contains` on the first commit; by the branch reflog — **created from the canonical base, every entry a plain `commit:`, no amend, reset, rebase or force update**; and by `git for-each-ref refs/remotes/origin`, where `origin/main` still reads `3110acff…` | `AUTHORIZED MUTATION` |
 | **Refs, tags, stash** | **None created, deleted or moved.** Checked by `git for-each-ref`, `git tag --list` and `git stash list` — **one pre-existing stash entry, untouched**. Any `refs/codex/…` harness refs present are outside this agent's control | `ZERO MUTATION` for this unit's own acts, on that named basis · harness refs `HARNESS / SYSTEM PERSISTENCE OUTSIDE AGENT CONTROL` |
@@ -447,7 +448,9 @@ Per `DEC-0040` D13. **`OUTSIDE REPOSITORY ≠ OUTSIDE write_scope`**, and **a cl
 | **Memory files** | **No memory file was written, of any kind**, inside the repository or outside it — **no `MEMORY.md`, no project or session memory file, no settings file, and no `CLAUDE.md`.** Checked at path level by mtime rather than asserted: the newest file under the project memory directory is `MEMORY.md` at **`2026-08-21 12:52:34`**, and `.claude/settings.json` at `2026-08-19 21:20:32` — **both predate this unit's window**, and the Reviewer independently reproduced that finding (§18). **R1's broader phrasing — that `C:\Users\Miguel\.claude\...` "was not written to" — reaches past that check and is narrowed here.** Several paths **under** that root do carry mtimes inside the window: `.last-cleanup`, and the `session-env`, `sessions`, `shell-snapshots` and `backups` directories. **None is a memory file, a settings file or an agent write** — they are harness housekeeping this Author neither chose, requested nor could prevent, and **naming them is not a concession that a memory write occurred; none did** | **`ZERO MUTATION` for memory content**, on the named mtime basis · the harness housekeeping paths `HARNESS / SYSTEM PERSISTENCE OUTSIDE AGENT CONTROL` |
 | **External mutable systems** | **Zero writes, with one authorized read class.** No workflow was created, edited, enabled, disabled or dispatched; no ruleset, branch protection, required check, `CODEOWNERS`, Environment, secret, variable or repository setting was touched; no database, cloud or collection resource was reached; nothing was re-armed (`DEC-0033` §8; `DEC-0042` §D12). **The only network activity was registry reads downloading the 320 artifacts the frozen lockfile already identifies** — explicitly authorized, and **no publication, no registry mutation, no upgrade lookup used as an implementation input, and no telemetry or config change.** The pnpm update banner was declined. The one write to a hosted system is the branch push and the pull-request creation, accounted for above | `ZERO MUTATION` for external configuration, on that named basis |
 
-**No breach is recognized by this Author, and the independent Reviewer recorded no verified authorization breach** — `DEC-0040` D5 is not engaged (§18). Three judgment calls are disclosed rather than left for a reviewer to discover: the **temporary in-worktree edit** used to falsify the negation question before relying on it; the **reuse of one authorized worktree path for all three probes** rather than a delete-and-recreate cycle, which the writ permitted provided each use was accounted for; and the **fallback deletion mechanism** — a PowerShell long-path `Remove-Item` — used only after `git worktree remove` failed on a Windows path-length limit, and targeted only at the one authorized directory. Each is recorded above at the point it occurred.
+> **`HISTORICAL PRE-BREACH STATE` — true when written, incomplete now. Preserved rather than rewritten; the later adjudication is appended at §20.** The sentence as it stood read: **"No breach is recognized by this Author, and the independent Reviewer recorded no verified authorization breach — `DEC-0040` D5 is not engaged (§18)."** **The first half stands unqualified and was never disturbed: this Author caused no breach, and the Product Lead has said so expressly.** The second half was overtaken by events **after** this record's R2 commit — the independent Reviewer itself subsequently committed a verified authorization breach (`G-1`), so **`DEC-0040` D5 IS engaged for the unit**, and the D1 **unit** disposition is a permanent historical **`RED`**. **That is a finding about the Reviewer's conduct inside the governed unit, not about this Author's, and not about the artifact** (§20).
+
+ Three judgment calls are disclosed rather than left for a reviewer to discover: the **temporary in-worktree edit** used to falsify the negation question before relying on it; the **reuse of one authorized worktree path for all three probes** rather than a delete-and-recreate cycle, which the writ permitted provided each use was accounted for; and the **fallback deletion mechanism** — a PowerShell long-path `Remove-Item` — used only after `git worktree remove` failed on a Windows path-length limit, and targeted only at the one authorized directory. Each is recorded above at the point it occurred.
 
 ### 17.1 Correction rounds
 
@@ -456,7 +459,8 @@ Per `DEC-0040` D13. **`OUTSIDE REPOSITORY ≠ OUTSIDE write_scope`**, and **a cl
 | Round | What it did |
 |---|---|
 | **R1** | Produced this record and the `pnpm-workspace.yaml` repair, ran the three Author probes, and performed the routing reconciliation in `current-state.md` and `context-map.md`. Within R1, one self-correction was already made and disclosed rather than quietly absorbed: the cleanup account was rewritten once the scripted `git worktree remove` failed on a Windows path limit |
-| **R2** | This round, on the independent Reviewer's return of **`ARTIFACT VERDICT = PASS`** with **no verified authorization breach** and **five non-material defects**, plus one completeness gap the Orchestrator raised against the writ. **Write scope: two files — this record and `pnpm-workspace.yaml`.** It (i) **replaced §18** — which R1 left `PENDING — INDEPENDENT REVIEWER` and which would have landed permanently empty in a `FROZEN` record — with the Reviewer's actual reproduction, attributed and not promoted; (ii) **repaired a false head SHA** at §10 Probe C, applying to head SHAs the self-falsification discipline R1 had applied only to counts; (iii) **made the divergence disclosure symmetric** by adding §15 item 2, the absent decision record `D0` §16 anticipated; (iv) **marked or removed three elisions** made under the word *verbatim* at §2 and §10; (v) **narrowed three over-broad negatives** in this table to what their checks actually support, classifying the harness residue `HARNESS / SYSTEM PERSISTENCE OUTSIDE AGENT CONTROL`; and (vi) **disambiguated the two senses of "importer"** in the `pnpm-workspace.yaml` comment, the one file a fresh operator consults for the success invariant. **No probe was re-run and none was invented** — R2 required no execution. **`current-state.md` and `context-map.md` were deliberately not reopened.** No lockfile, manifest, `.nvmrc`, workflow or `packages/orchestrator` file was touched, the `packages:` list itself was not altered, and the pull request stayed open and unmerged |
+| **R2** | This round, on the independent Reviewer's return of **`ARTIFACT VERDICT = PASS`** with **no verified authorization breach** and **five non-material defects**, plus one completeness gap the Orchestrator raised against the writ. **Write scope: two files — this record and `pnpm-workspace.yaml`.** It (i) **replaced §18** — which R1 left `PENDING — INDEPENDENT REVIEWER` and which would have landed permanently empty in a `FROZEN` record — with the Reviewer's actual reproduction, attributed and not promoted; (ii) **repaired a false head SHA** at §10 Probe C, applying to head SHAs the self-falsification discipline R1 had applied only to counts; (iii) **made the divergence disclosure symmetric** by adding §15 item 2, the absent decision record `D0` §16 anticipated; (iv) **marked or removed three elisions** made under the word *verbatim* at §2 and §10; (v) **narrowed three over-broad negatives** in this table to what their checks actually support, classifying the harness residue `HARNESS / SYSTEM PERSISTENCE OUTSIDE AGENT CONTROL`; (vi) **disambiguated the two senses of "importer"** in the `pnpm-workspace.yaml` comment, the one file a fresh operator consults for the success invariant; and **(vii) repaired the header status line** from *"to be reviewed by a distinct… reviewer"* to *"reviewed by…"*, so the header would not contradict a §18 that had just been filled with a completed review. **`N-2`, repaired in R3: R2 wrote this cell enumerating six edits when it had in fact made seven — the header repair was disclosed in R2's `ROLE RESULT` but omitted from this table, and this table is the surface that lands. The set above is now the actual one.** **No probe was re-run and none was invented** — R2 required no execution. **`current-state.md` and `context-map.md` were deliberately not reopened.** No lockfile, manifest, `.nvmrc`, workflow or `packages/orchestrator` file was touched, the `packages:` list itself was not altered, and the pull request stayed open and unmerged |
+| **R3** | **Authorized under a NEW explicit Product-Lead GO**, and the only round carrying a substantive technical extension. Five parts. **(1) `G-2` — governance provenance reconciliation** (§20): this record predates the Reviewer's breach and therefore carried statements that were true when written and incomplete afterwards. They are **preserved and marked `HISTORICAL PRE-BREACH STATE`**, with the later adjudication **appended** — history is not rewritten. **(2) `N-1` and `N-2`** — the §18.5 heading's surviving current-head claim, and this table's incomplete R2 enumeration, both repaired above. **(3) The TypeScript configuration adjudication** (§19), under a Product-Lead scope extension that ruled the original writ's omission of `apps/web/tsconfig.json` a **writ defect rather than an Author failure**. Adjudicated **T1 — ALIGN**; one line added to `apps/web/tsconfig.json`; `apps/web/README.md` deliberately not touched. **(4) The final-head reproducible-install confirmation** (§21). **(5) Routing-document review** (§20.6). **Every R1/R2 statement this work falsified is reconciled in place rather than left standing** — §4, §11, §15 item 1, §17, §18.6 and §18.7. **The workspace decision was not reopened**: OPTION B, pnpm 9.0.0, the Node policy, lockfile byte identity, zero dependency upgrades and the legacy exclusion all stand untouched and independently verified |
 
 **Why this is disclosed rather than omitted.** §17 exists so a later reader can reconstruct what this unit did, and `docs/result/**` is `FROZEN` on landing — anything missing here stays missing. Silent about its own rounds, this record would read as a single-pass unit. It was not one.
 
@@ -494,7 +498,7 @@ specifiers in the lockfile ({}) don't match specs in package.json ({"@types/node
 
 Lockfile sha256 and git blob **unchanged**; `git status --porcelain` **empty**; **no `node_modules` created**.
 
-### 18.5 Probe B, at branch head `46d83d4b87c180b69eea3b61ddc197e3b25a519e` — reproduced as passing
+### 18.5 Probe B, at commit `46d83d4b87c180b69eea3b61ddc197e3b25a519e` — reproduced as passing
 
 **This is the head-state verification no Author probe in this record supplies** (§10 Probe C). `46d83d4b…` was the branch head **at the time of that review**; consistent with §10's correction, it is **not asserted to be the final head**.
 
@@ -507,7 +511,7 @@ Lockfile sha256 and git blob **unchanged**; `git status --porcelain` **empty**; 
 ### 18.6 What the Reviewer re-derived rather than accepted
 
 - **pnpm 9.0.0 negation support was independently verified by the Reviewer's own execution** — **not** accepted on this Author's word. This matters more than the other items, because it is the single empirical premise the selected workspace disposition rests on (§3).
-- **Both typechecks reproduced at exit 0**, and the Reviewer independently confirmed that the `apps/web` pass **genuinely runs against the weak local `tsconfig.json`** — so the caveat at §11 and §15 item 1 is **correct and necessary**, not defensive hedging.
+- **Both typechecks reproduced at exit 0**, and the Reviewer independently confirmed that the `apps/web` pass **genuinely runs against the weak local `tsconfig.json`** — so the caveat at §11 and §15 item 1 is **correct and necessary**, not defensive hedging. **This finding is what the Product Lead's R3 scope extension acted on, and R3 removed its cause** (§19) — the Reviewer's corroboration is therefore preserved as the evidence that justified the repair, not withdrawn by it.
 - **The `engines.node` table at §6 matches the Reviewer's own closure exactly** — `eslint@9.39.4` and `@eslint/eslintrc@3.3.5` → `^18.18.0 || ^20.9.0 || >=21.1.0`; `next@15.5.19` → `^18.18.0 || ^19.8.0 || >= 20.0.0`; `typescript@5.9.3` → `>=14.17`.
 - **The install-lifecycle inventory at §13 matches exactly** — `sharp@0.34.5` and `unrs-resolver@1.12.2`, and no others.
 
@@ -515,7 +519,9 @@ Lockfile sha256 and git blob **unchanged**; `git status --porcelain` **empty**; 
 
 > **`ARTIFACT VERDICT = PASS`**, scoped to the four-file diff, this record, the toolchain outcome at the candidate head, and the unit's authorization boundary and mutation accounting. **No verified authorization breach — `DEC-0040` D5 not engaged.** **Five non-material defects**, all repaired in R2 and listed at §17.1.
 
-**On the material question the Reviewer was asked** — whether any material toolchain incoherence remains unresolved — the Reviewer answered **yes, one: `apps/web/tsconfig.json`**, and judged it **correctly deferred as outside the writ, honestly recorded, genuinely untouched, and requiring its own Product-Lead routing** (§15 item 1). By contrast the Reviewer classified the `engines.node` `>=20` versus `^20.9.0` gap as a **correctly-deferred item and not a material incoherence** — enforced by nothing (no `.npmrc` anywhere), avoided by `.nvmrc` `20` resolving to the newest 20.x, and **tightening it without a demonstrated failure mode would violate `DEC-0042` §D6** (§15 item 6).
+> **`HISTORICAL PRE-BREACH STATE`, preserved verbatim above and qualified here rather than rewritten.** The Reviewer's *"no verified authorization breach"* was a finding **about the review target — this Author's conduct** — and **as such it still stands.** It was **not** a statement about the Reviewer's own subsequent conduct, which at the time had not occurred: this section was authored in the R2 commit `df558694…` at **02:11:13**, and the breach artefacts were created at **02:14:18**, roughly three minutes later. **The record was accurate when written and is incomplete now**, which is precisely why it is qualified and not deleted. **`DEC-0040` D5 is now engaged for the unit** — see §20. **The `ARTIFACT VERDICT = PASS` is unaffected and survives** (`DEC-0040` D14), and the Product Lead has explicitly accepted the unit/artifact separation (§20.4).
+
+**On the material question the Reviewer was asked** — whether any material toolchain incoherence remains unresolved — the Reviewer answered **yes, one: `apps/web/tsconfig.json`**, and judged it **correctly deferred as outside the writ, honestly recorded, genuinely untouched, and requiring its own Product-Lead routing** (§15 item 1). **That routing then happened:** the Product Lead extended scope explicitly, and **R3 resolved the one material incoherence the Reviewer identified** (§19). **The Reviewer's judgement is not overturned by this — it is discharged.** By contrast the Reviewer classified the `engines.node` `>=20` versus `^20.9.0` gap as a **correctly-deferred item and not a material incoherence** — enforced by nothing (no `.npmrc` anywhere), avoided by `.nvmrc` `20` resolving to the newest 20.x, and **tightening it without a demonstrated failure mode would violate `DEC-0042` §D6** (§15 item 6).
 
 ### 18.8 The Reviewer's own `UNPROVEN` / `UNKNOWN` set
 
@@ -524,6 +530,165 @@ Recorded because a reviewer's limits bound its verdict: **Node 20 specifically**
 ### 18.9 The classification discipline this section does not relax
 
 > **Reviewer `VERIFIED` is still not `ACCEPTED`.** `DEC-0040` D3 keeps the classes distinct, and **`ACCEPTED` is the Product Lead's word alone** — reached only after the applicable gates, and never by an Author transcribing a reviewer, nor by a reviewer's `PASS`. **`ARTIFACT VERDICT` is Axis D and settles no unit disposition** (Axis C), which is the independent governance function's to state and the Product Lead's to ratify (`DEC-0040` D4, D6, D18). **This Author states neither.**
+
+---
+
+## 19. TypeScript configuration adjudication — R3, under a Product-Lead scope extension
+
+**Authorization, stated first because it is the whole reason this section exists.** R1 and R2 left `apps/web/tsconfig.json` untouched and routed it, because the original `D1` writ did not authorize it. **The Product Lead has since ruled that omission a writ defect rather than an Author failure**, and extended scope explicitly to adjudicate the discrepancy across `apps/web/tsconfig.json`, `apps/web/README.md` and `tsconfig.base.json`, with **mutation granted to one of the first two, not both.** All three files were re-read and every fact below re-derived at this base.
+
+### 19.1 The discrepancy, stated exactly
+
+| Source | What it asserts | Class |
+|---|---|---|
+| `apps/web/README.md:27` | *"`tsconfig.json` deve estender `../../tsconfig.base.json`"* — normative language, under a heading *"Restrições (ver docs/agents/)"* | `VERIFIED` |
+| `apps/web/tsconfig.json` | **declares no `extends` key at all** | `VERIFIED` |
+
+**They contradict each other, and exactly one of them had to be corrected.** `D0` §10.2 row 1 classified this `VERIFIED` and named the consequence: *"The one surface a root command can reach runs the weakest settings; the two packages carrying the strict settings are unreachable from root."* The independent Reviewer, asked whether any material toolchain incoherence remained, named **this and only this** (§18.7).
+
+### 19.2 Which representation is coherent with the active architecture
+
+**The instruction was not to trust `deve`, and not to trust a passing typecheck. Both were tested.**
+
+1. **Every other TypeScript workspace extends the base.** `packages/shared/tsconfig.json` and `packages/orchestrator/tsconfig.json` both open with `"extends": "../../tsconfig.base.json"`. **`apps/web` — the sole `ACTIVE PRODUCT` surface — is the only one that does not.** `VERIFIED`.
+2. **`tsconfig.base.json` is a pure base, useless unless extended.** It carries no `include` and no `files`; it exists solely to be inherited. `VERIFIED`.
+3. **A second, independent document says apps extend it too.** `docs/foundation/monorepo-structure.md:30` annotates the file *"Config TS base (apps/packages estendem)"* — **`apps`, not only `packages`.** This matters because it is not the same document as the README, so the requirement is not one stray line. `VERIFIED`.
+4. **The current file is unreconciled scaffold output, not a considered standalone design.** Its contents are the stock `create-next-app` template — `target: ES2017`, `lib: ["dom","dom.iterable","esnext"]`, `allowJs`, `jsx: preserve`, `plugins: [{"name":"next"}]`, `paths: {"@/*": ["./src/*"]}`, and an `include` naming `next-env.d.ts`. **`apps/web/README.md:20` documents the very command that produced it.** **Nothing in the tree records a decision to keep it standalone.** `VERIFIED`.
+5. **What does NOT support the requirement — recorded because it cuts against the case and omitting it would be dishonest.** The README's own pointer, *"ver docs/agents/"*, **does not resolve**: a search of `docs/agents/` returns no `extends` or `estender` constraint. And `DEC-0001` §3, which names *"`tsconfig.base.json` compartilhado"* as a foundation element, is **`DRAFT / PROPOSED` and binds nothing** under `DEC-0035` §3.2 and §9. **There is therefore NO landed `INTERNAL-NORMATIVE` record requiring the `extends`.** `VERIFIED`.
+
+> **What item 5 changes, and what it does not.** It removes any claim that a binding decision record compels T1 — none does, and none is invented here. **It does not rescue T2**, because the question is not *"is inheritance mandated"* but *"which of two contradictory representations is coherent with the active architecture"*. On that question items 1–4 point one way and item 5 is silent.
+
+### 19.3 The adjudication
+
+| Option | Disposition | Ground |
+|---|---|---|
+| **T1 — ALIGN** | **SELECTED** | The config was the untrue half. Inheritance is what every sibling does, what the base exists for, and what two independent documents describe. The change is **one line**, adds only strictness, and **makes the existing README statement true without editing it** |
+| **T2 — DECLARE STANDALONE** | **REJECTED** | It required proving the active web surface **should not** inherit the shared strictness contract. **No such evidence exists** — not a decision record, not a comment, not a README line, not a workflow. The only affirmative evidence about intent points the other way. **T2 would also have required editing `apps/web/README.md` to make a constraint false**, weakening documentation to match an unreconciled scaffold. **It was not chosen merely because it avoids change, and it was not chosen at all** |
+| **T3 — other minimal reconciliation** | **NOT REACHED** | Available only if T1 and T2 were both technically wrong. **T1 is technically right** — §19.4 and §19.5 establish it by measurement rather than argument |
+
+**Files mutated: exactly one — `apps/web/tsconfig.json`.** `apps/web/README.md` was **not** touched, so the "one, not both" grant is satisfied with room to spare. **`tsconfig.base.json` was read and not modified.** **No product source under `apps/web/src/` was touched.**
+
+**Explicitly not repaired here:** `apps/web/README.md:3`'s stale *"placeholder. Não scaffoldado ainda"* status line. It is a `D0` §10.2 row 2 finding **routed to `D3`**, it is **not entailed by T1** — which touches no README — and it is left standing.
+
+### 19.4 Effective-configuration delta — measured with `tsc --showConfig`, not reasoned about
+
+Captured **before and after** inside the authorized isolated worktree, parsed, and compared as key sets rather than eyeballed as text — the raw textual diff is dominated by key reordering, which would have hidden the real answer.
+
+```
+=== compilerOptions ADDED by extends ===
+  + declaration                      = true
+  + forceConsistentCasingInFileNames = true
+  + noImplicitOverride               = true
+  + noUncheckedIndexedAccess         = true
+  + verbatimModuleSyntax             = true
+=== compilerOptions REMOVED ===          (none)
+=== compilerOptions CHANGED IN VALUE === (none)
+=== file set identical? ===  before=4 after=4 identical=True
+=== include/exclude ===
+  include  before=["next-env.d.ts","**/*.ts","**/*.tsx",".next/types/**/*.ts"]  after=(identical)
+  exclude  before=["node_modules"]                                             after=(identical)
+```
+
+**Five options added. Nothing removed. Nothing changed in value. The program's file set is the same four files.**
+
+**The two named hazards, both tested rather than assumed — and both neutralized by overrides the child already carried:**
+
+| Hazard | Outcome | Why |
+|---|---|---|
+| Inheriting the base's `lib: ["ES2022"]` would **strip DOM types** | **DID NOT OCCUR** | the child declares its own `lib`, and `lib` is replaced by the child rather than merged. Effective `lib` unchanged |
+| Inheriting the base's `exclude`, which lists **`.next`**, would drop `.next/types/**/*.ts` because **`exclude` beats `include`** | **DID NOT OCCUR** | the child declares its own `exclude: ["node_modules"]`, replacing the parent's entirely. **Proven by the file set being identical** — the direct observable, not inferred from the merge rule |
+
+**`declaration: true` alongside `noEmit: true` is accepted by TypeScript 5.9.3.** This needed no speculation: **`packages/shared` has shipped exactly that pairing since before this unit**, extending the same base and setting `noEmit`, and its typecheck passes. The R3 run confirms it again at exit 0.
+
+**`target` stays `ES2017`** — the child keeps its own, as a Next.js app legitimately may. **`jsx`, `incremental`, `plugins`, `paths` and `allowJs` are untouched. No unrelated compiler option was normalized.**
+
+### 19.5 Typecheck under T1 — verbatim
+
+Run **only inside the authorized isolated worktree**, never in the primary checkout.
+
+```
+$ find apps/web -maxdepth 1 -name "*.tsbuildinfo" -print -delete
+(nothing listed — no stale incremental cache existed, so this was a FULL check)
+
+$ pnpm --filter web typecheck
+> web@0.0.0 typecheck C:/Adeptlabs/noxund-d1-r3-validation-author/apps/web
+> tsc --noEmit
+EXIT_CODE=0
+```
+
+**Zero type errors.** The stale-cache deletion is recorded because `incremental: true` makes a green run meaningless if a prior `.tsbuildinfo` is reused; **none existed, and the check was full.**
+
+**Control, run to show the change is confined:** `pnpm --filter @noxund/shared typecheck` → **exit 0**, unchanged.
+
+> **The `HOLD` branch was real and is not glossed over.** Had T1 produced type errors, **no product-source fix was authorized** and the honest return would have been `HOLD`. **It produced none**, so the question of whether such errors would have invalidated T1 or exposed a deeper defect **does not arise** — recorded so a reader can see the branch existed rather than assuming a clean result was the only possible outcome.
+
+### 19.6 What T1 does NOT establish
+
+- **`next build` and `next lint` under the new configuration** — `UNPROVEN`. `next build` is forbidden to this unit and was not run. The five added options are type-checking options and `noEmit` is set, so no emit path is exercised by them — **but that is reasoning, not evidence.**
+- **Whether Next.js would rewrite `tsconfig.json` on a future `next dev` or `next build`** — `UNPROVEN`. Next normalizes tsconfig against the **effective** configuration, and every option Next requires is already declared explicitly in the child, so nothing is obviously missing for it to add. **Not verified, because verifying it requires running Next.**
+- **That no landed normative record compels the `extends`** — established at §19.2 item 5 and **not** papered over.
+
+### 19.7 Does T1 falsify any load-bearing `D1` fact?
+
+**No — checked deliberately, because the instruction was to stop and say so if it did.** `apps/web/tsconfig.json` is **not** a pnpm workspace declaration, does **not** appear in `pnpm-lock.yaml`, and carries **no** dependency, engine or package-manager constraint. The workspace disposition, lockfile byte identity, Node policy, pnpm policy and legacy exclusion are **all untouched**, and §21 re-confirms the install outcome after this change. **Nothing in §3 through §14 is reopened.**
+
+---
+
+## 20. Governance provenance — `G-2`
+
+**Every ruling in this section is the Product Lead's, and every verdict is a reviewer's. None is this Author's, and none is restated as though it were.**
+
+### 20.1 Why this section exists
+
+This record was written across R1 and R2. **The R2 commit `df558694b2a5242cbf6af6c6e50c6f4bb86c3e45` is timestamped `2026-08-22 02:11:13 -0300`.** After it, the independent Reviewer committed a verified authorization breach. **The record was therefore accurate when written and incomplete afterwards** — and `docs/result/**` lands `FROZEN`, so statements such as §18.7's *"No verified authorization breach"* must not land unqualified. **They are preserved, marked `HISTORICAL PRE-BREACH STATE`, and the adjudication is appended. Nothing is silently rewritten** — the disposition the fresh independent governance reviewer ruled permissible.
+
+### 20.2 What happened, as adjudicated
+
+| Finding | What it is | Classification | Lifecycle |
+|---|---|---|---|
+| **`G-1`** | The independent **Reviewer** intentionally created **two files under system temp, outside its `write_scope`**, via a stray shell redirection left in a command from an earlier draft | **`UNAUTHORIZED MUTATION`** (`DEC-0040` D13) | **`CLOSED — REMEDIATED`** |
+| **`G-1b`** | The Reviewer **recognized the breach contemporaneously but did not immediately stop substantive execution** — approximately **fourteen further read-only review operations** followed before stop and escalation. **No further mutation occurred** | procedural | **`CLOSED — REMEDIATED`** |
+
+**The Reviewer self-reported, did not delete the files, and they are preserved.** **`DEC-0040` D13 is satisfied in the respect that matters most**: cleanup is never retroactive authorization, and **deleting the evidence would have compounded the breach** exactly as it did in `C0`. **Not deleting was the correct act.**
+
+### 20.3 The unit disposition, and what closure does not do
+
+> **`PHASE-D-D1-…-R1` UNIT GOVERNANCE DISPOSITION = `RED — VERIFIED AUTHORIZATION BREACH`. Historical and PERMANENT. It must never be rewritten to `PASS`.**
+
+`DEC-0040` D5 is unconditional — *"`ANY VERIFIED AUTHORIZATION BREACH IN A GOVERNED UNIT => UNIT RED`"* — and the breach occurred **inside the governed unit**, so the unit is `RED` even though the breaching participant was not the Author.
+
+> **`CLOSED — REMEDIATED` never rewrites a historical `RED`** (`DEC-0040` D7). Both findings are closed **and** the `RED` stands. They are different axes, and collapsing them is what `DEC-0040` D1 prohibits.
+
+**The Product Lead has stated that this Author caused no breach.** That is recorded because it is the Product Lead's finding — **not** as a defence this Author is entitled to mount on its own behalf — and it does not soften the unit `RED` by one degree.
+
+### 20.4 Unit versus artifact — the separation, and who accepted it
+
+> **`UNIT DISPOSITION ≠ ARTIFACT VERDICT`** (`DEC-0040` D6). **The technical `ARTIFACT VERDICT = PASS` survives**, and the **Product Lead has explicitly accepted the unit/artifact separation** — `DEC-0040` D14 condition 7, which requires express acceptance in the record and is **never** satisfied by silence or by proceeding.
+
+The grounds the Product Lead recorded for non-contamination (D14 condition 3), each a matter of sequence and fact rather than judgement:
+
+- the temp files were created at **`02:14:18`**, **after** the R2 artifact commit at **`02:11:13`** — the artifact could not have been influenced by them;
+- they were **never read as evidence** and **contributed no bytes** to this record;
+- they **altered no repository, dependency or external state**;
+- the adjacent technical conclusion was **independently re-derived without them**.
+
+> **This is not artifact ratification.** `DEC-0040` D14 condition 8 is separate from condition 7, and **accepting a separation is not accepting an artifact**. **Ratification remains the Product Lead's manual merge of PR #95** (`DEC-0037` D11), after this round passes independent review. **Nothing in this record advances that step, and this Author cannot.**
+
+### 20.5 The preserved evidence — untouched
+
+The two files sit at the Windows system-temp location, named `wsp_46d83d4b….yaml` and `wsp_df558694….yaml`. **This Author did not delete, edit, rename, move, recreate or open them.** Their existence and timestamps were confirmed by a **directory listing only** — both `2026-08-22 02:14:18`, independently corroborating the sequence at §20.4. **Their cleanup is not required for `D1` completion and no task is authorized to dispose of them.** Inert preserved process evidence.
+
+### 20.6 Routing documents, and `O-1` / `O-2`
+
+**`current-state.md` and `context-map.md` were reviewed in R3 against the landing semantics** — `D1` technical objective COMPLETE, historical unit `RED`, findings `CLOSED — REMEDIATED`, artifact `PASS`, `D2` NOT AUTHORIZED. The outcome is recorded at §21.3. **They are deliberately NOT loaded with incident detail: this record is the canonical provenance surface, and they route to it.**
+
+**`O-1` and `O-2` are recorded as `ROUTED — NONBLOCKING GOVERNANCE AUTHORITY MAINTENANCE`** for a future **separately authorized** unit. **`docs/agents/product-orchestrator-agent.md` was not edited and Phase C was not reopened.**
+
+The Product Lead's interpretation applied for `D1` purposes, **recorded as the Product Lead's and not as a repository rule this Author derived**:
+
+> *A breaching participant must immediately stop and report a `RED`-triggering authorization breach condition; it does not self-ratify the final Axis-C unit disposition. The independent governance function establishes the formal unit disposition.*
+
+**This is why `G-1b` is a finding at all**: the stop obligation attaches at recognition, not at convenience. **Naming `O-1` and `O-2` places them and authorizes nothing** (`DEC-0033` §8; `DEC-0040` D8).
 
 ---
 
