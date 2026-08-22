@@ -477,7 +477,10 @@ One branch created from `origin/main`. Commits and one pull request as recorded 
 
 - **Why it was genuinely required:** exactly one data-engine test module uses `tempfile.mkstemp()` — verified by searching the suite. It is the module `D0` had to exclude, which is why `D0` could only run 237 of 276 locally. Running the **full** suite is load-bearing here: the writ requires the cross-platform repair be validated on this host, and requires an independent BEFORE → AFTER comparison of the **expected discovered-test count**, which is 276. A 237-test local run could not have established that the runner's count assertion holds at its real value.
 - **How it was contained:** `TEMP`, `TMP` and `TMPDIR` were set to that exact directory, and `tempfile.gettempdir()` was **verified** to resolve inside it before any suite ran.
-- **Residue:** the directory is **empty** after all runs — the test cleans up after itself. Cleanup of the directory itself is planned per the writ.
+- **Residue and cleanup — performed, not planned.** The directory was **empty** after all runs, the test having cleaned up after itself, and the directory itself was then **removed with `rmdir`**, which succeeds only on an empty directory and therefore re-proves the emptiness in the same act. Its absence was confirmed afterwards. **Nothing this unit created outside the repository survives.**
+- **The Reviewer's runtime-temp path was never created and does not exist** — confirmed by inspection. It is the Reviewer's, not this Author's.
+- **No other directory under `C:/Adeptlabs` was created, modified or removed.** The siblings there are pre-existing artifacts of earlier units, and this unit touched none of them.
+- **The preserved `R1` evidence file was never named in any command this unit issued** — not read, not deleted, not edited, not renamed, not moved, not recreated, and not cited as evidence.
 - **`ZERO` generic system temp.** No `/tmp` file, no `%TEMP%` file, no `mktemp`, no arbitrary system-temp path. **No accounting snapshot, ledger, diff store or evidence-staging file was created anywhere** — the `R1` failure mode.
 - **`ZERO` shell redirection.** No `> file`, `>> file`, `tee`, `Out-File`, `Set-Content` or helper snapshot file was used for any purpose. The pull-request body was passed on **stdin**, never through a file.
 
