@@ -21,12 +21,34 @@ name: Data Engine · Resolver Tests (CI)
 # from requirements-collect.txt to prove `import psycopg` BEFORE any real
 # dispatch — still no secret, no Environment, no DB.)
 #
+# SAME-ARTIFACT PARITY (D3) — READ THIS BEFORE EDITING A STEP BELOW.
+# The substantive quality logic of the two test jobs is NOT in this file. It
+# lives in ONE checked-in, stdlib-only entrypoint that a developer invokes
+# identically:
+#
+#     python services/data-engine/run_quality_checks.py
+#
+# Expected test counts, the ×2 independent-process repetition, the golden-digest
+# assertions and every fail-closed exit are defined THERE and nowhere else, so
+# this workflow cannot drift from the command a developer runs. Do not
+# re-encode an assertion here: change the entrypoint, which CI and local both
+# execute. That file's own docstring states exactly what it covers and, more
+# importantly, what it does NOT (DEC-0042 §D10).
+#
 # DETERMINISM: the full suite runs TWICE in independent processes and BOTH must
-# report exactly "Ran 276 tests ... OK" (18 resolver + 19 channel-filter + 28 scoring + 37 opportunity + 13 channel-collection + 39 video-collection + 21 repro-harness + 24 sg8-runner + 50 sg8-postgres-adapter + 27 sg8-coordinator; SG-8 rebaselined by DEC-0025 LLM-decoupling + provenance-completeness + comparison-contract correctives). A
+# report exactly the locked count (276 = 18 resolver + 19 channel-filter + 28 scoring + 37 opportunity + 13 channel-collection + 39 video-collection + 21 repro-harness + 24 sg8-runner + 50 sg8-postgres-adapter + 27 sg8-coordinator; SG-8 rebaselined by DEC-0025 LLM-decoupling + provenance-completeness + comparison-contract correctives). A
 # discovery regression that silently ran fewer tests
-# would still exit 0 in unittest, so the job asserts the COUNT fail-closed. The
-# dedicated repro-harness job additionally proves the P5-REPRO-01 golden digest is
-# byte-identical across two runs and equals the locked GOLDEN_DIGEST.
+# would still exit 0 in unittest, so the entrypoint asserts the COUNT
+# fail-closed. The dedicated repro-harness job additionally proves the
+# P5-REPRO-01 golden digest is byte-identical across two computations and equals
+# the locked GOLDEN_DIGEST.
+#
+# THE COLLECTION-DRIVER-CONTRACT JOB IS DELIBERATELY NOT CONSOLIDATED. It is
+# ENVIRONMENT-SPECIFIC: it exists to prove that a real hash-pinned install
+# imports, which cannot be asserted without performing that install. Making it
+# a developer default would materially alter a local environment the entrypoint
+# otherwise never touches, so it stays CI-only as an ACCEPTED, DOCUMENTED
+# exception rather than being forced into the default local command.
 #
 # SCOPE (negative): does NOT apply migrations, does NOT touch production-db, does
 # NOT use Environment/secret, does NOT unlock Phase 9. 0007/producer_events PARKED.
@@ -76,37 +98,17 @@ jobs:
             *) echo "::error::Expected Python 3.11.x, got ${ver}."; exit 1 ;;
           esac
 
-      - name: Run data-engine suite ×2 — require 276/276 on every run (determinism)
-        working-directory: services/data-engine
-        env:
-          PYTHONPATH: src
+      - name: Run the data-engine suite through the canonical checked-in entrypoint
         run: |
           set -euo pipefail
-          # Exact QA command, stdlib-only (no pip install). Run twice in independent
-          # processes; both must be exactly "Ran 276 tests ... OK". Count asserted
-          # fail-closed so an under-discovery regression cannot pass as green.
-          for attempt in 1 2; do
-            echo "::group::resolver suite — attempt ${attempt}/2"
-            if out="$(python -m unittest discover -s tests -p 'test_*.py' -v 2>&1)"; then
-              status=0
-            else
-              status=$?
-            fi
-            echo "$out"
-            echo "::endgroup::"
-
-            if [ "$status" -ne 0 ]; then
-              echo "::error::data-engine resolver tests FAILED on attempt ${attempt} (unittest exit ${status})."
-              exit 1
-            fi
-            if ! grep -qE '^Ran 276 tests in ' <<<"$out"; then
-              ran="$(grep -oE '^Ran [0-9]+ tests' <<<"$out" || true)"
-              echo "::error::attempt ${attempt}: expected exactly 276 tests, got '${ran:-<none>}' (determinism/discovery regression)."
-              exit 1
-            fi
-            echo "attempt ${attempt}: 276/276 OK"
-          done
-          echo "Determinism proven: 276/276 across 2 independent runs (P5-REPRO-01 seed)."
+          # THE SAME COMMAND A DEVELOPER RUNS. The expected count, the ×2
+          # independent-process repetition and the fail-closed assertions all
+          # live inside run_quality_checks.py — this workflow holds NO second
+          # copy of them, so CI and local can no longer drift (D3;
+          # DEC-0042 §D9). It needs no PYTHONPATH and no working-directory:
+          # the entrypoint establishes its own import path from its own
+          # location, using the platform's own separator.
+          python services/data-engine/run_quality_checks.py suite
 
   repro-harness:
     name: P5-REPRO-01 reproducibility harness (Python 3.11, ×2 + golden digest)
@@ -130,48 +132,30 @@ jobs:
             *) echo "::error::Expected Python 3.11.x, got ${ver}."; exit 1 ;;
           esac
 
-      - name: Repro harness ×2 — require 21/21 on every run (fail-closed on discovery)
-        working-directory: services/data-engine
-        env:
-          PYTHONPATH: src
+      - name: Run the repro harness through the canonical checked-in entrypoint
         run: |
           set -euo pipefail
-          # stdlib-only. Run the P5-REPRO-01 harness twice in independent processes;
-          # both must be exactly "Ran 21 tests ... OK". Count asserted fail-closed so a
-          # discovery regression (0 tests silently passing) cannot go green.
-          for attempt in 1 2; do
-            echo "::group::repro harness — attempt ${attempt}/2"
-            if out="$(python -m unittest discover -s tests -p test_repro_harness.py -v 2>&1)"; then
-              status=0
-            else
-              status=$?
-            fi
-            echo "$out"
-            echo "::endgroup::"
+          # THE SAME COMMAND A DEVELOPER RUNS. Expected count, ×2 independent
+          # processes and the fail-closed assertions live in the entrypoint.
+          python services/data-engine/run_quality_checks.py repro
 
-            if [ "$status" -ne 0 ]; then
-              echo "::error::repro harness FAILED on attempt ${attempt} (unittest exit ${status})."
-              exit 1
-            fi
-            if ! grep -qE '^Ran 21 tests in ' <<<"$out"; then
-              ran="$(grep -oE '^Ran [0-9]+ tests' <<<"$out" || true)"
-              echo "::error::attempt ${attempt}: expected exactly 21 tests, got '${ran:-<none>}' (harness discovery regression)."
-              exit 1
-            fi
-            echo "attempt ${attempt}: 21/21 OK"
-          done
-
-      - name: Golden digest — compute ×2, assert byte-identical and == GOLDEN_DIGEST
-        working-directory: services/data-engine
-        env:
-          PYTHONPATH: src:tests
+      - name: Run the golden digest through the canonical checked-in entrypoint
         run: |
           set -euo pipefail
-          # Compute the pipeline_digest twice over the golden snapshot; assert the two
-          # are byte-identical (determinism) AND equal the locked GOLDEN_DIGEST (no
-          # silent numeric drift). Python exits non-zero fail-closed on any mismatch.
-          python -c "import sys, test_repro_harness as t; from noxund_data_engine.pipeline import run_pipeline as r, pipeline_digest as p; d1=p(r(t.golden_snapshot())); d2=p(r(t.golden_snapshot())); print('digest#1', d1); print('digest#2', d2); print('golden  ', t.GOLDEN_DIGEST); sys.exit('::error::pipeline_digest not byte-identical across 2 runs (%s != %s)' % (d1, d2) if d1 != d2 else ('::error::pipeline_digest drifted from GOLDEN_DIGEST (%s != %s)' % (d1, t.GOLDEN_DIGEST) if d1 != t.GOLDEN_DIGEST else 0))"
-          echo "Reproducibility proven: pipeline_digest byte-identical ×2 and == GOLDEN_DIGEST."
+          # THE SAME COMMAND A DEVELOPER RUNS. Both assertions — the two
+          # computations are byte-identical, AND the value equals the locked
+          # GOLDEN_DIGEST — live inside the entrypoint, which exits non-zero
+          # fail-closed on either failure.
+          #
+          # This step previously set `PYTHONPATH: src:tests`. That separator
+          # is POSIX-only: the job was correct because it runs on Linux, but
+          # the same command failed on Windows with `ModuleNotFoundError: No
+          # module named 'test_repro_harness'`, so the documented command was
+          # not one a developer on the other supported platform could run
+          # (D0 §9). The entrypoint now owns its import path and builds it
+          # with the platform's own separator, so there is no PYTHONPATH here
+          # to be wrong on either platform.
+          python services/data-engine/run_quality_checks.py digest
 
   collection-driver-contract:
     name: Collection driver contract (hash-pinned psycopg installs + imports; no secret, no DB)

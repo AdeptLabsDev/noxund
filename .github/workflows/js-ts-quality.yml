@@ -25,6 +25,13 @@ name: JS/TS Quality · frozen install + typecheck (apps/web, packages/shared)
 #   Each typecheck runs with `--fail-if-no-match`, so a filter matching no
 #   project is a hard failure rather than a silent green no-op.
 #
+#   SAME-ARTIFACT PARITY (D3): the typecheck step below invokes the
+#   CANONICAL DEVELOPER ENTRYPOINT, root `pnpm typecheck`, and this file
+#   holds no second copy of what that entrypoint does. A developer running
+#   `pnpm typecheck` locally runs exactly what CI runs. Root `typecheck`
+#   requires BOTH active packages individually; the definition lives in
+#   root `package.json`, which is the single place to change it.
+#
 #   NOT COVERED, and none of it may be inferred from a green run:
 #     * NO behavioural test of any kind. Zero test suites exist on this
 #       surface and no test framework is installed. DEC-0042 D7 -
@@ -178,20 +185,30 @@ jobs:
           #                     is deliberately NOT probed here.
           pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Typecheck apps/web (package `web`) - tsc --noEmit, fail-closed if the filter matches no project
+      - name: Typecheck the active JS/TS surface through the canonical root entrypoint
         run: |
           set -euo pipefail
-          # Invoked directly rather than through the root `typecheck` script:
-          # root `typecheck` routes only to `web`, so calling it would leave
-          # `@noxund/shared` silently unobserved. D3 owns entrypoint parity.
-          # --fail-if-no-match turns a zero-project filter into a hard failure.
-          # Without it, a rename, a removal or a workspace-membership error
-          # would silently reduce this named check to a no-op while the job
-          # stayed green - the false-confidence failure DEC-0042 §D10 names.
-          pnpm --filter web --fail-if-no-match typecheck
-
-      - name: Typecheck packages/shared (`@noxund/shared`) - tsc --noEmit, fail-closed if the filter matches no project
-        run: |
-          set -euo pipefail
-          # --fail-if-no-match for the same fail-closed reason as the step above.
-          pnpm --filter @noxund/shared --fail-if-no-match typecheck
+          # THE SAME COMMAND A DEVELOPER RUNS. Root `typecheck` is the single
+          # canonical entrypoint for active JS/TS type correctness, and this
+          # workflow deliberately calls it rather than re-encoding its limbs,
+          # so there is no second implementation here to drift from the one a
+          # developer invokes (D3; DEC-0042 §D9).
+          #
+          # Root `typecheck` expands to two SEPARATE, individually-required
+          # invocations chained with `&&`:
+          #     pnpm --filter web            --fail-if-no-match typecheck
+          #     pnpm --filter @noxund/shared --fail-if-no-match typecheck
+          # Each names one package literally and each carries its own
+          # --fail-if-no-match, so a rename, a removal or a workspace
+          # membership error makes that filter match zero projects and FAILS
+          # rather than silently doing nothing while the job stays green -
+          # the false-confidence failure DEC-0042 §D10 names. It is
+          # deliberately NOT a single union/multi-filter form, which could
+          # stay green with one required package gone.
+          #
+          # D2 invoked the two package scripts directly, because root
+          # `typecheck` then routed only to `web` and would have left
+          # `@noxund/shared` unobserved. D3 repaired the root script, so the
+          # workaround is no longer needed and is removed rather than kept
+          # alongside it.
+          pnpm typecheck
