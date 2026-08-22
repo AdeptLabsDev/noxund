@@ -274,6 +274,27 @@ $ git status --porcelain --ignored=traditional
 
 **Two honest notes on point 8.** First, the ignored set is **exactly three** `node_modules` trees and **no `packages/orchestrator/node_modules`** — independent confirmation that the install never reached the legacy package. Second, `git status --ignored` emitted four `warning: could not open directory … Filename too long` lines while walking a deeply nested `@typescript-eslint` path under `node_modules/.pnpm/`. **They are Windows path-length warnings from git's scan of ignored content, they concern no tracked file, and the tracked-status result is unaffected** — recorded rather than trimmed out of the quotation.
 
+### Probe C — re-verification at the branch head `434411d78a8b341fd10700af7fecc2a29cc6d687`
+
+**Why it exists.** Probe B ran at `4b54de0b…`, the commit carrying the toolchain change alone. The branch head additionally carries this record and the two routing documents. Those are documentation and **cannot** affect an install — but a reviewer arrives at the head, not at the intermediate commit, so the claim is **re-established there rather than argued to carry forward.**
+
+```
+$ git rev-parse HEAD
+434411d78a8b341fd10700af7fecc2a29cc6d687
+$ pnpm -r list --depth -1
+noxund@0.0.0 ... / web@0.0.0 ...\apps\web / @noxund/shared@0.0.0 ...\packages\shared
+$ pnpm install --frozen-lockfile --ignore-scripts --store-dir C:/Adeptlabs/noxund-d1-pnpm-store-author
+Lockfile is up to date, resolution step is skipped
+Already up to date
+Done in 708ms
+$ sha256sum pnpm-lock.yaml
+9f013355c771fb6dcc5bea6266e75082e4c79f9234372c0fab6a274d0761d326 *pnpm-lock.yaml
+$ git status --porcelain
+(empty)
+```
+
+**Three projects, exit 0, lockfile byte-identical, tracked tree clean — unchanged from Probe B.** `Already up to date` also confirms the second install was idempotent against the store rather than a fresh resolution. `VERIFIED`.
+
 ---
 
 ## 11. Observational smoke check
