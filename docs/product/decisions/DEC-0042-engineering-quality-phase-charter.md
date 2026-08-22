@@ -26,7 +26,7 @@ The `D0` baseline found a repository that is **not uniformly weak and not unifor
 
 A phase facing that asymmetry can fail in three ways, and this charter exists to make each one hard.
 
-- **It can spend its effort where the code is, rather than where the risk is.** The largest single body of source in the tree is legacy that nothing imports and no workflow runs.
+- **It can spend its effort where the code is, rather than where the risk is.** A substantial body of source in the tree is legacy that nothing imports and no workflow runs — and nothing about it announces that fact.
 - **It can adopt thresholds because they are conventional rather than because a measured failure justifies them.** A coverage percentage chosen by reputation is a number nobody can defend when it starts blocking work.
 - **It can produce green signals that mean less than they appear to.** The repository already contains one instance of this shape: a linter is configured, its suppression codes are written into source, and it is installed and invoked nowhere. That is not a small thing. It is a control that reads as present and is absent, and [[DEC-0041]] D1 already forbids describing such a thing as enforcement.
 
@@ -84,7 +84,7 @@ Every `D` unit states, for each surface it proposes to touch, which of four stan
 | **ACTIVE-BUT-UNREACHED** | declared and maintained, currently imported by nothing | make it coherent; do not build machinery around it |
 | **LEGACY / PRESERVED / HISTORICAL** | landed but non-authoritative, or retained as evidence | **no quality investment** (§D11) |
 
-**The reason.** The single largest body of source in the tree is the legacy control plane, which [[DEC-0038]] D1 reduced to *"NON-AUTHORITATIVE legacy"* and which the baseline re-confirmed is imported by no executable file and referenced by no workflow. Ranking work by volume would have put it first. Ranking by standing puts it out of scope, which is the correct answer — and stating the rule in advance is what prevents the wrong one being reached by accident later.
+**The reason.** The tree carries a substantial body of source that nothing runs: the legacy control plane, which [[DEC-0038]] D1 reduced to *"NON-AUTHORITATIVE legacy"* and which the baseline re-confirmed is imported by no executable file and referenced by no workflow. **Nothing about a body of code announces its own standing.** A surface can be sizeable, well-formed and internally coherent and still be reached by nothing, and every one of those properties reads as an invitation to invest in it. Absent a stated rule, effort follows whatever is most conspicuous in the tree rather than whatever is actually load-bearing. Ranking by standing puts this surface out of scope, which is the correct answer — and stating the rule in advance is what prevents the wrong one being reached by accident later.
 
 ### D5 — Quality-domain taxonomy
 
@@ -246,8 +246,9 @@ Bounded to what landing this record makes true. **No wider sweep.**
 4. **`context-map.md` §2** — the `Phase A … Phase F` lifecycle cell, and a new `D0` unit-family row.
 5. **`context-map.md` §3** — the relation row §6 requires.
 6. **`context-map.md` §4** — the known-false-assumption bullet stating that D, E and F have no independently landed phase record, corrected for **D only**.
+7. **`context-map.md` §2, the Phase-C identifier-family row** — its closing clause asserted in the present tense that Phase D is a `NEXT CANDIDATE` only. That was true when `C6` wrote it and is false at this base: the Product Lead's Phase-D GO falsified it, and it contradicted all three statements at items 4 and 6 above — two of them rows away from it in the same table. **A `STALE-DESCRIPTIVE DEFECT` under `DEC-0035` §4 P4 — never an authority defect** — repaired to state what closing Phase C did and to **route** the reader to the `Phase A … Phase F` row for Phase D's standing rather than restate it. **`NEXT CANDIDATE ≠ GO` is preserved: it was never the defective part.** Exactly one clause of one row was touched; **nothing Phase C decided is revisited, and no `DEC-0037`…`DEC-0041` relation edge is altered.**
 
-**Every other claim in both documents still rests on the earlier verifications named in their own freshness paragraphs**, and nothing wider should be inferred.
+**Locations 1–6 were performed when this record landed; location 7 was performed in the same unit's correction round, at the same base.** **Every other claim in both documents still rests on the earlier verifications named in their own freshness paragraphs**, and nothing wider should be inferred — in particular, **no Phase-C row was swept for staleness**, and the repair at item 7 is not authority to modernize any other.
 
 ---
 

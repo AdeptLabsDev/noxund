@@ -76,7 +76,7 @@ Every command below was run at the canonical base, read-only, with byte-code wri
 | # | Command, verbatim | Result | Class |
 |---|---|---|---|
 | 1 | `git rev-parse HEAD` · `git status --porcelain` | `9f12680d329a6107693bdd9f1b077fdfb17dd0dc`, clean | `VERIFIED` |
-| 2 | `git grep -n 'DEC-0042'` and `git log --all --oneline --name-only --diff-filter=A \| grep -i 'DEC-0042'` | both return no match across all 241 refs — the identifier was free | `VERIFIED` |
+| 2 | `git grep -n 'DEC-0042'` and `git log --all --oneline --name-only --diff-filter=A \| grep -i 'DEC-0042'` | both return no match. The second searches, via `--all`, every commit reachable from every ref — **64 refs and 241 commits** at the canonical base, re-derived by `git for-each-ref \| wc -l` and `git rev-list --all --count`. The identifier was free | `VERIFIED` |
 | 3 | `PYTHONDONTWRITEBYTECODE=1 python -B -m unittest discover -s tests -p 'test_*.py'` in `tools/governance` | `Ran 40 tests` · `OK` | `VERIFIED` |
 | 4 | `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -B -m unittest discover -s tests -p test_repro_harness.py` in `services/data-engine` | `Ran 21 tests` · `OK` | `VERIFIED` |
 | 5 | `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -B -m unittest discover -s tests -p 'test_[a-u]*.py'` in `services/data-engine` | `Ran 237 tests` · `OK` — the whole unit suite except the one module that writes to system temp | `VERIFIED` |
@@ -89,7 +89,7 @@ Every command below was run at the canonical base, read-only, with byte-code wri
 | 12 | `gh api repos/AdeptLabsDev/noxund/rulesets` and the full read of ruleset `19697151` | three active rulesets; rules are deletion, non-fast-forward and pull request; **no required-status-checks rule** (§8) | `VERIFIED` |
 | 13 | `gh api repos/AdeptLabsDev/noxund/branches/main/protection` | `404` · `Branch not protected` | `VERIFIED` |
 | 14 | `gh api repos/AdeptLabsDev/noxund/actions/workflows` | 13 registered against 12 on disk (§6) | `VERIFIED` |
-| 15 | `gh run list --limit 300 --json name` and `gh api repos/AdeptLabsDev/noxund/actions/runs?per_page=1` | 112 runs, 13 distinct workflow names, **none JS/TS** | `VERIFIED` |
+| 15 | `gh run list --limit 300 --json name` and `gh api repos/AdeptLabsDev/noxund/actions/runs?per_page=1` | **112 runs as at the canonical base, before this unit's own push**, across **13 distinct workflow names**, **none JS/TS**. The run total rises with every push and is deliberately dated here rather than stated flat; **the distinct-name set and the JS/TS conclusion are unaffected by it** | `VERIFIED` |
 
 **Search commands establishing an absence**, stated explicitly because an absence proved by a manifest is not proved at all:
 
@@ -125,7 +125,7 @@ Every command below was run at the canonical base, read-only, with byte-code wri
 
 1. no workflow on `main` lists any path under `apps/` or `packages/`, and none runs a build, lint, type-check, package-manager or Node test command (§5 item 10);
 2. **47 unique workflow blobs across every reachable ref** were scanned for the same command set and **none contains one** (§5 item 11);
-3. 13 distinct workflow names have ever produced a run across 112 runs, and every one is Python, database, collection or governance (§5 item 15).
+3. **13 distinct workflow names** have ever produced a run — across 112 runs **as at the canonical base, before this unit's own push** — and every one is Python, database, collection or governance (§5 item 15). **The run total is a moving number; the distinct-name set is the load-bearing one, and adding runs of existing workflows cannot change it.**
 
 ### 6.2 The observability defect, stated exactly
 
@@ -173,7 +173,7 @@ This unit went further than a static count, and the arithmetic closes exactly.
 
 **`Q6` — can the repository state one minimum pre-merge expectation per active surface? No.** `VERIFIED`.
 
-It can for exactly two surfaces, `services/data-engine` and `tools/governance` — and **even there the expectation is advisory**, because `Protect main` carries a pull-request rule, a deletion rule and a non-fast-forward rule and **no required-status-checks rule**, with `required_approving_review_count` at `0`, `required_reviewers` empty and `require_code_owner_review` false. `gh api …/branches/main/protection` returns `404 Branch not protected`. The sole bypass actor is scoped to the pull-request context, and the computed bypass field reads `pull_requests_only`.
+It can for exactly two surfaces, `services/data-engine` and `tools/governance` — and **even there the expectation is advisory**, because `Protect main` carries a pull-request rule, a deletion rule and a non-fast-forward rule and **no required-status-checks rule**. The pull-request rule's parameters, **enumerated exhaustively** from `gh api repos/AdeptLabsDev/noxund/rulesets/19697151`, are `required_approving_review_count` `0`, `dismiss_stale_reviews_on_push` false, `required_reviewers` empty, `require_code_owner_review` false, `require_last_push_approval` false, `required_review_thread_resolution` **true**, `require_extra_approval_for_unattributed_changes` **true**, and `allowed_merge_methods` `["merge"]`. **The last two are the only parameters set to `true`, and neither is a status-check requirement**: they constrain *how* a merge proceeds — unresolved threads block it, and an unattributed change costs one more approval against a threshold of zero — and neither makes the passing of any check a condition of merging. `gh api …/branches/main/protection` returns `404 Branch not protected`. The sole bypass actor is scoped to the pull-request context, and the computed bypass field reads `pull_requests_only`.
 
 > **No CI check can block a merge in this repository, on any surface.** `DEC-0041` D5 stands re-verified at this base. Every existing and future check is `AUTOMATIC DETECTIVE` in `DEC-0041` D1's vocabulary.
 
@@ -262,7 +262,7 @@ Every Specialist finding was re-derived. Most were confirmed. **Seven did not su
 3. **SQL file count.** Reported as 31. Re-derived: **29**, in three directories, totalling 8,131 lines.
 4. **The `next lint` risk was overstated, and this matters for the roadmap.** The deprecation text is real and was read verbatim: "`next lint` is deprecated and will be removed in Next.js 16." **But the manifest range is `^15.1.6`, which resolves strictly below 16**, so a routine resolution does **not** break the root lint script. The accurate finding is narrower and still real: **the repository's only lint entry point rests on a command with an announced removal date, tied to a major upgrade nobody has scheduled.** The claim that a routine resolution breaks it is withdrawn.
 5. **The extra workflow registration is not historyless.** Reported as having no history anywhere in the object graph. Re-derived: `git log --all` resolves it to commit `2d0fbcd` on the preserved branch `feat/sg8-r0-preflight-author-production-db`; the file is confirmed **absent from `main`**. It is an ordinary orphaned registration, not an anomaly (§6.3).
-6. **CI run history.** Reported as five workflow names ever. Re-derived: **112 runs across 13 distinct workflow names.** The load-bearing conclusion survives and is in fact strengthened — none of the 13 is a JS/TS workflow, and §5 item 11 raises the claim from "never observed" to "never present in any workflow blob on any ref".
+6. **CI run history.** Reported as five workflow names ever. Re-derived: **13 distinct workflow names, across 112 runs as at the canonical base, before this unit's own push.** The load-bearing conclusion survives and is in fact strengthened — none of the 13 is a JS/TS workflow, and §5 item 11 raises the claim from "never observed" to "never present in any workflow blob on any ref".
 7. **The `.claude/` ignore source is established, not unknown.** `git check-ignore -v` resolves it to a pattern in the user's **global** git ignore file, outside this repository. It is neither a repository artifact nor a repository defect.
 
 **Also confirmed against the Specialist input:** `docs/product/decisions/**` and `docs/result/**` classification semantics; the zero-importer findings; the tsconfig defect; the ruff finding; the lockfile omission; the Node conflict; the `PYTHONPATH` defect; all test counts; the ruleset configuration; the audit drift; and the `core.quotePath` resolution.
