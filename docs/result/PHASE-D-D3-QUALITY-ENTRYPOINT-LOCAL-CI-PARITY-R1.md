@@ -596,6 +596,8 @@ The six technical files carried these blob ids at the reviewed head and carry th
 
 Root `README.md` moved from `8d04c751395a3408c2bbabc74c4ae3e2fc933178` — **the one file expected to change, and it changed inside `## Local Development` only.**
 
+**CI on the amendment: automatic, not manufactured.** **No workflow was dispatched for this correction and none needed to be** — the technical artifact is byte-identical, so there was nothing new to exercise. The pull request's existing path filters re-evaluated the whole PR diff on the correction commit and re-ran the workflows of their own accord; **every one concluded `success`.** The terminating invariant stated at §14 is unchanged and continues to govern: *on every head of this branch, every run of every workflow `D3` changed has concluded `success`* — **which a reviewer verifies against the pull request rather than against any list here**, this section included, since recording CI inside the branch it describes advances that branch by one more head.
+
 ### 21.4 Standing carried forward, unchanged
 
 **`D3` `R1` remains a historical `RED — VERIFIED AUTHORIZATION BREACH`, and `D3-G-1` remains `CLOSED — REMEDIATED`.** Neither is affected by this amendment, and closure never rewrites a historical `RED`. **That `R1` disposition is unrelated to the four documentation findings above**, which arose in `R2` and belong to a different unit attempt.
