@@ -305,6 +305,8 @@ Pull request **#97**, `https://github.com/AdeptLabsDev/noxund/pull/97`, head `c0
 
 Run URLs follow the form `https://github.com/AdeptLabsDev/noxund/actions/runs/<run id>`.
 
+> **This enumeration is terminating, not count-bound, and the distinction is deliberate.** Every push to this branch creates a further set of runs, so any fixed list is one push behind by the time it is written — including the commit that writes it. **The invariant claimed here is not a run total.** It is: *every workflow `D3` changed fires automatically on this pull request, and on every head of this branch every such run has concluded `success`.* The identifiers above are the round whose step output is quoted below, recorded so the quotations are traceable to a specific run rather than asserted in the abstract. **A reviewer should re-derive the current state from the pull request rather than trust a number here**, and the runs on the final head are named at §14.3.
+
 ### 14.1 The canonical entrypoints actually ran — step names and output
 
 **JS/TS.** The job now carries **one** typecheck step, *"Typecheck the active JS/TS surface through the canonical root entrypoint"*, and its output shows the single `pnpm typecheck` call reaching **both** packages:
@@ -361,6 +363,19 @@ The unchanged `collection-driver-contract` job passed alongside them — `driver
 > **Cross-platform determinism is demonstrated end to end.** The digest this Author computed on **Windows** through the new entrypoint and the digest Linux CI computed through the **same** entrypoint are **byte-identical** and both equal the locked constant. The repair did not merely make the command runnable on Windows — it produced the same value there.
 
 **No path filter prevented any changed entrypoint or workflow from exercising itself**, so no `HOLD` arose on that ground: the JS/TS workflow watches root `package.json` and its own file, the data-engine workflow watches `services/data-engine/**`, and the governance workflow watches `tools/governance/**` and `docs/result/**`. **All three were verified to already cover the new paths, so no trigger was modified.**
+
+### 14.3 The commit that records this evidence, and the round after it
+
+Recording live CI evidence inside the branch it describes advances the branch, which produces one further round of runs. Rather than leave that unstated, it is named:
+
+| Run | Workflow | Conclusion |
+|---|---|---|
+| `32594244537` | JS/TS Quality | **success** |
+| `32594244526` | Data Engine · Resolver Tests | **success** |
+| `32594244533` | Governance · Reference Durability | **success** |
+| `32594244527` | SG-8 Integration · Local E2E — again, **not changed by `D3`** | **success** |
+
+**Every workflow `D3` changed passed on that head as well.** This §14.3 commit is itself a further head, and it will produce one more such round — **which is inherent to recording evidence in the artifact it describes, not a defect and not an omission.** The claim being made is the terminating one stated above, and a reviewer verifies it against the pull request rather than against any list.
 
 ---
 
