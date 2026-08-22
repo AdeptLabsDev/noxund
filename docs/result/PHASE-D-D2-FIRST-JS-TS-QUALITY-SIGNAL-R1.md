@@ -1,6 +1,6 @@
 # PHASE D — `D2` First automatic JS/TS quality signal, and the `Q3` test-surface adjudication · R1
 
-**Status:** COMPLETE as an Author deliverable · **Date:** 2026-08-22 · **Author:** a task-scoped Author, under the topology [`DEC-0037`](../product/decisions/DEC-0037-execution-topology-role-independence-governance-review-function.md) D5 fixes, carried into this unit by the Product Lead's own explicit `D2` R2 writ ([`DEC-0042`](../product/decisions/DEC-0042-engineering-quality-phase-charter.md) §D16) · **Independent review:** a separate, fresh, distinct Reviewer, **not yet instantiated at the time of writing** · **Ratification gate:** the Product Lead's manual merge ([`DEC-0037`](../product/decisions/DEC-0037-execution-topology-role-independence-governance-review-function.md) D11)
+**Status:** COMPLETE as an Author deliverable · **Date:** 2026-08-22 · **Author:** a task-scoped Author, under the topology [`DEC-0037`](../product/decisions/DEC-0037-execution-topology-role-independence-governance-review-function.md) D5 fixes, carried into this unit by the Product Lead's own explicit `D2` R2 writ ([`DEC-0042`](../product/decisions/DEC-0042-engineering-quality-phase-charter.md) §D16) · **Independent review:** a separate, fresh, distinct Reviewer was instantiated and **returned `PASS` on all four review functions**, after which the Product Lead accepted the substantive `D2` architecture and authorized **one bounded pre-merge correction round**, whose three items are recorded at §5.1, §17.2 and §17.3. **That verdict is the Reviewer's and the acceptance is the Product Lead's; neither is this Author's to state or to restate as its own** ([`DEC-0040`](../product/decisions/DEC-0040-governed-result-disposition-closeout-contract.md) D11) · **Ratification gate:** the Product Lead's manual merge ([`DEC-0037`](../product/decisions/DEC-0037-execution-topology-role-independence-governance-review-function.md) D11)
 **Authority class:** DESCRIPTIVE-CURRENT · **Lifecycle:** CURRENT · **Mutability:** FROZEN
 **Type:** First-quality-signal record for a **mutating** unit, plus one adjudication. **This is not a decision record** — it creates no authority, classifies no artifact, narrows no clause, sets no threshold and authorizes no execution. `D2` operates entirely under the landed charter [`DEC-0042`](../product/decisions/DEC-0042-engineering-quality-phase-charter.md) and **creates no new normative authority of its own.**
 **Canonical base:** `main` @ `618512198bdfa43b3b29c1e79a99e24424bf38bc` (the PR #95 merge landing `D1`), working tree clean at unit start.
@@ -78,10 +78,32 @@ The writ fixed the minimum expected signal and this unit implemented exactly it,
 1. exact Node selection from the landed `.nvmrc`;
 2. exact pnpm from the repository pin;
 3. `pnpm install --frozen-lockfile --ignore-scripts`;
-4. `pnpm --filter web typecheck`;
-5. `pnpm --filter @noxund/shared typecheck`.
+4. `pnpm --filter web --fail-if-no-match typecheck`;
+5. `pnpm --filter @noxund/shared --fail-if-no-match typecheck`.
 
 **The two typechecks are invoked as package scripts, directly, and NOT through root `typecheck`.** Root `typecheck` is `pnpm --filter web typecheck` — it routes to `web` only, so calling it would have left `@noxund/shared` silently unobserved while appearing to be a whole-repository command. **Root scripts were not modified.** `D3` owns entrypoint parity; this unit neither pre-empts nor prejudges it.
+
+**Each filtered invocation carries `--fail-if-no-match`, and the first candidate did not.** Stated plainly rather than presented as if the property were there from the start: **the initial candidate lacked explicit zero-match failure; it was corrected before landing**, on a Product-Lead direction after independent review. The defect it removes is specific. This is a **detective control over two packages named literally in the command**, so a rename, a removal or a workspace-membership error would have made `pnpm --filter web …` match **zero projects, do nothing, and exit 0** — leaving a green check that observes nothing. That is exactly the false-confidence failure `DEC-0042` §D10 exists to prevent, and it is the same hazard `DEC-0041` §6 refused a control over: *"a control whose green is more misleading than its absence is a net negative"*.
+
+**pnpm provides this natively, so nothing was hand-rolled.** `--fail-if-no-match` is pnpm's own filtering option and **no custom shell wrapper, package-count parser or project-list comparison was added** — a parser would have been a second, unverified implementation of a guarantee the package manager already makes.
+
+---
+
+### 5.1 How this unit established that pnpm 9.0.0 genuinely accepts the option
+
+A flag the tool silently ignored would produce a green run offering **zero** protection, which is worse than not adding it. The acceptance question was therefore treated as something to establish, not assume, and it was established **only from the live run** — no local execution of pnpm was performed or authorized.
+
+| Step of the argument | Observation | Class |
+|---|---|---|
+| pnpm rejects rather than ignores an option it does not know: an unrecognized CLI option is a hard error and a non-zero exit | the step runs under `set -euo pipefail`, so a non-zero pnpm exit fails the step and reddens the job | `ACCEPTED` — a documented property of the tool, relied on rather than re-proved |
+| the flag was actually present on the executed command line | the runner echoes the command verbatim: `pnpm --filter web --fail-if-no-match typecheck` and `pnpm --filter @noxund/shared --fail-if-no-match typecheck` | `VERIFIED` |
+| pnpm did not report an unknown, unrecognized, ignored or deprecated option | a search of the whole run log for `Unknown option`, `ERR_PNPM`, `unrecognized`, `ignored` and any pnpm `WARN` line returns **nothing** | `VERIFIED` |
+| the command did not merely parse — it ran the real work | pnpm printed `> web@0.0.0 typecheck …` then `> tsc --noEmit`, and the same pair for `@noxund/shared`. **The filter matched, the script resolved, and `tsc` genuinely executed** in both cases | `VERIFIED` |
+| both invocations exited 0 | steps 7 and 8 both concluded `success` | `VERIFIED` |
+
+> **Conclusion, at the strength the evidence actually supports: `pnpm 9.0.0 ACCEPTS --fail-if-no-match IN THIS ORDERING` — `VERIFIED`.** The Product Lead's stated form was used unchanged; no ordering variant was needed and none was tried.
+
+**What is NOT established here, stated rather than glossed.** That a zero-match filter *does* fail was **not exercised in this repository**, because demonstrating it would have required a deliberately-failing probe commit, which is forbidden. So the fail-closed *behaviour* rests on pnpm's documented contract plus the verified fact that the option is accepted and honoured on the command line — **`ACCEPTED`, not `VERIFIED`**. **This record does not claim to have observed a zero-match failure, and no one should read it as claiming that.**
 
 **Root `pnpm typecheck` is NOT complete coverage and this record does not call it that.** Stated explicitly per `DEC-0042` §D10.
 
@@ -167,7 +189,7 @@ packages/shared/**
 |---|---|
 | workflow: `JS/TS Quality · frozen install + typecheck (apps/web, packages/shared)` | names the two packages explicitly, and names the two things it does. It does **not** say *TypeScript*, *quality gate*, *CI*, or anything implying whole-repository coverage |
 | job: `Frozen install, then typecheck apps/web and packages/shared (no build, no lint, no tests)` | states the three exclusions in the name itself, where a reader scanning a PR check list will see them |
-| steps: `… tsc --noEmit only`, `… frozen lockfile, no lifecycle scripts` | each step names its own limit |
+| steps: `… tsc --noEmit, fail-closed if the filter matches no project`, `… frozen lockfile, no lifecycle scripts` | each step names both what it does and the limit on it |
 
 The file also carries a leading `BINDING STATUS` comment block stating what the check covers and, at greater length, what it does not — following the convention the house governance workflow established.
 
@@ -204,8 +226,8 @@ Quoted from the landed workflow, in order.
 ```
 corepack enable
 pnpm install --frozen-lockfile --ignore-scripts
-pnpm --filter web typecheck             # > tsc --noEmit
-pnpm --filter @noxund/shared typecheck  # > tsc --noEmit
+pnpm --filter web --fail-if-no-match typecheck             # > tsc --noEmit
+pnpm --filter @noxund/shared --fail-if-no-match typecheck  # > tsc --noEmit
 ```
 
 Install output, ANSI and timestamps stripped, otherwise verbatim:
@@ -279,6 +301,50 @@ The workflow YAML is not itself sufficient evidence. Every item the writ require
 **Two consequences, both in the honest direction.** The signal is evidenced on **both** heads of this branch rather than only on the first, so the caveat that draft was trying to state does not arise. And **a claim this Author reasoned to rather than measured turned out to be false** — recorded because §10's whole purpose is that the workflow YAML is not self-evidencing, and an Author's expectation of platform behaviour is not either. `VERIFIED` by two runs; the earlier sentence is withdrawn.
 
 **The `governance-checks.yml` reference-durability workflow also fired on the documentation head, as its own path filter requires, and concluded `success`** — run `32587386665`, both of its jobs green. That is an authorized automatic effect of a documentation change, not an effect of this unit's workflow.
+
+### 10.2 The correction round — live CI on the hardened workflow
+
+**The workflow changed, so hash-only review would not have been sufficient and the corrected file was re-executed rather than re-read.** The `--fail-if-no-match` commit fired the workflow **through the workflow's own self-trigger**, which is itself part of the evidence: the only path in this commit is `.github/workflows/js-ts-quality.yml`, and the job ran anyway because the workflow watches its own file.
+
+| Field | Value |
+|---|---|
+| run id | `32589235883` |
+| URL | https://github.com/AdeptLabsDev/noxund/actions/runs/32589235883 |
+| event | `pull_request` — **automatic; no manual dispatch, and no `gh workflow run` was issued at any point in this unit** |
+| head SHA | `ea899760dbebd52b3ec7231eb4321f1df4756ea5` |
+| duration | 16 s |
+| conclusion | `success`, with **all eight executable steps `success` and none skipped** |
+
+**Every item the Product Lead required from the new terminal run, checked individually.**
+
+| Required | Observed | Class |
+|---|---|---|
+| workflow triggered automatically | `pull_request`, via the workflow's own path filter matching its own file | `VERIFIED` |
+| no manual dispatch | the workflow declares no `workflow_dispatch`, and none was issued | `VERIFIED` |
+| Node remains the landed `.nvmrc` selector | `.nvmrc pin = 20`, `node --version = v20.20.2`, assertion green | `VERIFIED` |
+| pnpm remains `9.0.0` | `packageManager = pnpm@9.0.0`, `pnpm --version = 9.0.0`, assertion green | `VERIFIED` |
+| frozen install succeeds | `Scope: all 3 workspace projects`, *"Lockfile is up to date, resolution step is skipped"*, `Done in 3.8s` | `VERIFIED` |
+| the `web` filter matched and `tsc` genuinely executed | `> web@0.0.0 typecheck …` followed by `> tsc --noEmit` | `VERIFIED` |
+| the `@noxund/shared` filter matched and `tsc` genuinely executed | `> @noxund/shared@0.0.0 typecheck …` followed by `> tsc --noEmit` | `VERIFIED` |
+| both fail-if-no-match commands exit 0 | steps 7 and 8 both `success` | `VERIFIED` |
+
+**No failed iteration occurred, and that is reported as a fact rather than as a claim of foresight.** The Product Lead's stated ordering worked on the first attempt, so **no ordering variant was tried, no `--filter=web` form was needed, and no red run was produced by this round.** Had one been produced it would be listed here.
+
+**Versions observed in the correction run, ANSI escapes and per-line timestamps stripped, otherwise verbatim:**
+
+```
+corepack --version = 0.34.6
+.nvmrc pin      = 20
+node --version  = v20.20.2
+OK - Node v20.20.2 satisfies the .nvmrc pin 20.
+packageManager  = pnpm@9.0.0
+pnpm --version  = 9.0.0
+OK - pnpm 9.0.0 is exactly the repository pin.
+```
+
+**The `packageManager`-derived pnpm assertion is unchanged and the correction run did not disprove it**, so it stands as `D2` landed it: read the root pin, validate it is a pnpm pin, resolve through Corepack, require exact equality. **No second `9.0.0` literal was added.**
+
+**`governance-checks.yml` also fired on this head and concluded `success`** — run `32589235958`. Authorized automatic effect of the pull request, not of this workflow.
 
 ---
 
@@ -407,6 +473,7 @@ Each was in reach, and each was declined.
 - **No product source change, and none was needed.** Both typechecks passed, so the branch where a CI failure would have had to be **recorded and routed rather than repaired by editing product behaviour** was never reached.
 - **No manifest, lockfile or root-script change.** No dependency added, removed or upgraded.
 - **No test dependency, no test file, no test framework configuration.**
+- **No custom shell wrapper, package-count parser or project-list comparison** around the filtered typechecks. The zero-match guarantee is pnpm's own `--fail-if-no-match`; a hand-rolled second implementation of it was available and was declined (§5.1).
 - **No ruleset, branch protection, required status check, `CODEOWNERS` file or reviewer threshold** — read-only GET requests only.
 - **No manual workflow dispatch**, and no `workflow_dispatch` trigger added to the new workflow.
 - **No change to any existing workflow file**, including `governance-checks.yml`.
@@ -432,15 +499,48 @@ Per `DEC-0040` D13. **`OUTSIDE REPOSITORY ≠ OUTSIDE write_scope`**, and **a cl
 
 **Four paths, four writes, zero deletions.** Supporting check: `git diff --name-status` between the canonical base and this branch's head enumerates exactly these four and no others.
 
+**The pre-merge correction round narrowed that further, and its own scope is accounted separately.** The Product-Lead correction GO authorized **two files only** — the workflow and this record — and **that is exactly what it touched.** Supporting checks: `git diff --name-only` between the pre-correction head and the final head lists only `.github/workflows/js-ts-quality.yml` and `docs/result/PHASE-D-D2-FIRST-JS-TS-QUALITY-SIGNAL-R1.md` · **`current-state.md` and `context-map.md` are byte-identical across the correction round**, confirmed by blob-id comparison at both heads, because no correction proved either of them false · no new path entered the four-path set above.
+
 ### 17.2 Repository, outside write scope — `ZERO`
 
 **Named checks, not an assertion.** `git diff --name-status <base>...HEAD` returns only the four paths above · `git status --porcelain --untracked-files=all` returns **empty**, so no untracked or modified file was left behind anywhere in the tree · `git rev-parse HEAD:packages/orchestrator` equals the same read at the canonical base — `7457f3f259ce8987e74ebe9f3db48172eabbd02b`, **byte-identical**, so nothing under the legacy tree changed · a filesystem `find` for files modified during this unit's execution window, excluding `.git`, `node_modules` and `.next`, returns **only** the four authorized paths.
 
-**One thing that check surfaced and which is disclosed rather than passed over.** Five other tracked files carry today's date — `pnpm-workspace.yaml`, `apps/web/tsconfig.json`, both routing documents and the `D1` result record. **They were rewritten by the pre-session `git reset` onto `origin/main` that landed the `D1` merge, which the reflog timestamps more than an hour before this unit's first action**, and their content is byte-identical to `origin/main`. **`HARNESS OR SYSTEM PERSISTENCE OUTSIDE AGENT CONTROL`** in the sense that it predates this unit entirely; **not a `D2` mutation**, and named here so the modification-time evidence cannot be misread later.
+**A modification-time check surfaced five further tracked files carrying this unit's date, and they do NOT all belong to one class.** An earlier revision of this section put all five in one bucket and called them byte-identical to the canonical base. **That was wrong: two of them are this unit's own authorized routing mutations, already accounted at §17.1, and they are not byte-identical.** The two buckets are now separated so that §17.1 and §17.2 cannot contradict each other. **The residue set below was re-derived rather than assumed** — by `git diff --name-status` between the canonical base and this head over the five paths, and independently by comparing each path's **git blob object id** at both ends.
+
+#### PRE-SESSION RESET RESIDUE — three files, byte-identical to the canonical base
+
+| Path | blob at base | blob at head | Identity |
+|---|---|---|---|
+| `pnpm-workspace.yaml` | `4ad2e693…` | `4ad2e693…` | **identical** |
+| `apps/web/tsconfig.json` | `cfdac2ba…` | `cfdac2ba…` | **identical** |
+| `docs/result/PHASE-D-D1-JS-TS-TOOLCHAIN-COHERENCE-R1.md` | `95f14290…` | `95f14290…` | **identical** |
+
+These three carry a current modification time **only** because the pre-session `git reset` onto `origin/main` — the reflog entry for the `D1` merge, more than an hour before this unit's first action — rewrote them on disk. **Content unchanged, timestamp changed.** `HARNESS OR SYSTEM PERSISTENCE OUTSIDE AGENT CONTROL`, in the sense that it predates this unit entirely; **not a `D2` mutation.** `VERIFIED`.
+
+#### `D2` AUTHORIZED ROUTING MUTATIONS — two files, explicitly EXCLUDED from the byte-identical claim
+
+| Path | blob at base | blob at head | Identity |
+|---|---|---|---|
+| `docs/product/current-state.md` | `f8bd0a7a…` | `aa188c73…` | **DIFFERS** |
+| `docs/product/context-map.md` | `40170b51…` | `7ed63271…` | **DIFFERS** |
+
+**These two are `D2` mutations, authorized, and already recorded at §17.1. They are NOT byte-identical to the canonical base and are not part of the reset residue.** Their current modification time reflects both the pre-session reset **and** this unit's own edits, so timestamp alone never distinguished them — **blob identity did**, which is why the check is stated that way now rather than in terms of dates.
+
+> **Recorded as a record-accuracy repair, not as a governance finding.** No authorization breach occurred, none was found by the independent Reviewer, and none is manufactured here. The earlier wording overstated the reach of one check; the underlying mutation set never changed.
 
 ### 17.3 Local filesystem outside the repository — `ZERO` created by this unit
 
-**Named checks.** `git worktree list` returns three worktrees — the primary checkout plus `noxund-design-ref` and `noxund-p3c-execute-pre` — **all three pre-existing; this unit ran no `git worktree add` and no `git worktree remove`**, which is exactly the failure mode the `R2` writ was designed to eliminate · **no pnpm store directory was created**, because pnpm was never invoked locally · the four `node_modules` trees in the tree all carry mtime `2026-08-08`, two weeks before this unit, and were **neither created, refreshed, read as evidence nor deleted** · `apps/web/.next` carries mtime `2026-06-20` and was likewise untouched · **no `.tsbuildinfo` exists anywhere under `apps/web`**, confirming no local `tsc` ran.
+**Named checks.** `git worktree list` returns three worktrees — the primary checkout plus `noxund-design-ref` and `noxund-p3c-execute-pre` — **all three pre-existing; this unit ran no `git worktree add` and no `git worktree remove`**, which is exactly the failure mode the `R2` writ was designed to eliminate · **no pnpm store directory was created**, because pnpm was never invoked locally · the four `node_modules` trees in the tree all carry mtime `2026-08-08`, two weeks before this unit, and were **neither created, refreshed, read as evidence nor deleted** · `apps/web/.next` carries mtime `2026-06-20` and was likewise untouched.
+
+**The `.tsbuildinfo` claim, corrected.** An earlier revision of this section asserted that **no `.tsbuildinfo` exists anywhere under `apps/web`**. **That assertion is false and is withdrawn.** One does exist, it predates this unit, and the search that produced the claim was bounded to the top level of `apps/web` while the sentence was written as though it covered the whole subtree — **an overstated named check, disclosed rather than quietly narrowed.**
+
+| Path | Size | mtime | Standing |
+|---|---|---|---|
+| `apps/web/.next/cache/.tsbuildinfo` | 140,837 bytes |  `2026-06-20` | **pre-existing**; the only `.tsbuildinfo` anywhere in the repository |
+
+> **The corrected claim, at the strength the evidence supports.** **`D2` created no `.tsbuildinfo` on the local host. The pre-existing `apps/web/.next/cache/.tsbuildinfo` predates `D2` and was not created, refreshed or modified by this unit.**
+
+**Evidence, and its limits.** Re-derived by a **repository-wide** `find` for `*.tsbuildinfo`, reading **metadata only** — the file was never opened, never read, never moved and never deleted. Its modification time is **two months before this unit's execution window**, and it lies inside `apps/web/.next`, itself unmodified at mtime `2026-06-20`. That timestamp evidence is what supports the claim; **no absence is claimed, and no blob-level history for an untracked, gitignored file is available to claim more.** The independent supporting fact remains that **no local `tsc` was invoked at all** — no `pnpm`, `npm`, `npx`, `corepack`, `node`, `tsc` or `next` ran on this host in this unit — so there was no mechanism by which this unit could have written one.
 
 ### 17.4 System temp, `/tmp`, and the session scratchpad — `ZERO`
 
@@ -468,7 +568,7 @@ Per `DEC-0040` D13. **`OUTSIDE REPOSITORY ≠ OUTSIDE write_scope`**, and **a cl
 |---|---|
 | branch `chore/phase-d-d2-first-js-ts-quality-signal` created from the canonical base and pushed | `AUTHORIZED MUTATION` |
 | PR #96 opened against `main`, and left **unmerged** | `AUTHORIZED MUTATION` |
-| automatic Actions runs caused by that PR's `pull_request` trigger — `32586763336` and `32587386670` on this workflow, and `32587386665` on `governance-checks.yml`, all three `success` | `AUTHORIZED MUTATION` — automatic effects the writ names |
+| automatic Actions runs caused by that PR's `pull_request` trigger — `32586763336`, `32587386670`, `32587458090` and `32589235883` on this workflow; `32587386665`, `32587458094` and `32589235958` on `governance-checks.yml`. **All seven `success`; zero failed runs, zero cancelled runs, zero manual dispatches** | `AUTHORIZED MUTATION` — automatic effects the writ names |
 | the ephemeral runner's own filesystem — a checkout, a Node toolchain, a pnpm store and 327 installed packages | `AUTHORIZED MUTATION`, entirely inside the runner, destroyed with it, and **outside this repository and this host** |
 | workflow id `340140169` registered by GitHub on first sight of the file | `HARNESS OR SYSTEM PERSISTENCE OUTSIDE AGENT CONTROL` — an automatic platform consequence of committing a workflow file, not a separate act |
 
