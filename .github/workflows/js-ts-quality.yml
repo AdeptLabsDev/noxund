@@ -1,0 +1,197 @@
+name: JS/TS Quality · frozen install + typecheck (apps/web, packages/shared)
+
+# --------------------------------------------------------------------------
+# BINDING STATUS - READ THIS BEFORE CITING THIS WORKFLOW AS ENFORCEMENT
+#
+#   AUTOMATIC DETECTIVE · NOT MECHANICALLY MERGE-BLOCKING
+#
+# Ruleset `Protect main` (id 19697151) carries exactly three rules -
+# `deletion`, `non_fast_forward`, `pull_request`. There is NO
+# `required_status_checks` rule, and the legacy branch-protection endpoint
+# returns `Branch not protected`, so NO CI check on this repository can block
+# a merge today. D2 is forbidden to change rulesets, branch protection,
+# required status checks, CODEOWNERS or any reviewer threshold, so this
+# workflow produces a deterministic, automatic signal on the PR and nothing
+# more. Do not describe it as preventive and do not describe it as a merge
+# gate. See DEC-0041 D1 and D5, and DEC-0042 §D8 and §D10.
+#
+# WHAT THIS COVERS - AND, EXACTLY, WHAT IT DOES NOT (DEC-0042 §D10, the
+# quality-gate honesty rule: a name broader than its mechanism is a defect).
+#
+#   COVERED: the two ACTIVE JS/TS workspace packages, `web` (apps/web) and
+#   `@noxund/shared` (packages/shared), plus the root toolchain files that
+#   decide how their dependencies materialize. For each package the signal
+#   is `tsc --noEmit` - TYPE CORRECTNESS ONLY.
+#   Each typecheck runs with `--fail-if-no-match`, so a filter matching no
+#   project is a hard failure rather than a silent green no-op.
+#
+#   NOT COVERED, and none of it may be inferred from a green run:
+#     * NO behavioural test of any kind. Zero test suites exist on this
+#       surface and no test framework is installed. DEC-0042 D7 -
+#       `TESTS EXIST` != `TESTS COVER CURRENT ACTIVE BEHAVIOR` !=
+#       `TESTS RUN IN CI`; this workflow asserts none of the three.
+#     * NO `next build`. Build integrity (Q1) is deliberately NOT
+#       established here and remains UNPROVEN - NOT PROBED.
+#     * NO lint. ESLint / `next lint` static analysis is a D4 question.
+#     * NO Python, SQL, shell or workflow-file surface.
+#     * NO `packages/orchestrator`. That surface is LEGACY /
+#       NON-AUTHORITATIVE (DEC-0038 D1) and receives no quality investment
+#       (DEC-0042 §D11). It is not an active workspace member, is not
+#       installed, is not typechecked, and is deliberately absent from the
+#       path filters below even though it is TypeScript. EXCLUDED IS NOT
+#       REMOVED (DEC-0038 D3) - nothing here deletes, moves, empties or
+#       edits it.
+#
+# HARDENING: `permissions: contents: read` (no write anywhere); every action
+# full-SHA pinned (SEC-F17); ZERO secrets; ZERO Environment; ZERO database;
+# ZERO cloud; ZERO deploy. `--ignore-scripts` means no package lifecycle
+# script executes. It re-arms nothing (DEC-0033 §8) and dispatches nothing.
+#
+# NO CACHE, deliberately. No `actions/cache`, no pnpm store cache, no
+# `.next` cache, and `cache:` is left unset on `actions/setup-node`. This is
+# the first signal ever to run on this surface; correctness before speed.
+#
+# NO `workflow_dispatch`. Nothing here requires manual invocation, and the
+# push and pull_request triggers below already cover every input it reads.
+#
+# SCOPE (negative): does NOT read or modify rulesets, branch protection,
+# CODEOWNERS, reviewer thresholds or any GitHub setting; does NOT apply
+# migrations; does NOT touch any database; does NOT unlock any phase; does
+# NOT touch Axis 1 (DEC-0042 §D12).
+# --------------------------------------------------------------------------
+
+on:
+  pull_request:
+    paths:
+      # Root JS/TS toolchain inputs - these decide what is installed at all.
+      - '.nvmrc'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.base.json'
+      # The two ACTIVE workspace packages.
+      - 'apps/web/**'
+      - 'packages/shared/**'
+      # Self-trigger. A CI workflow that can change without evaluating
+      # itself is not an adequate signal.
+      - '.github/workflows/js-ts-quality.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - '.nvmrc'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.base.json'
+      - 'apps/web/**'
+      - 'packages/shared/**'
+      - '.github/workflows/js-ts-quality.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: js-ts-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: Frozen install, then typecheck apps/web and packages/shared (no build, no lint, no tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Set up Node from the repository's only Node selector, .nvmrc
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version-file: '.nvmrc'
+          # `cache:` is deliberately unset - see the NO CACHE note above.
+
+      - name: Enable Corepack so pnpm resolves from the root packageManager pin
+        run: |
+          set -euo pipefail
+          # `corepack enable` installs the shims. The shim itself reads
+          # `packageManager` from the nearest package.json and runs exactly
+          # that version, fetching it if absent - so the repository pin, and
+          # nothing else, decides which pnpm executes. Nothing is upgraded and
+          # no version is named here; the assertion below is what proves it.
+          echo "corepack --version = $(corepack --version)"
+          corepack enable
+
+      - name: Assert Node and pnpm are exactly what this repository pins (fail-closed)
+        run: |
+          set -euo pipefail
+
+          # ---- Node: must match the major declared in .nvmrc ---------------
+          nvmrc_raw="$(tr -d ' \t\r\n' < .nvmrc)"
+          expected_major="${nvmrc_raw#v}"
+          expected_major="${expected_major%%.*}"
+          case "$expected_major" in
+            ""|*[!0-9]*)
+              echo "::error::.nvmrc reads '${nvmrc_raw}', which is not a plain numeric Node version. This assertion understands numeric pins only and fails closed rather than guessing."
+              exit 1 ;;
+          esac
+
+          node_ver="$(node --version)"
+          node_major="${node_ver#v}"
+          node_major="${node_major%%.*}"
+
+          echo ".nvmrc pin      = ${nvmrc_raw}"
+          echo "node --version  = ${node_ver}"
+
+          if [ "$node_major" != "$expected_major" ]; then
+            echo "::error::Node major ${node_major} does not match the .nvmrc pin ${expected_major} (node ${node_ver})."
+            exit 1
+          fi
+          echo "OK - Node ${node_ver} satisfies the .nvmrc pin ${nvmrc_raw}."
+
+          # ---- pnpm: must equal the root packageManager pin exactly --------
+          pm_field="$(node -p "require('./package.json').packageManager || ''")"
+          case "$pm_field" in
+            pnpm@*) ;;
+            *)
+              echo "::error::root package.json packageManager is '${pm_field}', which is not a pnpm pin. Fail-closed: this workflow refuses to guess a package manager."
+              exit 1 ;;
+          esac
+          expected_pnpm="${pm_field#pnpm@}"
+          expected_pnpm="${expected_pnpm%%+*}"
+
+          pnpm_ver="$(pnpm --version)"
+          echo "packageManager  = ${pm_field}"
+          echo "pnpm --version  = ${pnpm_ver}"
+
+          if [ "$pnpm_ver" != "$expected_pnpm" ]; then
+            echo "::error::pnpm ${pnpm_ver} is not the pinned ${expected_pnpm}. Corepack did not honour the repository pin, or the pin changed. This workflow never upgrades pnpm."
+            exit 1
+          fi
+          echo "OK - pnpm ${pnpm_ver} is exactly the repository pin."
+
+      - name: Install the ACTIVE workspace - frozen lockfile, no lifecycle scripts
+        run: |
+          set -euo pipefail
+          # --frozen-lockfile : the lockfile is authority; CI never writes it.
+          # --ignore-scripts  : no package lifecycle script executes. Whether a
+          #                     scripts-enabled install succeeds is UNPROVEN and
+          #                     is deliberately NOT probed here.
+          pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Typecheck apps/web (package `web`) - tsc --noEmit, fail-closed if the filter matches no project
+        run: |
+          set -euo pipefail
+          # Invoked directly rather than through the root `typecheck` script:
+          # root `typecheck` routes only to `web`, so calling it would leave
+          # `@noxund/shared` silently unobserved. D3 owns entrypoint parity.
+          # --fail-if-no-match turns a zero-project filter into a hard failure.
+          # Without it, a rename, a removal or a workspace-membership error
+          # would silently reduce this named check to a no-op while the job
+          # stayed green - the false-confidence failure DEC-0042 §D10 names.
+          pnpm --filter web --fail-if-no-match typecheck
+
+      - name: Typecheck packages/shared (`@noxund/shared`) - tsc --noEmit, fail-closed if the filter matches no project
+        run: |
+          set -euo pipefail
+          # --fail-if-no-match for the same fail-closed reason as the step above.
+          pnpm --filter @noxund/shared --fail-if-no-match typecheck
